@@ -98,6 +98,31 @@ func Apply(plan *Plan) error {
 	return nil
 }
 
+// Remove deletes Claude skill symlinks that point at this plan's exported skills.
+func Remove(plan *Plan) error {
+	if len(plan.Skills) == 0 {
+		return nil
+	}
+
+	skillsRoot := filepath.Join(claudeHome(), "skills")
+	for _, rel := range plan.Skills {
+		src := filepath.Join(plan.RepoRoot, filepath.Clean(rel))
+		if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
+			return fmt.Errorf("skill path escapes repo root: %s", rel)
+		}
+
+		srcDir := filepath.Dir(src)
+		name := filepath.Base(srcDir)
+		dst := filepath.Join(skillsRoot, name)
+
+		if err := removeSymlink(dst, srcDir); err != nil {
+			return fmt.Errorf("unexport skill %s: %w", rel, err)
+		}
+	}
+
+	return nil
+}
+
 func claudeHome() string {
 	if v := os.Getenv("DALCENTER_CLAUDE_HOME"); v != "" {
 		return v
@@ -117,6 +142,28 @@ func replaceSymlink(dst, src string) error {
 		}
 	}
 	return os.Symlink(src, dst)
+}
+
+func removeSymlink(dst, src string) error {
+	info, err := os.Lstat(dst)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+
+	target, err := os.Readlink(dst)
+	if err != nil {
+		return err
+	}
+	if target != src {
+		return nil
+	}
+	return os.Remove(dst)
 }
 
 func templateNames(v cue.Value) []string {

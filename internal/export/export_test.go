@@ -68,3 +68,34 @@ templates: default: {
 		t.Fatalf("unexpected symlink target: %s", target)
 	}
 }
+
+func TestRemove(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	skillDir := filepath.Join(repo, "skills", "demo-skill")
+	claudeHome := filepath.Join(root, ".claude")
+	link := filepath.Join(claudeHome, "skills", "demo-skill")
+
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(skillDir, link); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DALCENTER_CLAUDE_HOME", claudeHome)
+
+	plan := &Plan{
+		RepoRoot: repo,
+		Skills:   []string{"skills/demo-skill/SKILL.md"},
+	}
+	if err := Remove(plan); err != nil {
+		t.Fatalf("Remove returned error: %v", err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("expected symlink removed, got err=%v", err)
+	}
+}

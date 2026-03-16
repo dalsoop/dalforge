@@ -60,7 +60,7 @@ func main() {
 		Short: "DalForge local dal center CLI",
 	}
 
-	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd())
+	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -284,6 +284,40 @@ func exportCmd() *cobra.Command {
 			}
 			if hasError {
 				return fmt.Errorf("export failed")
+			}
+			return nil
+		},
+	}
+}
+
+func unexportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "unexport [repo-or-manifest...]",
+		Short: "Remove exported Claude skills declared in .dalfactory manifests",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			paths := args
+			if len(paths) == 0 {
+				paths = []string{"."}
+			}
+
+			hasError := false
+			for _, path := range paths {
+				plan, err := export.LoadPlan(path)
+				if err != nil {
+					hasError = true
+					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", path, err)
+					continue
+				}
+				if err := export.Remove(plan); err != nil {
+					hasError = true
+					fmt.Fprintf(os.Stderr, "unexport failed %s: %v\n", plan.Manifest, err)
+					continue
+				}
+				fmt.Printf("ok %s (%d skills)\n", plan.Manifest, len(plan.Skills))
+			}
+			if hasError {
+				return fmt.Errorf("unexport failed")
 			}
 			return nil
 		},
