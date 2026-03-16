@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
+	"dalforge-hub/dalcenter/internal/export"
 	"dalforge-hub/dalcenter/internal/registry"
 	"dalforge-hub/dalcenter/internal/validate"
 	"dalforge-hub/dalcenter/internal/vault"
@@ -59,7 +60,7 @@ func main() {
 		Short: "DalForge local dal center CLI",
 	}
 
-	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd())
+	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -249,6 +250,40 @@ func validateCmd() *cobra.Command {
 			}
 			if hasError {
 				return fmt.Errorf("manifest validation failed")
+			}
+			return nil
+		},
+	}
+}
+
+func exportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "export [repo-or-manifest...]",
+		Short: "Export declared Claude skills from .dalfactory manifests",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			paths := args
+			if len(paths) == 0 {
+				paths = []string{"."}
+			}
+
+			hasError := false
+			for _, path := range paths {
+				plan, err := export.LoadPlan(path)
+				if err != nil {
+					hasError = true
+					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", path, err)
+					continue
+				}
+				if err := export.Apply(plan); err != nil {
+					hasError = true
+					fmt.Fprintf(os.Stderr, "export failed %s: %v\n", plan.Manifest, err)
+					continue
+				}
+				fmt.Printf("ok %s (%d skills)\n", plan.Manifest, len(plan.Skills))
+			}
+			if hasError {
+				return fmt.Errorf("export failed")
 			}
 			return nil
 		},

@@ -160,6 +160,11 @@ builtin_categories: {
 	retries?:  int | *3
 }
 
+#AgentExport: {
+	skills?: [...string]
+	hooks?:  [...string]
+}
+
 // ===== .dalfactory 템플릿 =====
 
 // .dalfactory/templates/ 안에 여러 템플릿이 존재
@@ -177,6 +182,7 @@ builtin_categories: {
 	compatibility?: #Compatibility
 	health_check?: #HealthCheck
 	build?: #BuildSpec
+	exports?: [string]: #AgentExport
 }
 
 // ===== .dalfactory 루트 =====
