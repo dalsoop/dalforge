@@ -16,7 +16,8 @@ import (
 type Plan struct {
 	RepoRoot       string
 	Manifest       string
-	Exports        map[string][]string
+	Exports        map[string][]string // runtime -> skill paths
+	Hooks          map[string][]string // runtime -> hook paths
 	HealthCheckCmd string
 }
 
@@ -25,6 +26,15 @@ func SkillCount(plan *Plan) int {
 	total := 0
 	for _, skills := range plan.Exports {
 		total += len(skills)
+	}
+	return total
+}
+
+// HookCount returns the number of declared exported hooks across runtimes.
+func HookCount(plan *Plan) int {
+	total := 0
+	for _, hooks := range plan.Hooks {
+		total += len(hooks)
 	}
 	return total
 }
@@ -52,6 +62,7 @@ func LoadPlan(path string) (*Plan, error) {
 		RepoRoot: repoRoot,
 		Manifest: manifestPath,
 		Exports:  map[string][]string{},
+		Hooks:    map[string][]string{},
 	}
 
 	for _, templateName := range templateNames(val) {
@@ -73,20 +84,35 @@ func LoadPlan(path string) (*Plan, error) {
 		}
 		for runtimes.Next() {
 			runtimeName := runtimes.Label()
+			// Parse skills
 			skillsVal := runtimes.Value().LookupPath(cue.ParsePath("skills"))
-			if !skillsVal.Exists() {
-				continue
-			}
-			iter, err := skillsVal.List()
-			if err != nil {
-				return nil, fmt.Errorf("read exports.%s.skills: %w", runtimeName, err)
-			}
-			for iter.Next() {
-				s, err := iter.Value().String()
+			if skillsVal.Exists() {
+				iter, err := skillsVal.List()
 				if err != nil {
-					return nil, fmt.Errorf("read skill path: %w", err)
+					return nil, fmt.Errorf("read exports.%s.skills: %w", runtimeName, err)
 				}
-				plan.Exports[runtimeName] = append(plan.Exports[runtimeName], s)
+				for iter.Next() {
+					s, err := iter.Value().String()
+					if err != nil {
+						return nil, fmt.Errorf("read skill path: %w", err)
+					}
+					plan.Exports[runtimeName] = append(plan.Exports[runtimeName], s)
+				}
+			}
+			// Parse hooks
+			hooksVal := runtimes.Value().LookupPath(cue.ParsePath("hooks"))
+			if hooksVal.Exists() {
+				iter, err := hooksVal.List()
+				if err != nil {
+					return nil, fmt.Errorf("read exports.%s.hooks: %w", runtimeName, err)
+				}
+				for iter.Next() {
+					s, err := iter.Value().String()
+					if err != nil {
+						return nil, fmt.Errorf("read hook path: %w", err)
+					}
+					plan.Hooks[runtimeName] = append(plan.Hooks[runtimeName], s)
+				}
 			}
 		}
 		break
@@ -95,9 +121,10 @@ func LoadPlan(path string) (*Plan, error) {
 	return plan, nil
 }
 
-// Apply creates runtime skill symlinks under configured homes.
+// Apply creates runtime skill and hook symlinks under configured homes.
 func Apply(plan *Plan) error {
 	roots := map[string]string{}
+	// Collect all runtimes from both exports and hooks
 	for runtime := range plan.Exports {
 		home, err := runtimeHome(runtime)
 		if err != nil {
@@ -105,15 +132,21 @@ func Apply(plan *Plan) error {
 		}
 		roots[runtime] = home
 	}
+	for runtime := range plan.Hooks {
+		if _, ok := roots[runtime]; !ok {
+			home, err := runtimeHome(runtime)
+			if err != nil {
+				return err
+			}
+			roots[runtime] = home
+		}
+	}
 	return ApplyTo(plan, roots)
 }
 
-// ApplyTo creates runtime skill symlinks under explicit runtime homes.
+// ApplyTo creates runtime skill and hook symlinks under explicit runtime homes.
 func ApplyTo(plan *Plan, runtimeHomes map[string]string) error {
-	if len(plan.Exports) == 0 {
-		return nil
-	}
-
+	// Export skills
 	for runtime, skills := range plan.Exports {
 		home, ok := runtimeHomes[runtime]
 		if !ok {
@@ -143,17 +176,43 @@ func ApplyTo(plan *Plan, runtimeHomes map[string]string) error {
 		}
 	}
 
+	// Export hooks
+	for runtime, hooks := range plan.Hooks {
+		home, ok := runtimeHomes[runtime]
+		if !ok {
+			continue
+		}
+		hooksRoot := filepath.Join(home, "hooks")
+		if err := os.MkdirAll(hooksRoot, 0755); err != nil {
+			return fmt.Errorf("create hooks root: %w", err)
+		}
+
+		for _, rel := range hooks {
+			src := filepath.Join(plan.RepoRoot, filepath.Clean(rel))
+			if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
+				return fmt.Errorf("hook path escapes repo root: %s", rel)
+			}
+			if _, err := os.Stat(src); err != nil {
+				return fmt.Errorf("stat hook file %s: %w", rel, err)
+			}
+
+			name := filepath.Base(src)
+			dst := filepath.Join(hooksRoot, name)
+
+			if err := replaceSymlink(dst, src); err != nil {
+				return fmt.Errorf("export hook %s: %w", rel, err)
+			}
+		}
+	}
+
 	return nil
 }
 
-// Remove deletes runtime skill symlinks that point at this plan's exported skills.
+// Remove deletes runtime skill and hook symlinks that point at this plan's exports.
 func Remove(plan *Plan) error {
-	if len(plan.Exports) == 0 {
-		return nil
-	}
-
+	// Remove skills
 	for runtime, skills := range plan.Exports {
-		skillsRoot, err := skillsRoot(runtime)
+		sr, err := skillsRoot(runtime)
 		if err != nil {
 			return err
 		}
@@ -162,13 +221,30 @@ func Remove(plan *Plan) error {
 			if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
 				return fmt.Errorf("skill path escapes repo root: %s", rel)
 			}
-
 			srcDir := filepath.Dir(src)
 			name := filepath.Base(srcDir)
-			dst := filepath.Join(skillsRoot, name)
-
+			dst := filepath.Join(sr, name)
 			if err := removeSymlink(dst, srcDir); err != nil {
 				return fmt.Errorf("unexport skill %s: %w", rel, err)
+			}
+		}
+	}
+
+	// Remove hooks
+	for runtime, hooks := range plan.Hooks {
+		hr, err := hooksRoot(runtime)
+		if err != nil {
+			return err
+		}
+		for _, rel := range hooks {
+			src := filepath.Join(plan.RepoRoot, filepath.Clean(rel))
+			if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
+				return fmt.Errorf("hook path escapes repo root: %s", rel)
+			}
+			name := filepath.Base(src)
+			dst := filepath.Join(hr, name)
+			if err := removeSymlink(dst, src); err != nil {
+				return fmt.Errorf("unexport hook %s: %w", rel, err)
 			}
 		}
 	}
@@ -200,6 +276,14 @@ func skillsRoot(runtime string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, "skills"), nil
+}
+
+func hooksRoot(runtime string) (string, error) {
+	home, err := runtimeHome(runtime)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "hooks"), nil
 }
 
 func replaceSymlink(dst, src string) error {
