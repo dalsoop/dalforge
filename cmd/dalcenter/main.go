@@ -69,20 +69,35 @@ func main() {
 
 func joinCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "join [template]",
-		Short: "Create a new localdal instance from a template",
+		Use:   "join [repo-or-manifest]",
+		Short: "Create a new localdal instance from a .dalfactory manifest",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			manifestPath, err := validate.ResolveManifestPath(args[0])
+			if err != nil {
+				return err
+			}
+			if _, err := validate.Manifest(specPath(), manifestPath); err != nil {
+				return err
+			}
+			plan, err := export.LoadPlan(manifestPath)
+			if err != nil {
+				return err
+			}
+			if err := export.Apply(plan); err != nil {
+				return err
+			}
+
 			reg, err := openRegistry()
 			if err != nil {
 				return err
 			}
 			defer reg.Close()
-			inst, err := reg.Join(args[0])
+			inst, err := reg.Join("default", plan.RepoRoot, plan.Manifest, export.SkillCount(plan))
 			if err != nil {
 				return err
 			}
-			fmt.Printf("instance created: %s (template=%s)\n", inst.DalID, inst.Template)
+			fmt.Printf("instance created: %s (template=%s, skills=%d)\n", inst.DalID, inst.Template, inst.ExportedSkills)
 			return nil
 		},
 	}
@@ -107,9 +122,9 @@ func listCmd() *cobra.Command {
 				return nil
 			}
 			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "DAL_ID\tTEMPLATE\tSTATUS\tCREATED")
+			fmt.Fprintln(tw, "DAL_ID\tTEMPLATE\tSTATUS\tSKILLS\tREPO\tCREATED")
 			for _, i := range instances {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", i.DalID, i.Template, i.Status, i.CreatedAt)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\t%s\n", i.DalID, i.Template, i.Status, i.ExportedSkills, i.RepoRoot, i.CreatedAt)
 			}
 			return tw.Flush()
 		},
@@ -131,8 +146,8 @@ func statusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("dal_id:       %s\ntemplate:     %s\nstatus:       %s\ncontainer_id: %s\ncreated_at:   %s\n",
-				inst.DalID, inst.Template, inst.Status, inst.ContainerID, inst.CreatedAt)
+			fmt.Printf("dal_id:         %s\ntemplate:       %s\nstatus:         %s\ncontainer_id:   %s\nrepo_root:      %s\nmanifest_path:  %s\nexported_skills:%d\ncreated_at:     %s\n",
+				inst.DalID, inst.Template, inst.Status, inst.ContainerID, inst.RepoRoot, inst.ManifestPath, inst.ExportedSkills, inst.CreatedAt)
 			return nil
 		},
 	}
