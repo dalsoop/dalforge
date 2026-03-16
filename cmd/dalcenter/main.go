@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -70,7 +73,7 @@ func main() {
 		Short: "DalForge local dal center CLI",
 	}
 
-	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd())
+	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd(), watchCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -578,81 +581,155 @@ func restartCmd() *cobra.Command {
 	return cmd
 }
 
+func reconcileAll(quiet bool) error {
+	reg, err := openRegistry()
+	if err != nil {
+		return err
+	}
+	defer reg.Close()
+
+	instances, err := reg.List()
+	if err != nil {
+		return err
+	}
+	if len(instances) == 0 {
+		if !quiet {
+			fmt.Println("no instances to reconcile")
+		}
+		return nil
+	}
+
+	hasError := false
+	for _, inst := range instances {
+		if inst.ManifestPath == "" {
+			continue
+		}
+		plan, err := export.LoadPlan(inst.ManifestPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s: error loading manifest: %v\n", inst.DalID, err)
+			hasError = true
+			continue
+		}
+
+		homes := map[string]string{}
+		if inst.InstanceRoot != "" {
+			homes = instanceRuntimeHomes(inst.InstanceRoot)
+		}
+
+		result := export.Reconcile(plan, homes)
+
+		if inst.InstanceRoot != "" {
+			if hs, err := runner.Check(inst.InstanceRoot); err == nil {
+				if hs.RunStatus == "stopped" && hs.Pid == 0 && hs.StartedAt != "" {
+					result.Repairs = append(result.Repairs, "process: stale pid corrected")
+					if result.Status == "ok" {
+						result.Status = "repaired"
+					}
+				}
+			}
+		}
+
+		if quiet && result.Status == "ok" {
+			continue
+		}
+
+		switch result.Status {
+		case "ok":
+			fmt.Printf("  %s: ok\n", inst.DalID)
+		case "repaired":
+			fmt.Printf("  %s: repaired\n", inst.DalID)
+			for _, r := range result.Repairs {
+				fmt.Printf("    - %s\n", r)
+			}
+		case "error":
+			hasError = true
+			fmt.Fprintf(os.Stderr, "  %s: error\n", inst.DalID)
+			for _, e := range result.Errors {
+				fmt.Fprintf(os.Stderr, "    - %s\n", e)
+			}
+			for _, r := range result.Repairs {
+				fmt.Printf("    - %s\n", r)
+			}
+		}
+	}
+
+	if hasError {
+		return fmt.Errorf("reconcile completed with errors")
+	}
+	return nil
+}
+
 func reconcileCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reconcile",
 		Short: "Check and repair all instance exports (skills, hooks, settings)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reg, err := openRegistry()
-			if err != nil {
-				return err
-			}
-			defer reg.Close()
-
-			instances, err := reg.List()
-			if err != nil {
-				return err
-			}
-			if len(instances) == 0 {
-				fmt.Println("no instances to reconcile")
-				return nil
-			}
-
-			hasError := false
-			for _, inst := range instances {
-				if inst.ManifestPath == "" {
-					continue
-				}
-				plan, err := export.LoadPlan(inst.ManifestPath)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "  %s: error loading manifest: %v\n", inst.DalID, err)
-					hasError = true
-					continue
-				}
-
-				homes := map[string]string{}
-				if inst.InstanceRoot != "" {
-					homes = instanceRuntimeHomes(inst.InstanceRoot)
-				}
-
-				result := export.Reconcile(plan, homes)
-
-				// Check process drift (detect only)
-				if inst.InstanceRoot != "" {
-					if hs, err := runner.Check(inst.InstanceRoot); err == nil {
-						if hs.RunStatus == "stopped" && hs.Pid == 0 && hs.StartedAt != "" {
-							result.Repairs = append(result.Repairs, "process: stale pid corrected")
-							if result.Status == "ok" {
-								result.Status = "repaired"
-							}
-						}
-					}
-				}
-
-				switch result.Status {
-				case "ok":
-					fmt.Printf("  %s: ok\n", inst.DalID)
-				case "repaired":
-					fmt.Printf("  %s: repaired\n", inst.DalID)
-					for _, r := range result.Repairs {
-						fmt.Printf("    - %s\n", r)
-					}
-				case "error":
-					hasError = true
-					fmt.Fprintf(os.Stderr, "  %s: error\n", inst.DalID)
-					for _, e := range result.Errors {
-						fmt.Fprintf(os.Stderr, "    - %s\n", e)
-					}
-					for _, r := range result.Repairs {
-						fmt.Printf("    - %s\n", r)
-					}
-				}
-			}
-
-			if hasError {
-				return fmt.Errorf("reconcile completed with errors")
-			}
-			return nil
+			return reconcileAll(false)
 		},
 	}
+}
+
+func watchPidPath() string {
+	return filepath.Join(dataDir(), "watch.pid")
+}
+
+func acquireWatchLock() error {
+	pidPath := watchPidPath()
+	data, err := os.ReadFile(pidPath)
+	if err == nil {
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err == nil && pid > 0 && runner.IsAlive(pid) {
+			return fmt.Errorf("watch already running (pid %d)", pid)
+		}
+	}
+	return os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644)
+}
+
+func releaseWatchLock() {
+	os.Remove(watchPidPath())
+}
+
+func watchCmd() *cobra.Command {
+	var interval int
+	cmd := &cobra.Command{
+		Use:   "watch",
+		Short: "Continuously reconcile all instances on a timer",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureDataDir(); err != nil {
+				return err
+			}
+			if err := acquireWatchLock(); err != nil {
+				return err
+			}
+			defer releaseWatchLock()
+
+			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+
+			dur := time.Duration(interval) * time.Second
+			fmt.Printf("watch started (interval=%ds, pid=%d)\n", interval, os.Getpid())
+
+			// Run once immediately
+			if err := reconcileAll(true); err != nil {
+				fmt.Fprintf(os.Stderr, "reconcile: %v\n", err)
+			}
+
+			ticker := time.NewTicker(dur)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					fmt.Println("\nwatch stopped")
+					return nil
+				case <-ticker.C:
+					if err := reconcileAll(true); err != nil {
+						fmt.Fprintf(os.Stderr, "reconcile: %v\n", err)
+					}
+				}
+			}
+		},
+	}
+	cmd.Flags().IntVar(&interval, "interval", 60, "reconcile interval in seconds")
+	return cmd
 }
