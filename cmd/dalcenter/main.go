@@ -74,7 +74,7 @@ func main() {
 		Short: "DalForge local dal center CLI",
 	}
 
-	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd(), watchCmd(), provisionCmd())
+	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd(), watchCmd(), provisionCmd(), destroyCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -824,5 +824,42 @@ func provisionCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&vmid, "vmid", "", "explicit VMID (default: auto)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print command without executing")
+	return cmd
+}
+
+func destroyCmd() *cobra.Command {
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "destroy <name>",
+		Short: "Stop and destroy a provisioned container",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, err := resolveInstanceRoot(args[0])
+			if err != nil {
+				return err
+			}
+			r := provision.Destroy(root, dryRun)
+			if dryRun {
+				if len(r.Commands) == 0 {
+					fmt.Println("nothing to destroy")
+				} else {
+					for _, c := range r.Commands {
+						fmt.Printf("dry-run: %s\n", c)
+					}
+				}
+				return nil
+			}
+			if r.Error != nil {
+				return r.Error
+			}
+			if len(r.Commands) == 0 {
+				fmt.Println("nothing to destroy (no provisioned container)")
+			} else {
+				fmt.Println("destroyed")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print commands without executing")
 	return cmd
 }

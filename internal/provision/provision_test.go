@@ -114,3 +114,73 @@ func TestSanitizeHostname(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildDestroyCommands(t *testing.T) {
+	cmds := BuildDestroyCommands("211500")
+	if len(cmds) != 2 {
+		t.Fatalf("expected 2 commands, got %d", len(cmds))
+	}
+	stop := strings.Join(cmds[0], " ")
+	if !strings.Contains(stop, "stop 211500 --skiplock") {
+		t.Fatalf("unexpected stop: %s", stop)
+	}
+	destroy := strings.Join(cmds[1], " ")
+	if !strings.Contains(destroy, "destroy 211500 --purge") {
+		t.Fatalf("unexpected destroy: %s", destroy)
+	}
+}
+
+func TestDestroyDryRun(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "state"), 0755)
+	// Write state with vmid
+	state.Write(dir, state.HealthState{VMID: "211500", ProvisionStatus: "provisioned"})
+
+	r := Destroy(dir, true)
+	if r.Error != nil {
+		t.Fatalf("dry-run error: %v", r.Error)
+	}
+	if len(r.Commands) != 2 {
+		t.Fatalf("expected 2 commands, got %d", len(r.Commands))
+	}
+	if !strings.Contains(r.Commands[0], "pct stop 211500") {
+		t.Fatalf("unexpected cmd: %s", r.Commands[0])
+	}
+}
+
+func TestDestroyNoVMIDIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "state"), 0755)
+	state.Write(dir, state.HealthState{})
+
+	r := Destroy(dir, false)
+	if r.Error != nil {
+		t.Fatalf("expected no-op (nil error), got: %v", r.Error)
+	}
+	if len(r.Commands) != 0 {
+		t.Fatalf("expected no commands for no-op, got %d", len(r.Commands))
+	}
+}
+
+func TestDestroyWithoutPctRecordsError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "state"), 0755)
+	state.Write(dir, state.HealthState{VMID: "211500", ProvisionStatus: "provisioned"})
+
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "/nonexistent")
+	defer os.Setenv("PATH", origPath)
+
+	r := Destroy(dir, false)
+	if r.Error == nil || !strings.Contains(r.Error.Error(), "pct not found") {
+		t.Fatalf("expected pct not found, got: %v", r.Error)
+	}
+
+	hs, _ := state.Read(dir)
+	if hs.ProvisionStatus != "error" {
+		t.Fatalf("expected error status, got %q", hs.ProvisionStatus)
+	}
+	if hs.VMID != "211500" {
+		t.Fatalf("vmid should be preserved on error, got %q", hs.VMID)
+	}
+}

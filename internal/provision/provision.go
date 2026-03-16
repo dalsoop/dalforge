@@ -99,6 +99,75 @@ func writeProvisionState(instanceRoot, vmid, status, errMsg string) {
 	state.Write(instanceRoot, *hs)
 }
 
+// DestroyResult of a destroy attempt.
+type DestroyResult struct {
+	Commands []string // constructed commands (for dry-run)
+	Error    error
+}
+
+// BuildDestroyCommands constructs pct stop + pct destroy commands.
+func BuildDestroyCommands(vmid string) [][]string {
+	return [][]string{
+		{"stop", vmid, "--skiplock"},
+		{"destroy", vmid, "--purge"},
+	}
+}
+
+// Destroy stops and destroys a provisioned container, clearing state.
+func Destroy(instanceRoot string, dryRun bool) DestroyResult {
+	hs, err := state.Read(instanceRoot)
+	if err != nil {
+		return DestroyResult{Error: fmt.Errorf("read state: %w", err)}
+	}
+	if hs.VMID == "" {
+		return DestroyResult{} // no-op, nothing to destroy
+	}
+
+	cmds := BuildDestroyCommands(hs.VMID)
+	var cmdStrs []string
+	for _, args := range cmds {
+		cmdStrs = append(cmdStrs, "pct "+strings.Join(args, " "))
+	}
+
+	if dryRun {
+		return DestroyResult{Commands: cmdStrs}
+	}
+
+	if _, err := exec.LookPath("pct"); err != nil {
+		r := DestroyResult{Commands: cmdStrs, Error: fmt.Errorf("pct not found in PATH")}
+		hs.ProvisionStatus = "error"
+		hs.ProvisionError = "destroy failed: pct not found"
+		state.Write(instanceRoot, *hs)
+		return r
+	}
+
+	// Stop (ignore error — may already be stopped)
+	stopCmd := exec.Command("pct", cmds[0]...)
+	stopCmd.CombinedOutput()
+
+	// Destroy
+	destroyCmd := exec.Command("pct", cmds[1]...)
+	out, err := destroyCmd.CombinedOutput()
+	if err != nil {
+		errMsg := strings.TrimSpace(string(out))
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		hs.ProvisionStatus = "error"
+		hs.ProvisionError = "destroy failed: " + errMsg
+		state.Write(instanceRoot, *hs)
+		return DestroyResult{Commands: cmdStrs, Error: fmt.Errorf("pct destroy failed: %s", errMsg)}
+	}
+
+	// Clear provision state
+	hs.VMID = ""
+	hs.ProvisionStatus = ""
+	hs.ProvisionedAt = ""
+	hs.ProvisionError = ""
+	state.Write(instanceRoot, *hs)
+	return DestroyResult{Commands: cmdStrs}
+}
+
 func resolveTemplate(base string) string {
 	// Map common short names to Proxmox template paths
 	switch {
