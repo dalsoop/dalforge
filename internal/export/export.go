@@ -19,6 +19,7 @@ type Plan struct {
 	Exports        map[string][]string // runtime -> skill paths
 	Hooks          map[string][]string // runtime -> hook paths
 	HealthCheckCmd string
+	DefaultCmd     string // build.entry from .dalfactory
 }
 
 // SkillCount returns the number of declared exported skills across runtimes.
@@ -66,6 +67,14 @@ func LoadPlan(path string) (*Plan, error) {
 	}
 
 	for _, templateName := range templateNames(val) {
+		// Extract build.entry as default command
+		entryPath := cue.ParsePath("templates." + quoteLabel(templateName) + ".build.entry")
+		if entryVal := val.LookupPath(entryPath); entryVal.Exists() {
+			if s, err := entryVal.String(); err == nil {
+				plan.DefaultCmd = s
+			}
+		}
+
 		hcPath := cue.ParsePath("templates." + quoteLabel(templateName) + ".health_check.command")
 		if hcVal := val.LookupPath(hcPath); hcVal.Exists() {
 			if s, err := hcVal.String(); err == nil {

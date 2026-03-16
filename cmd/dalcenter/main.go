@@ -509,6 +509,23 @@ func resolveInstanceRoot(name string) (string, error) {
 	return result.Instance.InstanceRoot, nil
 }
 
+func resolveDefaultCmd(name string) string {
+	reg, err := openRegistry()
+	if err != nil {
+		return ""
+	}
+	defer reg.Close()
+	result, err := reg.Status(name)
+	if err != nil || result.Instance.ManifestPath == "" {
+		return ""
+	}
+	plan, err := export.LoadPlan(result.Instance.ManifestPath)
+	if err != nil {
+		return ""
+	}
+	return plan.DefaultCmd
+}
+
 func startCmd() *cobra.Command {
 	var command string
 	cmd := &cobra.Command{
@@ -521,17 +538,20 @@ func startCmd() *cobra.Command {
 				return err
 			}
 			if command == "" {
-				return fmt.Errorf("--command is required")
+				command = resolveDefaultCmd(args[0])
+			}
+			if command == "" {
+				return fmt.Errorf("no --command given and no build.entry in .dalfactory")
 			}
 			pid, err := runner.Start(root, command)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("started (pid %d)\n", pid)
+			fmt.Printf("started %q (pid %d)\n", command, pid)
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&command, "command", "c", "", "command to run")
+	cmd.Flags().StringVarP(&command, "command", "c", "", "command to run (default: build.entry from .dalfactory)")
 	return cmd
 }
 
@@ -567,13 +587,16 @@ func restartCmd() *cobra.Command {
 			}
 			runner.Stop(root)
 			if command == "" {
-				return fmt.Errorf("--command is required")
+				command = resolveDefaultCmd(args[0])
+			}
+			if command == "" {
+				return fmt.Errorf("no --command given and no build.entry in .dalfactory")
 			}
 			pid, err := runner.Start(root, command)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("restarted (pid %d)\n", pid)
+			fmt.Printf("restarted %q (pid %d)\n", command, pid)
 			return nil
 		},
 	}
