@@ -231,3 +231,93 @@ func TestApplyReturnsErrorForMissingHookPath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestSkillConflictWarning(t *testing.T) {
+	dir := t.TempDir()
+	claudeHome := filepath.Join(dir, "claude-home")
+	skillsDir := filepath.Join(claudeHome, "skills")
+	os.MkdirAll(skillsDir, 0755)
+
+	// Create two repos with same skill name
+	repoA := filepath.Join(dir, "repo-a")
+	repoB := filepath.Join(dir, "repo-b")
+	for _, repo := range []string{repoA, repoB} {
+		skillDir := filepath.Join(repo, "skills", "shared-skill")
+		os.MkdirAll(skillDir, 0755)
+		os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+filepath.Base(repo)), 0644)
+	}
+
+	// Export repo-a first
+	planA := &Plan{
+		RepoRoot: repoA,
+		Exports:  map[string][]string{"claude": {"skills/shared-skill/SKILL.md"}},
+		Hooks:    map[string][]string{},
+	}
+	homes := map[string]string{"claude": claudeHome}
+	if err := ApplyTo(planA, homes); err != nil {
+		t.Fatalf("apply A: %v", err)
+	}
+
+	// Verify repo-a symlink
+	target, _ := os.Readlink(filepath.Join(skillsDir, "shared-skill"))
+	if !strings.Contains(target, "repo-a") {
+		t.Fatalf("expected repo-a target, got %s", target)
+	}
+
+	// Export repo-b (should override with warning, but not error)
+	planB := &Plan{
+		RepoRoot: repoB,
+		Exports:  map[string][]string{"claude": {"skills/shared-skill/SKILL.md"}},
+		Hooks:    map[string][]string{},
+	}
+	if err := ApplyTo(planB, homes); err != nil {
+		t.Fatalf("apply B: %v", err)
+	}
+
+	// Verify repo-b now owns the symlink (last-write-wins)
+	target2, _ := os.Readlink(filepath.Join(skillsDir, "shared-skill"))
+	if !strings.Contains(target2, "repo-b") {
+		t.Fatalf("expected repo-b target after override, got %s", target2)
+	}
+}
+
+func TestHookConflictWarning(t *testing.T) {
+	dir := t.TempDir()
+	claudeHome := filepath.Join(dir, "claude-home")
+	hooksDir := filepath.Join(claudeHome, "hooks")
+	os.MkdirAll(hooksDir, 0755)
+
+	repoA := filepath.Join(dir, "repo-a")
+	repoB := filepath.Join(dir, "repo-b")
+	for _, repo := range []string{repoA, repoB} {
+		os.MkdirAll(filepath.Join(repo, "hooks"), 0755)
+		os.WriteFile(filepath.Join(repo, "hooks", "shared-hook.sh"), []byte("#!/bin/sh\n# from "+filepath.Base(repo)), 0755)
+	}
+
+	planA := &Plan{
+		RepoRoot: repoA,
+		Exports:  map[string][]string{},
+		Hooks:    map[string][]string{"claude": {"hooks/shared-hook.sh"}},
+	}
+	homes := map[string]string{"claude": claudeHome}
+	if err := ApplyTo(planA, homes); err != nil {
+		t.Fatalf("apply A: %v", err)
+	}
+	target, _ := os.Readlink(filepath.Join(hooksDir, "shared-hook.sh"))
+	if !strings.Contains(target, "repo-a") {
+		t.Fatalf("expected repo-a, got %s", target)
+	}
+
+	planB := &Plan{
+		RepoRoot: repoB,
+		Exports:  map[string][]string{},
+		Hooks:    map[string][]string{"claude": {"hooks/shared-hook.sh"}},
+	}
+	if err := ApplyTo(planB, homes); err != nil {
+		t.Fatalf("apply B: %v", err)
+	}
+	target2, _ := os.Readlink(filepath.Join(hooksDir, "shared-hook.sh"))
+	if !strings.Contains(target2, "repo-b") {
+		t.Fatalf("expected repo-b after override, got %s", target2)
+	}
+}

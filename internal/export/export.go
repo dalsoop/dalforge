@@ -170,7 +170,7 @@ func ApplyTo(plan *Plan, runtimeHomes map[string]string) error {
 			name := filepath.Base(srcDir)
 			dst := filepath.Join(skillsRoot, name)
 
-			if err := replaceSymlink(dst, srcDir); err != nil {
+			if err := replaceSymlink(dst, srcDir, "skill"); err != nil {
 				return fmt.Errorf("export skill %s: %w", rel, err)
 			}
 		}
@@ -200,7 +200,7 @@ func ApplyTo(plan *Plan, runtimeHomes map[string]string) error {
 			name := filepath.Base(src)
 			dst := filepath.Join(hooksRoot, name)
 
-			if err := replaceSymlink(dst, src); err != nil {
+			if err := replaceSymlink(dst, src, "hook"); err != nil {
 				return fmt.Errorf("export hook %s: %w", rel, err)
 			}
 		}
@@ -310,8 +310,14 @@ func hooksRoot(runtime string) (string, error) {
 	return filepath.Join(home, "hooks"), nil
 }
 
-func replaceSymlink(dst, src string) error {
+func replaceSymlink(dst, src, kind string) error {
 	if info, err := os.Lstat(dst); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			oldTarget, _ := os.Readlink(dst)
+			if oldTarget != "" && oldTarget != src {
+				fmt.Fprintf(os.Stderr, "warning: %s %q overrides existing target %s\n", kind, filepath.Base(dst), oldTarget)
+			}
+		}
 		if info.Mode()&os.ModeSymlink != 0 || info.IsDir() {
 			if err := os.RemoveAll(dst); err != nil {
 				return err
