@@ -49,21 +49,39 @@ func BuildCommand(spec Spec) []string {
 	return args
 }
 
-// BuildAgentInstallCommand returns the pct exec command to install one agent.
-func BuildAgentInstallCommand(vmid string, agent export.AgentSpec) string {
+// AgentInstallInner returns the install command to run inside the container.
+func AgentInstallInner(agent export.AgentSpec) string {
 	switch agent.Type {
 	case "claude_sdk":
-		return fmt.Sprintf("pct exec %s -- npm install -g %s", vmid, agent.Package)
+		return fmt.Sprintf("npm install -g %s", agent.Package)
 	case "codex_appserver":
-		return fmt.Sprintf("pct exec %s -- npm install -g %s", vmid, agent.Package)
+		return fmt.Sprintf("npm install -g %s", agent.Package)
 	case "gemini_cli":
-		return fmt.Sprintf("pct exec %s -- pip3 install %s", vmid, agent.Package)
-	case "openai_compatible":
-		// Config marker only — no install command
-		return fmt.Sprintf("# %s: openai_compatible (config-only, package=%s)", agent.Name, agent.Package)
+		return fmt.Sprintf("pip3 install %s", agent.Package)
 	default:
+		return ""
+	}
+}
+
+// BuildAgentInstallCommand returns the full pct exec command string for display/dry-run.
+func BuildAgentInstallCommand(vmid string, agent export.AgentSpec) string {
+	inner := AgentInstallInner(agent)
+	if inner == "" {
+		if agent.Type == "openai_compatible" {
+			return fmt.Sprintf("# %s: openai_compatible (config-only, package=%s)", agent.Name, agent.Package)
+		}
 		return fmt.Sprintf("# %s: unknown type %q (skipped)", agent.Name, agent.Type)
 	}
+	return fmt.Sprintf("pct exec %s -- sh -lc '%s'", vmid, inner)
+}
+
+// BuildAgentInstallArgs returns the exec.Command args for pct exec.
+func BuildAgentInstallArgs(vmid string, agent export.AgentSpec) []string {
+	inner := AgentInstallInner(agent)
+	if inner == "" {
+		return nil
+	}
+	return []string{"exec", vmid, "--", "sh", "-lc", inner}
 }
 
 // BuildAllCommands returns the full provision command sequence: create + start + install + agents.
@@ -176,20 +194,15 @@ func Provision(instanceRoot string, spec Spec, dryRun bool) Result {
 	// Install agents
 	agentStatuses := map[string]string{}
 	for _, agent := range spec.Agents {
-		if agent.Type == "openai_compatible" {
+		args := BuildAgentInstallArgs(vmid, agent)
+		if args == nil {
 			agentStatuses[agent.Name] = "skipped"
 			continue
 		}
-		installCmd := BuildAgentInstallCommand(vmid, agent)
-		if strings.HasPrefix(installCmd, "#") {
-			agentStatuses[agent.Name] = "skipped"
-			continue
-		}
-		stepCmd := exec.Command("sh", "-c", installCmd)
+		stepCmd := exec.Command("pct", args...)
 		if stepOut, err := stepCmd.CombinedOutput(); err != nil {
 			errMsg := strings.TrimSpace(string(stepOut))
 			agentStatuses[agent.Name] = "error: " + errMsg
-			// Agent install failure is non-fatal — continue with others
 			continue
 		}
 		agentStatuses[agent.Name] = "installed"
