@@ -22,6 +22,7 @@ type Instance struct {
 	ContainerID    string
 	RepoRoot       string
 	ManifestPath   string
+	InstanceRoot   string
 	ExportedSkills int
 	CreatedAt      string
 }
@@ -71,6 +72,7 @@ func migrate(db *sql.DB) error {
 		container_id TEXT,
 		repo_root TEXT,
 		manifest_path TEXT,
+		instance_root TEXT,
 		exported_skills INTEGER DEFAULT 0,
 		created_at TEXT NOT NULL
 	);`
@@ -80,6 +82,7 @@ func migrate(db *sql.DB) error {
 	for _, stmt := range []string{
 		"ALTER TABLE instances ADD COLUMN repo_root TEXT",
 		"ALTER TABLE instances ADD COLUMN manifest_path TEXT",
+		"ALTER TABLE instances ADD COLUMN instance_root TEXT",
 		"ALTER TABLE instances ADD COLUMN exported_skills INTEGER DEFAULT 0",
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
@@ -95,7 +98,7 @@ func newID() string {
 	return fmt.Sprintf("dal-%x", b)
 }
 
-func (r *Registry) Join(template, repoRoot, manifestPath string, exportedSkills int) (*Instance, error) {
+func (r *Registry) Join(template, repoRoot, manifestPath, instanceRoot string, exportedSkills int) (*Instance, error) {
 	inst := &Instance{
 		DalID:          newID(),
 		NodeID:         "",
@@ -103,12 +106,13 @@ func (r *Registry) Join(template, repoRoot, manifestPath string, exportedSkills 
 		Status:         "ready",
 		RepoRoot:       repoRoot,
 		ManifestPath:   manifestPath,
+		InstanceRoot:   instanceRoot,
 		ExportedSkills: exportedSkills,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 	}
 	_, err := r.db.Exec(
-		"INSERT INTO instances(dal_id,node_id,template,status,container_id,repo_root,manifest_path,exported_skills,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-		inst.DalID, inst.NodeID, inst.Template, inst.Status, inst.ContainerID, inst.RepoRoot, inst.ManifestPath, inst.ExportedSkills, inst.CreatedAt)
+		"INSERT INTO instances(dal_id,node_id,template,status,container_id,repo_root,manifest_path,instance_root,exported_skills,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+		inst.DalID, inst.NodeID, inst.Template, inst.Status, inst.ContainerID, inst.RepoRoot, inst.ManifestPath, inst.InstanceRoot, inst.ExportedSkills, inst.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("join: %w", err)
 	}
@@ -116,7 +120,7 @@ func (r *Registry) Join(template, repoRoot, manifestPath string, exportedSkills 
 }
 
 func (r *Registry) List() ([]Instance, error) {
-	rows, err := r.db.Query("SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, exported_skills, created_at FROM instances ORDER BY created_at DESC")
+	rows, err := r.db.Query("SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +128,7 @@ func (r *Registry) List() ([]Instance, error) {
 	var out []Instance
 	for rows.Next() {
 		var i Instance
-		if err := rows.Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.ExportedSkills, &i.CreatedAt); err != nil {
+		if err := rows.Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
@@ -135,8 +139,8 @@ func (r *Registry) List() ([]Instance, error) {
 func (r *Registry) Status(name string) (*Instance, error) {
 	var i Instance
 	err := r.db.QueryRow(
-		"SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, exported_skills, created_at FROM instances WHERE dal_id=?", name,
-	).Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.ExportedSkills, &i.CreatedAt)
+		"SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE dal_id=?", name,
+	).Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("instance %q not found", name)
@@ -144,4 +148,9 @@ func (r *Registry) Status(name string) (*Instance, error) {
 		return nil, err
 	}
 	return &i, nil
+}
+
+func (r *Registry) UpdateInstanceRoot(dalID, instanceRoot string) error {
+	_, err := r.db.Exec("UPDATE instances SET instance_root=? WHERE dal_id=?", instanceRoot, dalID)
+	return err
 }
