@@ -19,7 +19,8 @@ type Plan struct {
 	Exports        map[string][]string // runtime -> skill paths
 	Hooks          map[string][]string // runtime -> hook paths
 	HealthCheckCmd string
-	DefaultCmd     string // build.entry from .dalfactory
+	DefaultCmd     string   // build.entry from .dalfactory
+	AgentPackages  []string // container.agents[*].package values
 }
 
 // SkillCount returns the number of declared exported skills across runtimes.
@@ -72,6 +73,21 @@ func LoadPlan(path string) (*Plan, error) {
 		if entryVal := val.LookupPath(entryPath); entryVal.Exists() {
 			if s, err := entryVal.String(); err == nil {
 				plan.DefaultCmd = s
+			}
+		}
+
+		// Extract container.agents[*].package as fallback commands
+		agentsPath := cue.ParsePath("templates." + quoteLabel(templateName) + ".container.agents")
+		if agentsVal := val.LookupPath(agentsPath); agentsVal.Exists() {
+			if fields, err := agentsVal.Fields(); err == nil {
+				for fields.Next() {
+					pkgVal := fields.Value().LookupPath(cue.ParsePath("package"))
+					if pkgVal.Exists() {
+						if s, err := pkgVal.String(); err == nil {
+							plan.AgentPackages = append(plan.AgentPackages, s)
+						}
+					}
+				}
 			}
 		}
 

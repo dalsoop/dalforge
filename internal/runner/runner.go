@@ -11,15 +11,19 @@ import (
 )
 
 // Start launches a command in the background and records pid in state.json.
-// The command runs with cwd = instanceRoot.
-func Start(instanceRoot, command string) (int, error) {
+// workDir is the cwd for the process (typically repoRoot); state is written to instanceRoot.
+func Start(instanceRoot, command, workDir string) (int, error) {
 	hs, _ := state.Read(instanceRoot)
 	if hs != nil && hs.Pid > 0 && IsAlive(hs.Pid) {
 		return 0, fmt.Errorf("already running (pid %d)", hs.Pid)
 	}
 
 	cmd := exec.Command("sh", "-c", command)
-	cmd.Dir = instanceRoot
+	if workDir != "" {
+		cmd.Dir = workDir
+	} else {
+		cmd.Dir = instanceRoot
+	}
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	// Detach from parent process group

@@ -509,21 +509,36 @@ func resolveInstanceRoot(name string) (string, error) {
 	return result.Instance.InstanceRoot, nil
 }
 
-func resolveDefaultCmd(name string) string {
+// resolveDefaultCmd returns (command, repoRoot) from the manifest.
+func resolveDefaultCmd(name string) (string, string) {
 	reg, err := openRegistry()
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer reg.Close()
 	result, err := reg.Status(name)
 	if err != nil || result.Instance.ManifestPath == "" {
-		return ""
+		return "", ""
 	}
 	plan, err := export.LoadPlan(result.Instance.ManifestPath)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return plan.DefaultCmd
+	// Priority 1: build.entry
+	if plan.DefaultCmd != "" {
+		return plan.DefaultCmd, plan.RepoRoot
+	}
+	// Priority 2: first executable agent package in repo_root
+	for _, pkg := range plan.AgentPackages {
+		candidate := filepath.Join(plan.RepoRoot, pkg)
+		if info, err := os.Stat(candidate); err == nil && info.Mode()&0111 != 0 {
+			return pkg, plan.RepoRoot
+		}
+		if _, err := exec.LookPath(pkg); err == nil {
+			return pkg, plan.RepoRoot
+		}
+	}
+	return "", plan.RepoRoot
 }
 
 func startCmd() *cobra.Command {
@@ -537,13 +552,14 @@ func startCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var workDir string
 			if command == "" {
-				command = resolveDefaultCmd(args[0])
+				command, workDir = resolveDefaultCmd(args[0])
 			}
 			if command == "" {
-				return fmt.Errorf("no --command given and no build.entry in .dalfactory")
+				return fmt.Errorf("no --command given and no build.entry or executable agents in .dalfactory")
 			}
-			pid, err := runner.Start(root, command)
+			pid, err := runner.Start(root, command, workDir)
 			if err != nil {
 				return err
 			}
@@ -586,13 +602,14 @@ func restartCmd() *cobra.Command {
 				return err
 			}
 			runner.Stop(root)
+			var workDir string
 			if command == "" {
-				command = resolveDefaultCmd(args[0])
+				command, workDir = resolveDefaultCmd(args[0])
 			}
 			if command == "" {
-				return fmt.Errorf("no --command given and no build.entry in .dalfactory")
+				return fmt.Errorf("no --command given and no build.entry or executable agents in .dalfactory")
 			}
-			pid, err := runner.Start(root, command)
+			pid, err := runner.Start(root, command, workDir)
 			if err != nil {
 				return err
 			}
