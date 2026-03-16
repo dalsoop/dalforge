@@ -137,14 +137,46 @@ func (r *Registry) List() ([]Instance, error) {
 }
 
 func (r *Registry) Status(name string) (*Instance, error) {
+	// Try exact dal_id first
+	inst, err := r.statusByDalID(name)
+	if err == nil {
+		return inst, nil
+	}
+
+	// Fallback: match by repo name (agent-coach, dalcli-agent-coach)
+	candidates := []string{name}
+	if !strings.HasPrefix(name, "dalcli-") {
+		candidates = append(candidates, "dalcli-"+name)
+	}
+	for _, candidate := range candidates {
+		pattern := "%" + candidate + "%"
+		inst, err := r.statusByPattern(pattern)
+		if err == nil {
+			return inst, nil
+		}
+	}
+
+	return nil, fmt.Errorf("instance %q not found", name)
+}
+
+func (r *Registry) statusByDalID(dalID string) (*Instance, error) {
 	var i Instance
 	err := r.db.QueryRow(
-		"SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE dal_id=?", name,
+		"SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE dal_id=?", dalID,
 	).Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("instance %q not found", name)
-		}
+		return nil, err
+	}
+	return &i, nil
+}
+
+func (r *Registry) statusByPattern(pattern string) (*Instance, error) {
+	var i Instance
+	err := r.db.QueryRow(
+		"SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE repo_root LIKE ? OR manifest_path LIKE ? ORDER BY created_at DESC LIMIT 1",
+		pattern, pattern,
+	).Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt)
+	if err != nil {
 		return nil, err
 	}
 	return &i, nil
