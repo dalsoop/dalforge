@@ -113,6 +113,8 @@ dalcenter join codex-worker --name "background-task"
 
 .dalfactory/ 가 소스(SSOT)이고, 각 에이전트용 설정은 빌드 산출물로 export된다.
 
+1차 규칙은 레포 루트의 `skills/{name}/SKILL.md` 같은 원본 자산을 직접 export하는 것이다. 예외적으로 원본 허브 성격의 레포는 `source/document/skills/{name}/SKILL.md` 경로를 fallback export source로 선언할 수 있다.
+
 ```
 .dalfactory/ (소스)
     -> build
