@@ -16,10 +16,19 @@ import (
 type Plan struct {
 	RepoRoot string
 	Manifest string
-	Skills   []string
+	Exports  map[string][]string
 }
 
-// LoadPlan reads one manifest and extracts Claude skill export paths.
+// SkillCount returns the number of declared exported skills across runtimes.
+func SkillCount(plan *Plan) int {
+	total := 0
+	for _, skills := range plan.Exports {
+		total += len(skills)
+	}
+	return total
+}
+
+// LoadPlan reads one manifest and extracts runtime skill export paths.
 func LoadPlan(path string) (*Plan, error) {
 	manifestPath, err := validate.ResolveManifestPath(path)
 	if err != nil {
@@ -41,24 +50,36 @@ func LoadPlan(path string) (*Plan, error) {
 	plan := &Plan{
 		RepoRoot: repoRoot,
 		Manifest: manifestPath,
+		Exports:  map[string][]string{},
 	}
 
 	for _, templateName := range templateNames(val) {
-		path := cue.ParsePath("templates." + quoteLabel(templateName) + ".exports.claude.skills")
-		v := val.LookupPath(path)
-		if !v.Exists() {
+		exportsPath := cue.ParsePath("templates." + quoteLabel(templateName) + ".exports")
+		exportsVal := val.LookupPath(exportsPath)
+		if !exportsVal.Exists() {
 			continue
 		}
-		iter, err := v.List()
+		runtimes, err := exportsVal.Fields()
 		if err != nil {
-			return nil, fmt.Errorf("read exports.claude.skills: %w", err)
+			return nil, fmt.Errorf("read exports map: %w", err)
 		}
-		for iter.Next() {
-			s, err := iter.Value().String()
-			if err != nil {
-				return nil, fmt.Errorf("read skill path: %w", err)
+		for runtimes.Next() {
+			runtimeName := runtimes.Label()
+			skillsVal := runtimes.Value().LookupPath(cue.ParsePath("skills"))
+			if !skillsVal.Exists() {
+				continue
 			}
-			plan.Skills = append(plan.Skills, s)
+			iter, err := skillsVal.List()
+			if err != nil {
+				return nil, fmt.Errorf("read exports.%s.skills: %w", runtimeName, err)
+			}
+			for iter.Next() {
+				s, err := iter.Value().String()
+				if err != nil {
+					return nil, fmt.Errorf("read skill path: %w", err)
+				}
+				plan.Exports[runtimeName] = append(plan.Exports[runtimeName], s)
+			}
 		}
 		break
 	}
@@ -66,69 +87,97 @@ func LoadPlan(path string) (*Plan, error) {
 	return plan, nil
 }
 
-// Apply creates Claude skill symlinks under the configured home.
+// Apply creates runtime skill symlinks under configured homes.
 func Apply(plan *Plan) error {
-	if len(plan.Skills) == 0 {
+	if len(plan.Exports) == 0 {
 		return nil
 	}
 
-	skillsRoot := filepath.Join(claudeHome(), "skills")
-	if err := os.MkdirAll(skillsRoot, 0755); err != nil {
-		return fmt.Errorf("create skills root: %w", err)
-	}
-
-	for _, rel := range plan.Skills {
-		src := filepath.Join(plan.RepoRoot, filepath.Clean(rel))
-		if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
-			return fmt.Errorf("skill path escapes repo root: %s", rel)
+	for runtime, skills := range plan.Exports {
+		skillsRoot, err := skillsRoot(runtime)
+		if err != nil {
+			return err
 		}
-		if _, err := os.Stat(src); err != nil {
-			return fmt.Errorf("stat skill file %s: %w", rel, err)
+		if err := os.MkdirAll(skillsRoot, 0755); err != nil {
+			return fmt.Errorf("create skills root: %w", err)
 		}
 
-		srcDir := filepath.Dir(src)
-		name := filepath.Base(srcDir)
-		dst := filepath.Join(skillsRoot, name)
+		for _, rel := range skills {
+			src := filepath.Join(plan.RepoRoot, filepath.Clean(rel))
+			if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
+				return fmt.Errorf("skill path escapes repo root: %s", rel)
+			}
+			if _, err := os.Stat(src); err != nil {
+				return fmt.Errorf("stat skill file %s: %w", rel, err)
+			}
 
-		if err := replaceSymlink(dst, srcDir); err != nil {
-			return fmt.Errorf("export skill %s: %w", rel, err)
+			srcDir := filepath.Dir(src)
+			name := filepath.Base(srcDir)
+			dst := filepath.Join(skillsRoot, name)
+
+			if err := replaceSymlink(dst, srcDir); err != nil {
+				return fmt.Errorf("export skill %s: %w", rel, err)
+			}
 		}
 	}
 
 	return nil
 }
 
-// Remove deletes Claude skill symlinks that point at this plan's exported skills.
+// Remove deletes runtime skill symlinks that point at this plan's exported skills.
 func Remove(plan *Plan) error {
-	if len(plan.Skills) == 0 {
+	if len(plan.Exports) == 0 {
 		return nil
 	}
 
-	skillsRoot := filepath.Join(claudeHome(), "skills")
-	for _, rel := range plan.Skills {
-		src := filepath.Join(plan.RepoRoot, filepath.Clean(rel))
-		if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
-			return fmt.Errorf("skill path escapes repo root: %s", rel)
+	for runtime, skills := range plan.Exports {
+		skillsRoot, err := skillsRoot(runtime)
+		if err != nil {
+			return err
 		}
+		for _, rel := range skills {
+			src := filepath.Join(plan.RepoRoot, filepath.Clean(rel))
+			if !strings.HasPrefix(src, plan.RepoRoot+string(os.PathSeparator)) {
+				return fmt.Errorf("skill path escapes repo root: %s", rel)
+			}
 
-		srcDir := filepath.Dir(src)
-		name := filepath.Base(srcDir)
-		dst := filepath.Join(skillsRoot, name)
+			srcDir := filepath.Dir(src)
+			name := filepath.Base(srcDir)
+			dst := filepath.Join(skillsRoot, name)
 
-		if err := removeSymlink(dst, srcDir); err != nil {
-			return fmt.Errorf("unexport skill %s: %w", rel, err)
+			if err := removeSymlink(dst, srcDir); err != nil {
+				return fmt.Errorf("unexport skill %s: %w", rel, err)
+			}
 		}
 	}
 
 	return nil
 }
 
-func claudeHome() string {
-	if v := os.Getenv("DALCENTER_CLAUDE_HOME"); v != "" {
-		return v
-	}
+func runtimeHome(runtime string) (string, error) {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude")
+	switch runtime {
+	case "claude":
+		if v := os.Getenv("DALCENTER_CLAUDE_HOME"); v != "" {
+			return v, nil
+		}
+		return filepath.Join(home, ".claude"), nil
+	case "codex":
+		if v := os.Getenv("DALCENTER_CODEX_HOME"); v != "" {
+			return v, nil
+		}
+		return filepath.Join(home, ".codex"), nil
+	default:
+		return "", fmt.Errorf("unsupported runtime %q", runtime)
+	}
+}
+
+func skillsRoot(runtime string) (string, error) {
+	home, err := runtimeHome(runtime)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "skills"), nil
 }
 
 func replaceSymlink(dst, src string) error {

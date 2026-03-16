@@ -280,7 +280,7 @@ func exportCmd() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "export failed %s: %v\n", plan.Manifest, err)
 					continue
 				}
-				fmt.Printf("ok %s (%d skills)\n", plan.Manifest, len(plan.Skills))
+				fmt.Printf("ok %s (%d skills)\n", plan.Manifest, export.SkillCount(plan))
 			}
 			if hasError {
 				return fmt.Errorf("export failed")
@@ -314,7 +314,7 @@ func unexportCmd() *cobra.Command {
 					fmt.Fprintf(os.Stderr, "unexport failed %s: %v\n", plan.Manifest, err)
 					continue
 				}
-				fmt.Printf("ok %s (%d skills)\n", plan.Manifest, len(plan.Skills))
+				fmt.Printf("ok %s (%d skills)\n", plan.Manifest, export.SkillCount(plan))
 			}
 			if hasError {
 				return fmt.Errorf("unexport failed")
