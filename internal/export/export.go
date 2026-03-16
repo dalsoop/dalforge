@@ -89,15 +89,29 @@ func LoadPlan(path string) (*Plan, error) {
 
 // Apply creates runtime skill symlinks under configured homes.
 func Apply(plan *Plan) error {
+	roots := map[string]string{}
+	for runtime := range plan.Exports {
+		home, err := runtimeHome(runtime)
+		if err != nil {
+			return err
+		}
+		roots[runtime] = home
+	}
+	return ApplyTo(plan, roots)
+}
+
+// ApplyTo creates runtime skill symlinks under explicit runtime homes.
+func ApplyTo(plan *Plan, runtimeHomes map[string]string) error {
 	if len(plan.Exports) == 0 {
 		return nil
 	}
 
 	for runtime, skills := range plan.Exports {
-		skillsRoot, err := skillsRoot(runtime)
-		if err != nil {
-			return err
+		home, ok := runtimeHomes[runtime]
+		if !ok {
+			continue
 		}
+		skillsRoot := filepath.Join(home, "skills")
 		if err := os.MkdirAll(skillsRoot, 0755); err != nil {
 			return fmt.Errorf("create skills root: %w", err)
 		}

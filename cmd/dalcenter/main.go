@@ -105,6 +105,9 @@ func joinCmd() *cobra.Command {
 			if err := createInstanceLayout(actualRoot, plan.Manifest); err != nil {
 				return err
 			}
+			if err := export.ApplyTo(plan, instanceRuntimeHomes(actualRoot)); err != nil {
+				return err
+			}
 			if actualRoot != inst.InstanceRoot {
 				inst.InstanceRoot = actualRoot
 				if err := reg.UpdateInstanceRoot(inst.DalID, actualRoot); err != nil {
@@ -185,6 +188,13 @@ func createInstanceLayout(instanceRoot, manifestPath string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(instanceRoot, "meta", "dal.cue"), data, 0644)
+}
+
+func instanceRuntimeHomes(instanceRoot string) map[string]string {
+	return map[string]string{
+		"claude": filepath.Join(instanceRoot, "runtime", "claude"),
+		"codex":  filepath.Join(instanceRoot, "runtime", "codex"),
+	}
 }
 
 func secretCmd() *cobra.Command {
