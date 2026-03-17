@@ -1,4 +1,13 @@
-# dalforge-hub
+<div align="center">
+  <h1>dalforge</h1>
+  <p><strong>Self-hosted orchestration for turning <code>.dalfactory</code> declarations into local runtime and Proxmox LXC operations.</strong></p>
+  <p>
+    <a href="https://github.com/dalsoop/dalforge"><img src="https://img.shields.io/badge/github-dalsoop%2Fdalforge-181717?logo=github&logoColor=white" alt="GitHub repository"></a>
+    <a href="https://github.com/dalsoop/dalforge/releases"><img src="https://img.shields.io/github/v/release/dalsoop/dalforge?display_name=tag" alt="GitHub release"></a>
+    <a href="https://dalforge.com"><img src="https://img.shields.io/badge/home-dalforge.com-0f766e?logo=googlechrome&logoColor=white" alt="Website"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb.svg" alt="MIT License"></a>
+  </p>
+</div>
 
 `dalforge`는 `.dalfactory` 선언을 실제 로컬 런타임과 LXC 운영으로 바꾸는 self-hosted orchestration stack이다. `dalforge`는 패키지와 스펙을 유통하고, `dalcenter`는 사용자 레포의 `.dalfactory`를 읽어 등록하고 관리한다.
 
