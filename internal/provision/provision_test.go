@@ -21,7 +21,7 @@ func TestBuildCommandDefaults(t *testing.T) {
 	if !strings.Contains(cmd, "create 0") {
 		t.Fatalf("expected VMID 0 (auto), got: %s", cmd)
 	}
-	if !strings.Contains(cmd, "--ostemplate local:vztmpl/ubuntu-2404-standard_amd64.tar.zst") {
+	if !strings.Contains(cmd, "local:vztmpl/ubuntu-24.04") {
 		t.Fatalf("expected ubuntu template, got: %s", cmd)
 	}
 	if !strings.Contains(cmd, "--hostname dalcli-agent-coach") {
@@ -97,7 +97,7 @@ func TestBuildCommandCustomTemplate(t *testing.T) {
 	})
 
 	cmd := strings.Join(args, " ")
-	if !strings.Contains(cmd, "--ostemplate local:vztmpl/custom.tar.gz") {
+	if !strings.Contains(cmd, "local:vztmpl/custom.tar.gz") {
 		t.Fatalf("expected passthrough template, got: %s", cmd)
 	}
 }

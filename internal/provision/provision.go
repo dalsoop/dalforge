@@ -40,9 +40,9 @@ func BuildCommand(spec Spec) []string {
 		args = append(args, "0") // 0 = next available
 	}
 
-	// Map base to ostemplate path
+	// ostemplate is a positional arg: pct create <vmid> <ostemplate> [OPTIONS]
 	ostemplate := resolveTemplate(spec.Base)
-	args = append(args, "--ostemplate", ostemplate)
+	args = append(args, ostemplate)
 	args = append(args, "--hostname", sanitizeHostname(spec.InstanceName))
 
 	storage := spec.Storage
@@ -195,14 +195,12 @@ func Provision(instanceRoot string, spec Spec, dryRun bool) Result {
 
 	// Install packages if any
 	if len(spec.Packages) > 0 {
+		installStep := append([]string{"exec", vmid, "--", "apt-get", "install", "-y", "-qq"}, spec.Packages...)
 		for _, step := range [][]string{
 			{"start", vmid},
 			{"exec", vmid, "--", "apt-get", "update", "-qq"},
-			{"exec", vmid, "--", "apt-get", "install", "-y", "-qq"},
+			installStep,
 		} {
-			if step[0] == "exec" && step[len(step)-1] == "-qq" {
-				step = append(step, spec.Packages...)
-			}
 			stepCmd := exec.Command("pct", step...)
 			if stepOut, err := stepCmd.CombinedOutput(); err != nil {
 				errMsg := strings.TrimSpace(string(stepOut))
@@ -338,17 +336,41 @@ func Destroy(instanceRoot string, dryRun bool) DestroyResult {
 }
 
 func resolveTemplate(base string) string {
-	// Map common short names to Proxmox template paths
 	switch {
-	case strings.HasPrefix(base, "ubuntu:"):
-		ver := strings.TrimPrefix(base, "ubuntu:")
-		return fmt.Sprintf("local:vztmpl/ubuntu-%s-standard_amd64.tar.zst", strings.ReplaceAll(ver, ".", ""))
-	case strings.HasPrefix(base, "debian:"):
-		ver := strings.TrimPrefix(base, "debian:")
-		return fmt.Sprintf("local:vztmpl/debian-%s-standard_amd64.tar.zst", ver)
+	case strings.HasPrefix(base, "ubuntu:") || strings.HasPrefix(base, "debian:"):
+		// Try to find matching template via pveam list
+		if t := findTemplate(base); t != "" {
+			return t
+		}
+		// Fallback to constructed name
+		parts := strings.SplitN(base, ":", 2)
+		return fmt.Sprintf("local:vztmpl/%s-%s-standard_amd64.tar.zst", parts[0], parts[1])
 	default:
-		return base // pass through as-is (full template path)
+		return base
 	}
+}
+
+func findTemplate(base string) string {
+	parts := strings.SplitN(base, ":", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	distro, ver := parts[0], parts[1]
+	out, err := exec.Command("pveam", "list", "local").CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	// Find line matching distro and version
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, distro+"-"+ver) && strings.Contains(line, "standard") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				return fields[0]
+			}
+		}
+	}
+	return ""
 }
 
 func sanitizeHostname(name string) string {
