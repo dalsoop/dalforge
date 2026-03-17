@@ -2,6 +2,8 @@
 
 `dalforge`는 `.dalfactory` 선언을 실제 로컬 런타임과 LXC 운영으로 바꾸는 self-hosted orchestration stack이다. `dalforge`는 패키지와 스펙을 유통하고, `dalcenter`는 사용자 레포의 `.dalfactory`를 읽어 등록하고 관리한다.
 
+Korean summary: [`README.ko.md`](./README.ko.md)
+
 ## What It Is
 
 가장 짧게 말하면:
