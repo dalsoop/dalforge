@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"dalforge-hub/dalcenter/internal/cloud"
 	"dalforge-hub/dalcenter/internal/export"
 	"dalforge-hub/dalcenter/internal/provision"
 	"dalforge-hub/dalcenter/internal/registry"
@@ -74,7 +75,7 @@ func main() {
 		Short: "DalForge local dal center CLI",
 	}
 
-	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd(), watchCmd(), provisionCmd(), destroyCmd())
+	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd(), watchCmd(), provisionCmd(), destroyCmd(), catalogCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -87,7 +88,11 @@ func joinCmd() *cobra.Command {
 		Short: "Create a new localdal instance from a .dalfactory manifest",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			manifestPath, err := validate.ResolveManifestPath(args[0])
+			sourcePath, err := resolveJoinSource(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			manifestPath, err := validate.ResolveManifestPath(sourcePath)
 			if err != nil {
 				return err
 			}
@@ -142,6 +147,68 @@ func joinCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func catalogCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "catalog",
+		Short: "Browse dalforge cloud packages",
+	}
+	cmd.AddCommand(catalogSearchCmd())
+	return cmd
+}
+
+func catalogSearchCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "search [query]",
+		Short: "Search packages in dalforge cloud",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := cloud.New(cloud.LoadConfig())
+			var pkgs []cloud.PackageInfo
+			var err error
+			if len(args) == 0 {
+				pkgs, err = client.ListAll(cmd.Context())
+			} else {
+				pkgs, err = client.Search(cmd.Context(), args[0])
+			}
+			if err != nil {
+				return err
+			}
+			if len(pkgs) == 0 {
+				fmt.Println("no packages found")
+				return nil
+			}
+
+			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintln(tw, "NAME\tBRANCH\tDESCRIPTION")
+			for _, pkg := range pkgs {
+				desc := strings.TrimSpace(pkg.Description)
+				if len(desc) > 60 {
+					desc = desc[:57] + "..."
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", pkg.Path, pkg.DefaultBranch, desc)
+			}
+			return tw.Flush()
+		},
+	}
+}
+
+func resolveJoinSource(ctx context.Context, arg string) (string, error) {
+	if _, err := os.Stat(arg); err == nil {
+		return arg, nil
+	}
+	if filepath.IsAbs(arg) {
+		return "", fmt.Errorf("path %q not found", arg)
+	}
+
+	client := cloud.New(cloud.LoadConfig())
+	cacheRoot := filepath.Join(dataDir(), "sources")
+	staged, pkg, err := client.Stage(ctx, arg, cacheRoot)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("staged package: %s -> %s\n", pkg.Path, staged)
+	return staged, nil
 }
 
 func runHealthCheck(repoRoot, command string) state.HealthState {

@@ -6,6 +6,7 @@
 
 `dalcenter`는 현재 `.dalfactory`를 실제 운영 흐름으로 연결한다.
 
+- `catalog search` 기반 dalforge 클라우드 패키지 조회
 - `.dalfactory` validate
 - `join/list/status` 기반 레포 등록 및 조회
 - Claude/Codex skill export, Claude hook export/settings 반영
@@ -196,7 +197,13 @@ dalcenter watch --interval 60
 dalcenter validate /root/dalforge-hub/dalcli/dalcli-agent-coach
 ```
 
-### 2. 레포 등록
+### 2. dalforge 패키지 조회
+
+```bash
+dalcenter catalog search agent-coach
+```
+
+### 3. 레포 등록
 
 ```bash
 dalcenter join /root/dalforge-hub/dalcli/dalcli-agent-coach
@@ -204,7 +211,13 @@ dalcenter list
 dalcenter status dalcli-agent-coach
 ```
 
-### 3. 로컬 실행 관리
+패키지 이름만으로도 dalforge에서 받아와서 등록할 수 있다.
+
+```bash
+dalcenter join agent-coach
+```
+
+### 4. 로컬 실행 관리
 
 `build.entry`가 있으면 `--command` 없이도 실행된다.
 
@@ -214,7 +227,7 @@ dalcenter status dalcli-agent-coach
 dalcenter stop dalcli-agent-coach
 ```
 
-### 4. Proxmox LXC 생성
+### 5. Proxmox LXC 생성
 
 ```bash
 dalcenter provision dalcli-agent-coach \
@@ -234,13 +247,13 @@ dalcenter provision dalcli-agent-coach \
 - `--cores`
 - `--dry-run`
 
-### 5. Proxmox LXC 제거
+### 6. Proxmox LXC 제거
 
 ```bash
 dalcenter destroy dalcli-agent-coach
 ```
 
-### 6. dal과 연동
+### 7. dal과 연동
 
 ```bash
 dal summon agent-coach
