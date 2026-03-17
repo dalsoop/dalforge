@@ -91,6 +91,13 @@ source_ref:     dalcli-agent-coach
 health_status:  ok
 ```
 
+## Docs Index
+
+- [`docs/README.md`](./docs/README.md)
+  - 전체 문서 입구
+- [`docs/runbooks/first-join-and-provision.md`](./docs/runbooks/first-join-and-provision.md)
+  - 처음 패키지를 등록하고 LXC까지 띄우는 가장 짧은 운영 runbook
+
 ## 한 줄 구조
 
 - `dalforge`: 클라우드 허브. 패키지와 스펙을 유통한다.
