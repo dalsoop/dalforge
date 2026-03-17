@@ -364,6 +364,26 @@ dal dismiss agent-coach
 | 일반 task runner | 로컬 명령 실행 중심 | dalforge는 레포 선언과 런타임 상태를 함께 관리 |
 | 컨테이너 provision 도구 | 인프라 생성 중심 | dalforge는 skill/hook export와 로컬 실행 흐름까지 같이 다룸 |
 
+## Current Gaps
+
+OpenClaw 같은 더 제품화된 agent stack과 비교하면, dalforge는 아직 아래가 약하다.
+
+- agent-facing 진입점을 하나로 묶는 공용 gateway가 없다
+- 세션 단위 context compaction 정책이 없다
+- `.dalfactory` 기반 skill/hook discovery는 되지만 자동 등록 경험이 아직 약하다
+- 서비스별 health 노출과 healthcheck 계약이 완전히 통일되진 않았다
+
+즉 지금은 실제로 동작하는 운영 스택이지만, 첫인상은 아직 "잘 만든 self-hosted toolkit"에 더 가깝다.
+
+## Near-Term Priorities
+
+다음 단계는 이 순서가 맞다.
+
+1. 공용 agent gateway 레이어 추가
+2. `join/export` 시 skill/hook auto-discovery 강화
+3. `/healthz`와 container healthcheck 규약 통일
+4. 수동 split/reset 대신 session compaction policy 추가
+
 ## 스펙
 
 모든 규약은 dalcenter/dal.spec.cue 에 CUE로 정의되어 있다. 이 파일이 dalforge-hub의 근간이며, 모든 도구는 이 스펙을 따른다.
