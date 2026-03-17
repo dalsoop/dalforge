@@ -88,11 +88,11 @@ func joinCmd() *cobra.Command {
 		Short: "Create a new localdal instance from a .dalfactory manifest",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sourcePath, err := resolveJoinSource(cmd.Context(), args[0])
+			source, err := resolveJoinSource(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			manifestPath, err := validate.ResolveManifestPath(sourcePath)
+			manifestPath, err := validate.ResolveManifestPath(source.Path)
 			if err != nil {
 				return err
 			}
@@ -112,7 +112,7 @@ func joinCmd() *cobra.Command {
 				return err
 			}
 			defer reg.Close()
-			inst, err := reg.Join("default", plan.RepoRoot, plan.Manifest, "", export.SkillCount(plan))
+			inst, err := reg.Join("default", source.Type, source.Ref, plan.RepoRoot, plan.Manifest, "", export.SkillCount(plan))
 			if err != nil {
 				return err
 			}
@@ -129,7 +129,7 @@ func joinCmd() *cobra.Command {
 					return err
 				}
 			}
-			fmt.Printf("instance created: %s (template=%s, skills=%d)\n", inst.DalID, inst.Template, inst.ExportedSkills)
+			fmt.Printf("instance created: %s (template=%s, source=%s:%s, skills=%d)\n", inst.DalID, inst.Template, inst.SourceType, inst.SourceRef, inst.ExportedSkills)
 
 			// Health check (1-shot, non-blocking)
 			if plan.HealthCheckCmd != "" {
@@ -193,22 +193,32 @@ func catalogSearchCmd() *cobra.Command {
 	}
 }
 
-func resolveJoinSource(ctx context.Context, arg string) (string, error) {
+type joinSource struct {
+	Type string
+	Ref  string
+	Path string
+}
+
+func resolveJoinSource(ctx context.Context, arg string) (*joinSource, error) {
 	if _, err := os.Stat(arg); err == nil {
-		return arg, nil
+		abs, err := filepath.Abs(arg)
+		if err != nil {
+			return nil, err
+		}
+		return &joinSource{Type: "local", Ref: abs, Path: abs}, nil
 	}
 	if filepath.IsAbs(arg) {
-		return "", fmt.Errorf("path %q not found", arg)
+		return nil, fmt.Errorf("path %q not found", arg)
 	}
 
 	client := cloud.New(cloud.LoadConfig())
 	cacheRoot := filepath.Join(dataDir(), "sources")
 	staged, pkg, err := client.Stage(ctx, arg, cacheRoot)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	fmt.Printf("staged package: %s -> %s\n", pkg.Path, staged)
-	return staged, nil
+	return &joinSource{Type: "cloud", Ref: pkg.Path, Path: staged}, nil
 }
 
 func runHealthCheck(repoRoot, command string) state.HealthState {
@@ -253,7 +263,7 @@ func listCmd() *cobra.Command {
 				return nil
 			}
 			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(tw, "DAL_ID\tTEMPLATE\tSTATUS\tHEALTH\tSKILLS\tCREATED")
+			fmt.Fprintln(tw, "DAL_ID\tSOURCE\tTEMPLATE\tSTATUS\tHEALTH\tSKILLS\tCREATED")
 			for _, i := range instances {
 				health := "unchecked"
 				if i.InstanceRoot != "" {
@@ -261,7 +271,11 @@ func listCmd() *cobra.Command {
 						health = formatHealth(hs)
 					}
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\n", i.DalID, i.Template, i.Status, health, i.ExportedSkills, i.CreatedAt)
+				source := strings.TrimPrefix(i.SourceRef, "dalcli-")
+				if source == "" {
+					source = i.RepoRoot
+				}
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%d\t%s\n", i.DalID, source, i.Template, i.Status, health, i.ExportedSkills, i.CreatedAt)
 			}
 			return tw.Flush()
 		},
@@ -290,8 +304,8 @@ func statusCmd() *cobra.Command {
 				}
 			}
 			inst := result.Instance
-			fmt.Printf("dal_id:         %s\ntemplate:       %s\nstatus:         %s\ncontainer_id:   %s\nrepo_root:      %s\nmanifest_path:  %s\ninstance_root:  %s\nexported_skills:%d\ncreated_at:     %s\n",
-				inst.DalID, inst.Template, inst.Status, inst.ContainerID, inst.RepoRoot, inst.ManifestPath, inst.InstanceRoot, inst.ExportedSkills, inst.CreatedAt)
+			fmt.Printf("dal_id:         %s\nsource_type:    %s\nsource_ref:     %s\ntemplate:       %s\nstatus:         %s\ncontainer_id:   %s\nrepo_root:      %s\nmanifest_path:  %s\ninstance_root:  %s\nexported_skills:%d\ncreated_at:     %s\n",
+				inst.DalID, inst.SourceType, inst.SourceRef, inst.Template, inst.Status, inst.ContainerID, inst.RepoRoot, inst.ManifestPath, inst.InstanceRoot, inst.ExportedSkills, inst.CreatedAt)
 
 			// Merge state.json if available
 			if inst.InstanceRoot != "" {

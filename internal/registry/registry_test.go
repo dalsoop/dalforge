@@ -21,7 +21,7 @@ func tempRegistry(t *testing.T) *Registry {
 
 func TestStatusExactDalID(t *testing.T) {
 	reg := tempRegistry(t)
-	inst, err := reg.Join("default", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 2)
+	inst, err := reg.Join("default", "local", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 2)
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestStatusExactDalID(t *testing.T) {
 
 func TestStatusSingleNameMatch(t *testing.T) {
 	reg := tempRegistry(t)
-	inst, err := reg.Join("default", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 2)
+	inst, err := reg.Join("default", "local", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 2)
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
@@ -61,11 +61,11 @@ func TestStatusSingleNameMatch(t *testing.T) {
 func TestStatusAmbiguousMatch(t *testing.T) {
 	reg := tempRegistry(t)
 	// Create two instances from same repo pattern
-	inst1, err := reg.Join("default", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 2)
+	inst1, err := reg.Join("default", "local", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 2)
 	if err != nil {
 		t.Fatalf("join 1: %v", err)
 	}
-	inst2, err := reg.Join("default", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 3)
+	inst2, err := reg.Join("default", "local", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach", "/repo/dalcli-agent-coach/.dalfactory/dal.cue", "", 3)
 	if err != nil {
 		t.Fatalf("join 2: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestStatusNotFound(t *testing.T) {
 
 func TestStatusFullNameMatch(t *testing.T) {
 	reg := tempRegistry(t)
-	inst, err := reg.Join("default", "/repo/dalcli-agent-bridge", "/repo/dalcli-agent-bridge/.dalfactory/dal.cue", "", 0)
+	inst, err := reg.Join("default", "local", "/repo/dalcli-agent-bridge", "/repo/dalcli-agent-bridge", "/repo/dalcli-agent-bridge/.dalfactory/dal.cue", "", 0)
 	if err != nil {
 		t.Fatalf("join: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestConcurrentJoinAndList(t *testing.T) {
 				return
 			}
 			defer reg.Close()
-			_, err = reg.Join("default", fmt.Sprintf("/repo/pkg-%d", n), fmt.Sprintf("/repo/pkg-%d/dal.cue", n), "", n)
+			_, err = reg.Join("default", "local", fmt.Sprintf("/repo/pkg-%d", n), fmt.Sprintf("/repo/pkg-%d", n), fmt.Sprintf("/repo/pkg-%d/dal.cue", n), "", n)
 			if err != nil {
 				errCh <- fmt.Errorf("join %d: %w", n, err)
 			}
@@ -159,5 +159,24 @@ func TestConcurrentJoinAndList(t *testing.T) {
 
 	for err := range errCh {
 		t.Errorf("concurrent error: %v", err)
+	}
+}
+
+func TestStatusSourceRefMatch(t *testing.T) {
+	reg := tempRegistry(t)
+	inst, err := reg.Join("default", "cloud", "dalcli-agent-coach", "/cache/dalcli-agent-coach", "/cache/dalcli-agent-coach/.dalfactory/dal.cue", "", 2)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	result, err := reg.Status("agent-coach")
+	if err != nil {
+		t.Fatalf("status by source ref: %v", err)
+	}
+	if result.Instance.DalID != inst.DalID {
+		t.Fatalf("expected %s, got %s", inst.DalID, result.Instance.DalID)
+	}
+	if result.Instance.SourceType != "cloud" {
+		t.Fatalf("expected source_type cloud, got %q", result.Instance.SourceType)
 	}
 }

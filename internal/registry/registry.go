@@ -20,6 +20,8 @@ type Instance struct {
 	Template       string
 	Status         string
 	ContainerID    string
+	SourceType     string
+	SourceRef      string
 	RepoRoot       string
 	ManifestPath   string
 	InstanceRoot   string
@@ -71,6 +73,8 @@ func migrate(db *sql.DB) error {
 		template TEXT NOT NULL,
 		status TEXT DEFAULT 'created',
 		container_id TEXT,
+		source_type TEXT,
+		source_ref TEXT,
 		repo_root TEXT,
 		manifest_path TEXT,
 		instance_root TEXT,
@@ -85,6 +89,8 @@ func migrate(db *sql.DB) error {
 		"ALTER TABLE instances ADD COLUMN manifest_path TEXT",
 		"ALTER TABLE instances ADD COLUMN instance_root TEXT",
 		"ALTER TABLE instances ADD COLUMN exported_skills INTEGER DEFAULT 0",
+		"ALTER TABLE instances ADD COLUMN source_type TEXT",
+		"ALTER TABLE instances ADD COLUMN source_ref TEXT",
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 			return err
@@ -99,12 +105,14 @@ func newID() string {
 	return fmt.Sprintf("dal-%x", b)
 }
 
-func (r *Registry) Join(template, repoRoot, manifestPath, instanceRoot string, exportedSkills int) (*Instance, error) {
+func (r *Registry) Join(template, sourceType, sourceRef, repoRoot, manifestPath, instanceRoot string, exportedSkills int) (*Instance, error) {
 	inst := &Instance{
 		DalID:          newID(),
 		NodeID:         "",
 		Template:       template,
 		Status:         "ready",
+		SourceType:     sourceType,
+		SourceRef:      sourceRef,
 		RepoRoot:       repoRoot,
 		ManifestPath:   manifestPath,
 		InstanceRoot:   instanceRoot,
@@ -112,8 +120,8 @@ func (r *Registry) Join(template, repoRoot, manifestPath, instanceRoot string, e
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 	}
 	_, err := r.db.Exec(
-		"INSERT INTO instances(dal_id,node_id,template,status,container_id,repo_root,manifest_path,instance_root,exported_skills,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-		inst.DalID, inst.NodeID, inst.Template, inst.Status, inst.ContainerID, inst.RepoRoot, inst.ManifestPath, inst.InstanceRoot, inst.ExportedSkills, inst.CreatedAt)
+		"INSERT INTO instances(dal_id,node_id,template,status,container_id,source_type,source_ref,repo_root,manifest_path,instance_root,exported_skills,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+		inst.DalID, inst.NodeID, inst.Template, inst.Status, inst.ContainerID, inst.SourceType, inst.SourceRef, inst.RepoRoot, inst.ManifestPath, inst.InstanceRoot, inst.ExportedSkills, inst.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("join: %w", err)
 	}
@@ -121,7 +129,7 @@ func (r *Registry) Join(template, repoRoot, manifestPath, instanceRoot string, e
 }
 
 func (r *Registry) List() ([]Instance, error) {
-	rows, err := r.db.Query("SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances ORDER BY created_at DESC")
+	rows, err := r.db.Query("SELECT dal_id, node_id, template, status, container_id, source_type, source_ref, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +137,7 @@ func (r *Registry) List() ([]Instance, error) {
 	var out []Instance
 	for rows.Next() {
 		var i Instance
-		if err := rows.Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt); err != nil {
+		if err := rows.Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.SourceType, &i.SourceRef, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
@@ -170,8 +178,8 @@ func (r *Registry) Status(name string) (*StatusResult, error) {
 func (r *Registry) statusByDalID(dalID string) (*Instance, error) {
 	var i Instance
 	err := r.db.QueryRow(
-		"SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE dal_id=?", dalID,
-	).Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt)
+		"SELECT dal_id, node_id, template, status, container_id, source_type, source_ref, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE dal_id=?", dalID,
+	).Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.SourceType, &i.SourceRef, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +188,8 @@ func (r *Registry) statusByDalID(dalID string) (*Instance, error) {
 
 func (r *Registry) searchByPattern(pattern string) ([]Instance, error) {
 	rows, err := r.db.Query(
-		"SELECT dal_id, node_id, template, status, container_id, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE repo_root LIKE ? OR manifest_path LIKE ? ORDER BY created_at DESC",
-		pattern, pattern,
+		"SELECT dal_id, node_id, template, status, container_id, source_type, source_ref, repo_root, manifest_path, instance_root, exported_skills, created_at FROM instances WHERE repo_root LIKE ? OR manifest_path LIKE ? OR source_ref LIKE ? ORDER BY created_at DESC",
+		pattern, pattern, pattern,
 	)
 	if err != nil {
 		return nil, err
@@ -190,7 +198,7 @@ func (r *Registry) searchByPattern(pattern string) ([]Instance, error) {
 	var out []Instance
 	for rows.Next() {
 		var i Instance
-		if err := rows.Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt); err != nil {
+		if err := rows.Scan(&i.DalID, &i.NodeID, &i.Template, &i.Status, &i.ContainerID, &i.SourceType, &i.SourceRef, &i.RepoRoot, &i.ManifestPath, &i.InstanceRoot, &i.ExportedSkills, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
