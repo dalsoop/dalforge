@@ -7,67 +7,61 @@
     <a href="https://dalforge.com"><img src="https://img.shields.io/badge/home-dalforge.com-0f766e?logo=googlechrome&logoColor=white" alt="Website"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb.svg" alt="MIT License"></a>
   </p>
+  <p><a href="./README.ko.md">한국어</a></p>
 </div>
 
-`dalforge`는 `.dalfactory` 선언을 실제 로컬 런타임과 LXC 운영으로 바꾸는 self-hosted orchestration stack이다. `dalforge`는 패키지와 스펙을 유통하고, `dalcenter`는 사용자 레포의 `.dalfactory`를 읽어 등록하고 관리한다.
-
-Korean summary: [`README.ko.md`](./README.ko.md)
+`dalforge` is a self-hosted orchestration stack that turns `.dalfactory` declarations into local runtime and LXC operations. `dalforge` distributes packages and specs; `dalcenter` reads, registers, and manages `.dalfactory` from user repos.
 
 Canonical domain: `https://dalforge.com`
 
 ## What It Is
 
-가장 짧게 말하면:
+In short:
 
-- `dalforge`
-  - 패키지와 스펙을 유통하는 클라우드 허브
-- `dalcenter`
-  - `.dalfactory`를 읽고 등록, export, 실행, provision을 담당하는 관리 주체
-- 사용자 레포
-  - `.dalfactory/`를 가진 실제 프로젝트
+- **`dalforge`** — Cloud hub that distributes packages and specs
+- **`dalcenter`** — Management agent that reads `.dalfactory`, handles registration, export, execution, and provisioning
+- **User repo** — The actual project containing a `.dalfactory/` directory
 
-즉:
+Or in one line:
 
-`.dalfactory`가 SSOT이고, `dalforge`는 배포하고, `dalcenter`는 실행하고 관리한다.
+`.dalfactory` is the SSOT. `dalforge` distributes. `dalcenter` executes and manages.
 
 ## Why It Exists
 
-`dalforge`는 “에이전트 도구를 설치하는 것”에서 끝나지 않고, 레포 선언을 실제 실행 환경으로 연결하기 위해 존재한다.
+The problem is usually this:
 
-문제는 보통 이렇다.
+- Skills, hooks, and runtime configs are scattered across repos
+- Local execution and container execution easily drift apart
+- Reproducing which repo requires which agent environment is difficult
 
-- 레포마다 스킬, 훅, 런타임 설정이 흩어짐
-- 로컬 실행과 컨테이너 실행이 따로 놀기 쉬움
-- 어떤 레포가 어떤 에이전트 환경을 요구하는지 재현이 어려움
+`dalforge` bundles all of this into a single `.dalfactory` declaration, connecting local exports all the way to Proxmox LXC provisioning.
 
-`dalforge`는 이걸 `.dalfactory` 하나로 묶어서, 로컬 export와 Proxmox LXC까지 이어준다.
+## Current Capabilities
 
-## 지금 되는 것
+`dalcenter` currently connects `.dalfactory` to real operational workflows:
 
-`dalcenter`는 현재 `.dalfactory`를 실제 운영 흐름으로 연결한다.
-
-- `catalog search` 기반 dalforge 클라우드 패키지 조회
+- `catalog search` for querying dalforge cloud packages
 - `.dalfactory` validate
-- `join/list/status` 기반 레포 등록 및 조회
-- Claude/Codex skill export, Claude hook export/settings 반영
-- `start/stop/restart` 로컬 프로세스 관리
-- `reconcile/watch` 기반 drift 점검
+- `join/list/status` for repo registration and inspection
+- Claude/Codex skill export, Claude hook export and settings injection
+- `start/stop/restart` for local process management
+- `reconcile/watch` for drift detection
 - Proxmox LXC `provision/destroy`
-- `container.packages` 설치
-- `container.agents` 설치 명령 실행
-- `dal summon/dismiss`와 export/unexport/destroy soft 연동
+- `container.packages` installation
+- `container.agents` install command execution
+- `dal summon/dismiss` with soft export/unexport/destroy integration
 
-실제 Proxmox 라이브 검증도 끝났다.
+Live Proxmox verification is complete:
 
-- Ubuntu 24.04 LXC 생성
-- `bash`, `python3`, `tmux` 설치 확인
-- `destroy` 후 컨테이너 제거 확인
+- Ubuntu 24.04 LXC creation
+- `bash`, `python3`, `tmux` package installation confirmed
+- `destroy` followed by container removal confirmed
 
-즉 지금은 “설계 문서만 있는 상태”가 아니라, 파생 레포의 `.dalfactory`에서 로컬 실행과 LXC 운영까지 이어지는 초기 운영 버전이다.
+This is not a design document — it is an early operational version where `.dalfactory` in a user repo drives local execution and LXC operations end to end.
 
 ## Quick Start
 
-가장 빠른 시작은 `dalcenter`로 패키지를 찾고, 레포를 등록하고, 상태를 보는 것이다.
+The fastest way to start is to search for a package, register a repo, and check its status.
 
 ```bash
 dalcenter catalog search agent-coach
@@ -78,7 +72,7 @@ dalcenter status agent-coach
 
 ## What Success Looks Like
 
-실제 성공 예시는 이런 형태다.
+A successful run looks like this:
 
 ```text
 NAME                BRANCH  DESCRIPTION
@@ -102,86 +96,74 @@ source_ref:     dalcli-agent-coach
 health_status:  ok
 ```
 
-## Docs Index
+## Docs
 
-- [`docs/README.md`](./docs/README.md)
-  - 전체 문서 입구
-- [`docs/runbooks/first-join-and-provision.md`](./docs/runbooks/first-join-and-provision.md)
-  - 처음 패키지를 등록하고 LXC까지 띄우는 가장 짧은 운영 runbook
+- [`docs/README.md`](./docs/README.md) — Documentation index
+- [`docs/runbooks/first-join-and-provision.md`](./docs/runbooks/first-join-and-provision.md) — Shortest runbook: register a package and spin up an LXC
 
-## 한 줄 구조
-
-- `dalforge`: 클라우드 허브. 패키지와 스펙을 유통한다.
-- `dalcenter`: 등록/관리 주체. `.dalfactory`를 읽고 상태를 관리한다.
-- 사용자 레포: 실제 프로젝트 레포. 여기에 `.dalfactory/`가 있다.
-
-한 줄로 줄이면:
-
-`dalforge`는 배포한다. `dalcenter`는 관리한다. `.dalfactory`는 사용자 레포에 있다.
-
-## 구조
+## Architecture
 
 ```
 dalforge-hub/
-  dalcenter/                     중앙 레지스트리 + 시크릿 관리
-    dal.spec.cue                 핵심 스펙 (CUE)
-  dalcli/                        CLI 도구 패키지들
-    dalcli-agent-coach           에이전트 pane 감시 + 코칭
-    dalcli-custom-functions      함수 레지스트리 + 명령어 이력
-    dalcli-task-queue            작업 큐 + 순차 실행
-    dalcli-lxc-stage-player      LXC stage 실행 진입점
-    dalcli-agent-tool-syncer     문서 SSOT 동기화 + 링크 감시
-    dalcli-agent-bridge          에이전트 간 릴레이
+  dalcenter/                     Central registry + secret management
+    dal.spec.cue                 Core spec (CUE)
+  dalcli/                        CLI tool packages
+    dalcli-agent-coach           Agent pane monitoring + coaching
+    dalcli-custom-functions      Function registry + command history
+    dalcli-task-queue            Task queue + sequential execution
+    dalcli-lxc-stage-player      LXC stage execution entry point
+    dalcli-agent-tool-syncer     Doc SSOT sync + link watcher
+    dalcli-agent-bridge          Inter-agent relay
 ```
 
-## 핵심 개념
+## Core Concepts
 
-### dal (인형)
+### dal (puppet)
 
-dal은 AI 에이전트 인스턴스다. 컨테이너 안에 claude, codex, gemini 등이 이미 설치되고 로그인된 상태로 존재한다. 하나의 dal은 하나의 작업 환경이다.
+A dal is an AI agent instance. Inside its container, agents like Claude, Codex, or Gemini are already installed and authenticated. One dal equals one working environment.
 
-### dalforge (클라우드 허브)
+### dalforge (cloud hub)
 
-`dalforge`는 npm registry 같은 상위 유통/배포 허브다.
+`dalforge` is the upper-level distribution hub, similar to an npm registry.
 
-- 패키지 배포
-- 스펙/문서 유통
-- 버전 카탈로그
+- Package distribution
+- Spec and documentation delivery
+- Version catalog
 
-### dalcenter (등록 주체)
+### dalcenter (management agent)
 
-`dalcenter`는 `.dalfactory`를 읽고 등록하고 상태를 관리하는 주체다.
+`dalcenter` reads `.dalfactory`, registers packages, and manages runtime state.
 
-- 패키지(CLI/스킬/훅) 등록 및 버전 관리
-- 인스턴스 생성 및 상태 추적
-- 시크릿(API 키 등) 암호화 저장 및 배포
-- 노드별 설치 현황(인벤토리) 관리
-- 감사 이벤트 기록
+- Package (CLI/skill/hook) registration and versioning
+- Instance creation and state tracking
+- Secret (API keys, etc.) encrypted storage and distribution
+- Per-node installation inventory
+- Audit event logging
 
-### .dalfactory (레포 선언)
+### .dalfactory (repo declaration)
 
-사용자 레포 루트에 위치하는 폴더다. `dalforge` 클라우드 허브 레포가 아니라, 실제 프로젝트 레포 안에 들어간다. 이 폴더가 실행, export, container, agents를 선언하는 SSOT다.
+A directory at the root of a user repo. It lives in the actual project repo, not in the dalforge cloud hub repo. This directory is the SSOT for execution, exports, containers, and agents.
 
 ```
 my-project/
   .dalfactory/
-    dal.cue                      이 레포의 dal 정의
+    dal.cue                      Dal definition for this repo
     templates/
-      claude-dev.cue             claude 개발용 인형 틀
-      claude-review.cue          claude 리뷰용 인형 틀
-      codex-worker.cue           codex 작업용 인형 틀
-      full-stack.cue             전체 에이전트 인형 틀
+      claude-dev.cue             Claude development puppet template
+      claude-review.cue          Claude review puppet template
+      codex-worker.cue           Codex worker puppet template
+      full-stack.cue             Full agent puppet template
   src/
   ...
 ```
 
-### PLAYER (에이전트)
+### PLAYER (agent)
 
-실행 환경 안에서 실제로 일하는 주체다. 하나의 dal에 여러 PLAYER가 있을 수 있다. 각 PLAYER는 서로 다른 에이전트(claude, codex, gemini)일 수 있고, 서로 다른 도구 세트를 가진다.
+The entity that actually works inside an execution environment. A single dal can have multiple PLAYERs. Each PLAYER can be a different agent (Claude, Codex, Gemini) with a different tool set.
 
-## ID 체계
+## ID System
 
-모든 dal 구성요소는 고유 ID를 가진다. 이름이 바뀌어도 ID는 영구 고정이다.
+Every dal component has a unique ID. Even if the name changes, the ID stays permanent.
 
 ```
 DAL:{CATEGORY}:{uuid8}
@@ -192,51 +174,51 @@ DAL:PLAYER:f1d24e83       claude-dev player
 DAL:CONTAINER:a1b2c3d4    my-project container
 ```
 
-### 카테고리
+### Categories
 
-| 카테고리 | 설명 |
+| Category | Description |
 |---|---|
-| CLI | 명령줄 도구 |
-| PLAYER | 실행 환경 (에이전트) |
-| CONTAINER | 컨테이너 서비스 |
-| SKILL | 에이전트 스킬 |
-| HOOK | 이벤트 훅 |
+| CLI | Command-line tool |
+| PLAYER | Execution environment (agent) |
+| CONTAINER | Container service |
+| SKILL | Agent skill |
+| HOOK | Event hook |
 
-카테고리는 확장 가능하다. 새 카테고리 추가 시 dal.spec.cue 변경 없이 dalcenter에서 등록한다.
+Categories are extensible. Adding a new category requires no change to dal.spec.cue — just register it in dalcenter.
 
-## 흐름
+## Workflow
 
-### 1. 템플릿 정의
+### 1. Define a template
 
-.dalfactory/templates/claude-dev.cue 에 인형 틀을 정의한다. 컨테이너 base image, 설치할 패키지, 에이전트, CLI 도구, 스킬, 필요한 시크릿을 선언한다.
+Define a puppet template in `.dalfactory/templates/claude-dev.cue`. Declare the container base image, packages to install, agents, CLI tools, skills, and required secrets.
 
-### 2. 레포 등록
+### 2. Register a repo
 
 ```bash
 dalcenter join /path/to/repo
 ```
 
-현재 `join`은 아래를 수행한다.
+`join` currently performs:
 
-1. 사용자 레포의 `.dalfactory/dal.cue` 읽기
-2. manifest validate
-3. skill/hook export
-4. 로컬 instance dir 생성
-5. registry + state 기록
+1. Read `.dalfactory/dal.cue` from the user repo
+2. Validate the manifest
+3. Export skills and hooks
+4. Create a local instance directory
+5. Write registry and state
 
 ```bash
 dalcenter list
 dalcenter status <name-or-id>
 ```
 
-### 3. 빌드 및 Export
+### 3. Build and export
 
-.dalfactory/ 가 소스(SSOT)이고, 각 에이전트용 설정은 빌드 산출물로 export된다.
+`.dalfactory/` is the source (SSOT). Agent-specific configs are exported as build artifacts.
 
-1차 규칙은 레포 루트의 `skills/{name}/SKILL.md` 같은 원본 자산을 직접 export하는 것이다. 예외적으로 원본 허브 성격의 레포는 `source/document/skills/{name}/SKILL.md` 경로를 fallback export source로 선언할 수 있다.
+The primary rule is to export original assets directly from the repo root (e.g., `skills/{name}/SKILL.md`). Hub-style repos may optionally declare `source/document/skills/{name}/SKILL.md` as a fallback export source.
 
 ```
-.dalfactory/ (소스)
+.dalfactory/ (source)
     -> export
 .claude/
     skills/
@@ -246,11 +228,11 @@ dalcenter status <name-or-id>
     skills/
 ```
 
-현재 hook settings 반영은 Claude만 지원한다. Codex는 skills export까지만 지원한다.
+Hook settings injection currently supports Claude only. Codex supports skill export only.
 
-### 4. 시크릿 관리
+### 4. Secret management
 
-API 키 등 민감 정보는 자체 SecretVault에 암호화(AES-256-GCM) 저장된다. 컨테이너 안에서 에이전트가 실행될 때 자동으로 복호화되어 주입된다.
+Sensitive data such as API keys is stored encrypted (AES-256-GCM) in the built-in SecretVault. When an agent runs inside a container, secrets are automatically decrypted and injected.
 
 ```bash
 dalcenter secret set anthropic_api_key
@@ -258,36 +240,36 @@ dalcenter secret set openai_api_key
 dalcenter secret list
 ```
 
-### 5. 동기화
+### 5. Synchronization
 
-dalcenter는 등록된 레포와 런타임 상태를 주기적으로 동기화한다.
+`dalcenter` periodically syncs registered repos and runtime state.
 
-- 패키지 버전 업데이트 감지
-- 설치 현황 보고
-- 오프라인 시 캐시 모드로 동작
+- Detect package version updates
+- Report installation status
+- Operate in cache mode when offline
 
-지금 실제 명령은 아래가 중심이다.
+Key commands:
 
 ```bash
 dalcenter reconcile
 dalcenter watch --interval 60
 ```
 
-## 실제 사용 예시
+## Usage Examples
 
-### 1. manifest 검증
+### Validate a manifest
 
 ```bash
 dalcenter validate /root/dalforge-hub/dalcli/dalcli-agent-coach
 ```
 
-### 2. dalforge 패키지 조회
+### Search dalforge packages
 
 ```bash
 dalcenter catalog search agent-coach
 ```
 
-### 3. 레포 등록
+### Register a repo
 
 ```bash
 dalcenter join /root/dalforge-hub/dalcli/dalcli-agent-coach
@@ -295,15 +277,15 @@ dalcenter list
 dalcenter status dalcli-agent-coach
 ```
 
-패키지 이름만으로도 dalforge에서 받아와서 등록할 수 있다.
+Register by package name (fetches from dalforge):
 
 ```bash
 dalcenter join agent-coach
 ```
 
-### 4. 로컬 실행 관리
+### Manage local execution
 
-`build.entry`가 있으면 `--command` 없이도 실행된다.
+If `build.entry` is defined, runs without `--command`:
 
 ```bash
 dalcenter start dalcli-agent-coach
@@ -311,13 +293,13 @@ dalcenter status dalcli-agent-coach
 dalcenter stop dalcli-agent-coach
 ```
 
-성공 기준은 최소 이 정도다.
+Minimum success criteria:
 
-- `list`에서 `STATUS=ready`
+- `list` shows `STATUS=ready`
 - `HEALTH=ok(...)`
-- `status`에서 `source_type`, `source_ref`, `health_status`가 보임
+- `status` shows `source_type`, `source_ref`, `health_status`
 
-### 5. Proxmox LXC 생성
+### Provision a Proxmox LXC
 
 ```bash
 dalcenter provision dalcli-agent-coach \
@@ -328,84 +310,75 @@ dalcenter provision dalcli-agent-coach \
   --cores 1
 ```
 
-지원 플래그:
+Supported flags: `--vmid`, `--storage`, `--bridge`, `--memory`, `--cores`, `--dry-run`
 
-- `--vmid`
-- `--storage`
-- `--bridge`
-- `--memory`
-- `--cores`
-- `--dry-run`
-
-### 6. Proxmox LXC 제거
+### Destroy a Proxmox LXC
 
 ```bash
 dalcenter destroy dalcli-agent-coach
 ```
 
-### 7. dal과 연동
+### Integrate with dal
 
 ```bash
 dal summon agent-coach
 dal dismiss agent-coach
 ```
 
-`dal summon`은 soft dependency로 export를 호출하고, `dal dismiss`는 unexport와 destroy를 soft dependency로 호출한다.
+`dal summon` calls export as a soft dependency. `dal dismiss` calls unexport and destroy as soft dependencies.
 
-## 현재 한계
+## Current Limitations
 
-지금도 실사용은 가능하지만, 아래는 아직 확장 여지가 있다.
+Usable today, but these areas still have room to grow:
 
-- 고급 네트워크/스토리지 정책
-- disk size 같은 추가 운영 플래그
-- hook 운영 예시 manifest
-- Proxmox 대규모 운영용 정책/감사 정교화
+- Advanced network and storage policies
+- Additional operational flags (e.g., disk size)
+- Hook operation example manifests
+- Proxmox-scale audit and policy refinement
 
 ## What It Is Not
 
-- 단순 패키지 설치기만 있는 도구
-- 클라우드 SaaS control plane만 있는 제품
-- `.dalfactory` 없이 수동 설정만 전제하는 런타임
-- 대규모 멀티테넌트 운영 플랫폼 완성형
+- A tool that only installs packages
+- A product with only a cloud SaaS control plane
+- A runtime that assumes manual configuration without `.dalfactory`
+- A finished large-scale multi-tenant operations platform
 
 ## Tradeoffs
 
-- 단순 스크립트보다 구조가 크고 개념이 많다
-- Proxmox/LXC까지 다루면 운영 난이도가 올라간다
-- `.dalfactory` 계약이 명확한 대신, 선언을 제대로 유지해야 한다
+- More structure and concepts than a simple script
+- Operational complexity rises when covering Proxmox/LXC
+- `.dalfactory` declarations must be maintained, but in return you get reproducibility and manageability
 
 ## Rough Comparison
 
-| 도구 형태 | 기본 모델 | dalforge 차이점 |
+| Tool type | Baseline model | How dalforge differs |
 |---|---|---|
-| 단순 CLI 설치기 | 패키지 설치 후 끝 | dalforge는 `.dalfactory`를 읽고 등록, export, 상태, provision까지 연결 |
-| 일반 task runner | 로컬 명령 실행 중심 | dalforge는 레포 선언과 런타임 상태를 함께 관리 |
-| 컨테이너 provision 도구 | 인프라 생성 중심 | dalforge는 skill/hook export와 로컬 실행 흐름까지 같이 다룸 |
+| Simple CLI installer | Install packages and done | dalforge reads `.dalfactory`, handles registration, export, state, and provisioning |
+| General task runner | Local command execution | dalforge manages repo declarations and runtime state together |
+| Container provisioning tool | Infrastructure creation | dalforge also covers skill/hook export and local execution flows |
 
 ## Current Gaps
 
-OpenClaw 같은 더 제품화된 agent stack과 비교하면, dalforge는 아직 아래가 약하다.
+Compared to more productized agent stacks like OpenClaw, dalforge is still weaker in:
 
-- agent-facing 진입점을 하나로 묶는 공용 gateway가 없다
-- 세션 단위 context compaction 정책이 없다
-- `.dalfactory` 기반 skill/hook discovery는 되지만 자동 등록 경험이 아직 약하다
-- 서비스별 health 노출과 healthcheck 계약이 완전히 통일되진 않았다
+- No unified agent-facing gateway
+- No session-level context compaction policy
+- `.dalfactory`-based skill/hook discovery works, but auto-registration UX is still rough
+- Per-service health exposure and healthcheck contracts are not fully unified
 
-즉 지금은 실제로 동작하는 운영 스택이지만, 첫인상은 아직 "잘 만든 self-hosted toolkit"에 더 가깝다.
+In other words: it is a working operational stack, but the first impression is still closer to "a well-built self-hosted toolkit."
 
 ## Near-Term Priorities
 
-다음 단계는 이 순서가 맞다.
+1. Add a shared agent gateway layer
+2. Strengthen skill/hook auto-discovery on `join/export`
+3. Unify `/healthz` and container healthcheck contracts
+4. Add session compaction policy instead of manual split/reset
 
-1. 공용 agent gateway 레이어 추가
-2. `join/export` 시 skill/hook auto-discovery 강화
-3. `/healthz`와 container healthcheck 규약 통일
-4. 수동 split/reset 대신 session compaction policy 추가
+## Spec
 
-## 스펙
-
-모든 규약은 dalcenter/dal.spec.cue 에 CUE로 정의되어 있다. 이 파일이 dalforge-hub의 근간이며, 모든 도구는 이 스펙을 따른다.
+All contracts are defined in CUE at `dalcenter/dal.spec.cue`. This file is the foundation of dalforge-hub, and all tools follow this spec.
 
 ## Contributing
 
-기여 규칙은 [`CONTRIBUTING.md`](./CONTRIBUTING.md)에서 시작한다.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) to get started.
