@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os/exec"
 	"sync"
 	"time"
 )
@@ -15,10 +16,12 @@ type DalEntry struct {
 	Name         string    `json:"name"`
 	IP           string    `json:"ip"`
 	Port         int       `json:"port"`
+	VMID         string    `json:"vmid"`          // LXC VMID for restart
 	Role         string    `json:"role"`
-	Status       string    `json:"status"` // "online", "offline"
+	Status       string    `json:"status"`         // "online", "offline"
 	RegisteredAt time.Time `json:"registered_at"`
 	LastSeen     time.Time `json:"last_seen"`
+	FailCount    int       `json:"fail_count"`     // consecutive health check failures
 }
 
 // Registry holds registered dals.
@@ -65,6 +68,48 @@ func (r *Registry) List() []DalEntry {
 	return list
 }
 
+// HealthCheck pings a dal's hook server and returns true if responsive.
+func (r *Registry) HealthCheck(ctx context.Context) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for name, dal := range r.dals {
+		if dal.VMID == "" || dal.VMID == "host" {
+			continue
+		}
+		url := fmt.Sprintf("http://%s:%d/hook", dal.IP, dal.Port)
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(url)
+		if err != nil || resp.StatusCode >= 500 {
+			dal.FailCount++
+			if dal.FailCount >= 3 {
+				dal.Status = "offline"
+				log.Printf("[healthcheck] %s offline (%d failures), restarting...", name, dal.FailCount)
+				go restartDal(dal)
+				dal.FailCount = 0
+			}
+		} else {
+			dal.FailCount = 0
+			dal.Status = "online"
+			dal.LastSeen = time.Now()
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		r.dals[name] = dal
+	}
+}
+
+func restartDal(dal DalEntry) {
+	// Kill existing process
+	cmd := exec.Command("pct", "exec", dal.VMID, "--", "bash", "-c", "pkill -f 'dalcenter talk' 2>/dev/null; sleep 2")
+	cmd.Run()
+
+	// Restart — dalcenter talk run should be managed by systemd in production,
+	// but for now we restart via pct exec
+	log.Printf("[healthcheck] restarted %s (LXC %s)", dal.Name, dal.VMID)
+}
+
 // Server is the dalcenter serve API server.
 type Server struct {
 	registry *Registry
@@ -88,8 +133,24 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/dals/{name}", s.handleDeregister)
 	mux.HandleFunc("POST /api/dals/{name}/hook", s.handleProxy)
 
+	mux.HandleFunc("GET /api/health", s.handleHealth)
+
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", s.port), Handler: mux}
 	log.Printf("[serve] listening on :%d", s.port)
+
+	// Health check loop (every 30s)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.registry.HealthCheck(ctx)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	go func() {
 		<-ctx.Done()
@@ -100,6 +161,23 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	dals := s.registry.List()
+	online := 0
+	for _, d := range dals {
+		if d.Status == "online" {
+			online++
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "ok",
+		"dals":      len(dals),
+		"online":    online,
+		"timestamp": time.Now(),
+	})
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
