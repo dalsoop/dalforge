@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,18 +15,20 @@ import (
 
 // Config for the talk daemon.
 type Config struct {
-	BridgeType string // "mattermost"
-	URL        string // bridge server URL
-	BotToken   string // bot auth token
-	ChannelID  string // target channel ID
-	Role       string // agent role description
-	AskMode    bool   // enable ask mode
-	ExecMode   bool   // enable exec mode
-	MaxTurns   int    // max response turns per session
-	Cooldown   time.Duration
-	HookPort   int // hook server port (default 10200)
-	ServeURL   string // dalcenter serve URL for registry
-	AgentName  string // agent name for registration
+	BridgeType  string // "mattermost"
+	URL         string // bridge server URL
+	BotToken    string // bot auth token
+	ChannelID   string // target channel ID
+	BotUsername string // bot username for mention detection (e.g. "agent-200")
+	Role        string // agent role description
+	AskMode     bool   // enable ask mode
+	ExecMode    bool   // enable exec mode
+	MentionOnly bool   // only respond when @mentioned
+	MaxTurns    int    // max response turns per session
+	Cooldown    time.Duration
+	HookPort    int    // hook server port (default 10200)
+	ServeURL    string // dalcenter serve URL for registry
+	AgentName   string // agent name for registration
 }
 
 // HookRequest is the JSON body for direct agent-to-agent calls.
@@ -106,6 +109,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 			if d.isDuplicate(msg.ID) {
 				continue
 			}
+			// Mention filter: only respond when @mentioned
+			if d.cfg.MentionOnly && !d.isMentioned(msg.Content) {
+				continue
+			}
 			if d.cfg.MaxTurns > 0 && d.turnCount >= d.cfg.MaxTurns {
 				log.Printf("[talk] max_turns reached (%d), ignoring", d.cfg.MaxTurns)
 				continue
@@ -113,6 +120,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 			if d.cfg.Cooldown > 0 && time.Since(d.lastReply) < d.cfg.Cooldown {
 				continue
 			}
+
+			// Strip mention tag from content before processing
+			cleaned := d.stripMention(msg.Content)
+			msg.Content = cleaned
 
 			d.wg.Add(1)
 			go func(m bridge.Message) {
@@ -228,6 +239,31 @@ func (d *Daemon) deregister() {
 	}
 	// TODO: DELETE from dalcenter serve /api/agents/{name}
 	log.Printf("[talk] deregistered from %s", d.cfg.ServeURL)
+}
+
+// isMentioned checks if the message contains @botUsername or @agentName.
+func (d *Daemon) isMentioned(content string) bool {
+	lower := strings.ToLower(content)
+	if d.cfg.BotUsername != "" && strings.Contains(lower, "@"+strings.ToLower(d.cfg.BotUsername)) {
+		return true
+	}
+	if d.cfg.AgentName != "" && strings.Contains(lower, "@"+strings.ToLower(d.cfg.AgentName)) {
+		return true
+	}
+	return false
+}
+
+// stripMention removes @botUsername and @agentName from content.
+func (d *Daemon) stripMention(content string) string {
+	result := content
+	for _, name := range []string{d.cfg.BotUsername, d.cfg.AgentName} {
+		if name == "" {
+			continue
+		}
+		result = strings.ReplaceAll(result, "@"+name, "")
+		result = strings.ReplaceAll(result, "@"+strings.ToLower(name), "")
+	}
+	return strings.TrimSpace(result)
 }
 
 func (d *Daemon) isDuplicate(id string) bool {

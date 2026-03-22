@@ -985,35 +985,48 @@ func destroyCmd() *cobra.Command {
 }
 
 func talkCmd() *cobra.Command {
-	var (
-		bridgeType string
-		url        string
-		botToken   string
-		channelID  string
-		role       string
-		hookPort   int
-		serveURL   string
-		agentName  string
-		maxTurns   int
-		cooldown   time.Duration
-	)
 	cmd := &cobra.Command{
 		Use:   "talk",
+		Short: "Agent communication (daemon, bot management)",
+	}
+	cmd.AddCommand(talkRunCmd(), talkSetupCmd(), talkTeardownCmd())
+	return cmd
+}
+
+func talkRunCmd() *cobra.Command {
+	var (
+		bridgeType  string
+		url         string
+		botToken    string
+		channelID   string
+		botUsername string
+		role        string
+		mentionOnly bool
+		hookPort    int
+		serveURL    string
+		agentName   string
+		maxTurns    int
+		cooldown    time.Duration
+	)
+	cmd := &cobra.Command{
+		Use:   "run",
 		Short: "Run agent communication daemon (MM bridge + hook server)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := talk.Config{
-				BridgeType: bridgeType,
-				URL:        url,
-				BotToken:   botToken,
-				ChannelID:  channelID,
-				Role:       role,
-				AskMode:    true,
-				ExecMode:   false,
-				MaxTurns:   maxTurns,
-				Cooldown:   cooldown,
-				HookPort:   hookPort,
-				ServeURL:   serveURL,
-				AgentName:  agentName,
+				BridgeType:  bridgeType,
+				URL:         url,
+				BotToken:    botToken,
+				ChannelID:   channelID,
+				BotUsername: botUsername,
+				Role:        role,
+				AskMode:     true,
+				ExecMode:    false,
+				MentionOnly: mentionOnly,
+				MaxTurns:    maxTurns,
+				Cooldown:    cooldown,
+				HookPort:    hookPort,
+				ServeURL:    serveURL,
+				AgentName:   agentName,
 			}
 
 			d, err := talk.NewDaemon(cfg)
@@ -1038,12 +1051,115 @@ func talkCmd() *cobra.Command {
 	cmd.Flags().StringVar(&url, "url", "", "bridge server URL")
 	cmd.Flags().StringVar(&botToken, "bot-token", "", "bot authentication token")
 	cmd.Flags().StringVar(&channelID, "channel-id", "", "target channel ID")
+	cmd.Flags().StringVar(&botUsername, "bot-username", "", "bot username for mention detection")
 	cmd.Flags().StringVar(&role, "role", "", "agent role description")
+	cmd.Flags().BoolVar(&mentionOnly, "mention-only", false, "only respond when @mentioned")
 	cmd.Flags().IntVar(&hookPort, "hook-port", 10200, "hook server port")
 	cmd.Flags().StringVar(&serveURL, "serve-url", "", "dalcenter serve URL for registry")
 	cmd.Flags().StringVar(&agentName, "agent-name", "", "agent name for registration")
 	cmd.Flags().IntVar(&maxTurns, "max-turns", 10, "max response turns")
 	cmd.Flags().DurationVar(&cooldown, "cooldown", 3*time.Second, "cooldown between responses")
+	return cmd
+}
+
+func talkSetupCmd() *cobra.Command {
+	var (
+		url         string
+		login       string
+		password    string
+		channel     string
+		team        string
+		username    string
+		displayName string
+		description string
+	)
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Create a Mattermost bot account for an agent",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Login
+			adminToken, err := talk.GetAdminToken(url, login, password)
+			if err != nil {
+				return fmt.Errorf("login: %w", err)
+			}
+
+			// Resolve team and channel
+			teamID, channelID, err := talk.GetTeamAndChannel(url, adminToken, team, channel)
+			if err != nil {
+				return err
+			}
+
+			// Create bot
+			if displayName == "" {
+				displayName = username
+			}
+			if description == "" {
+				description = "dalcenter talk agent"
+			}
+			bot, err := talk.SetupBot(url, adminToken, teamID, channelID, username, displayName, description)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("bot created:\n")
+			fmt.Printf("  username:   %s\n", bot.Username)
+			fmt.Printf("  user_id:    %s\n", bot.UserID)
+			fmt.Printf("  token:      %s\n", bot.Token)
+			fmt.Printf("  channel_id: %s\n", channelID)
+			fmt.Printf("\nrun with:\n")
+			fmt.Printf("  dalcenter talk run --url %s --bot-token %s --channel-id %s --bot-username %s --mention-only\n",
+				url, bot.Token, channelID, bot.Username)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&url, "url", "", "Mattermost server URL")
+	cmd.Flags().StringVar(&login, "login", "", "admin login (email)")
+	cmd.Flags().StringVar(&password, "password", "", "admin password")
+	cmd.Flags().StringVar(&channel, "channel", "", "channel name")
+	cmd.Flags().StringVar(&team, "team", "", "team name (empty = first team)")
+	cmd.Flags().StringVar(&username, "username", "", "bot username (e.g. agent-200)")
+	cmd.Flags().StringVar(&displayName, "display-name", "", "bot display name")
+	cmd.Flags().StringVar(&description, "description", "", "bot description")
+	cmd.MarkFlagRequired("url")
+	cmd.MarkFlagRequired("login")
+	cmd.MarkFlagRequired("password")
+	cmd.MarkFlagRequired("channel")
+	cmd.MarkFlagRequired("username")
+	return cmd
+}
+
+func talkTeardownCmd() *cobra.Command {
+	var (
+		url      string
+		login    string
+		password string
+		username string
+	)
+	cmd := &cobra.Command{
+		Use:   "teardown",
+		Short: "Disable a Mattermost bot account and revoke tokens",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			adminToken, err := talk.GetAdminToken(url, login, password)
+			if err != nil {
+				return fmt.Errorf("login: %w", err)
+			}
+
+			if err := talk.TeardownBot(url, adminToken, username); err != nil {
+				return err
+			}
+
+			fmt.Printf("bot %q disabled and tokens revoked\n", username)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&url, "url", "", "Mattermost server URL")
+	cmd.Flags().StringVar(&login, "login", "", "admin login (email)")
+	cmd.Flags().StringVar(&password, "password", "", "admin password")
+	cmd.Flags().StringVar(&username, "username", "", "bot username to teardown")
+	cmd.MarkFlagRequired("url")
+	cmd.MarkFlagRequired("login")
+	cmd.MarkFlagRequired("password")
+	cmd.MarkFlagRequired("username")
 	return cmd
 }
 
