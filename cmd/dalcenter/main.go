@@ -485,11 +485,12 @@ func validateCmd() *cobra.Command {
 
 			specPath := specPath()
 			hasError := false
-			for _, path := range paths {
+			for _, arg := range paths {
+				path := resolveRepoPath(arg)
 				manifestPath, err := validate.ResolveManifestPath(path)
 				if err != nil {
 					hasError = true
-					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", path, err)
+					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", arg, err)
 					continue
 				}
 				if _, err := validate.Manifest(specPath, manifestPath); err != nil {
