@@ -68,16 +68,91 @@ type Model struct {
 
 // New creates a new TUI model.
 func New(cfg Config) Model {
-	return Model{
+	m := Model{
 		cfg:       cfg,
 		activeTab: tabDals,
-		dals: []DalStatus{
-			{Name: "dal-leader", Role: "오케스트레이터", LXC: "host", Channel: cfg.ChannelID, Status: "unknown"},
-			{Name: "dal-marketing-200", Role: "마케팅 전략가", LXC: "200", Channel: cfg.ChannelID, Status: "unknown"},
-			{Name: "dal-tech-writer-201", Role: "기술 콘텐츠 담당", LXC: "201", Channel: cfg.ChannelID, Status: "unknown"},
-		},
 		lastMsgAt: time.Now().UnixMilli(),
 	}
+	// Load from serve registry if available, otherwise detect via pct
+	m.dals = m.loadDals()
+	return m
+}
+
+func (m *Model) loadDals() []DalStatus {
+	// Try serve API first
+	if m.cfg.ServeURL != "" {
+		if dals := m.fetchDalsFromServe(); len(dals) > 0 {
+			return dals
+		}
+	}
+	// Fallback: detect running dals via pct
+	return m.detectDals()
+}
+
+func (m *Model) fetchDalsFromServe() []DalStatus {
+	resp, err := http.Get(m.cfg.ServeURL + "/api/dals")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var entries []struct {
+		Name   string `json:"name"`
+		IP     string `json:"ip"`
+		Port   int    `json:"port"`
+		VMID   string `json:"vmid"`
+		Role   string `json:"role"`
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(body, &entries) != nil {
+		return nil
+	}
+	var dals []DalStatus
+	for _, e := range entries {
+		lxc := e.VMID
+		if lxc == "" {
+			lxc = "host"
+		}
+		dals = append(dals, DalStatus{
+			Name:    e.Name,
+			Role:    e.Role,
+			LXC:     lxc,
+			Channel: m.cfg.ChannelID,
+			Status:  e.Status,
+		})
+	}
+	return dals
+}
+
+func (m *Model) detectDals() []DalStatus {
+	var dals []DalStatus
+	// Check host conductor
+	out, _ := exec.Command("bash", "-c", "pgrep -f 'dalcenter talk conductor' > /dev/null && echo online || echo offline").Output()
+	dals = append(dals, DalStatus{
+		Name: "dal-leader", Role: "오케스트레이터", LXC: "host",
+		Status: strings.TrimSpace(string(out)),
+	})
+	// Check running LXCs for dalcenter talk
+	pctOut, _ := exec.Command("pct", "list").Output()
+	for _, line := range strings.Split(string(pctOut), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[1] != "running" {
+			continue
+		}
+		vmid := fields[0]
+		name := fields[2]
+		chk, _ := exec.Command("pct", "exec", vmid, "--", "bash", "-c",
+			"pgrep -f 'dalcenter talk' > /dev/null && echo online || echo offline").Output()
+		status := strings.TrimSpace(string(chk))
+		if status == "online" {
+			dals = append(dals, DalStatus{
+				Name: "dal-" + name, Role: "(detected)", LXC: vmid,
+				Status: status,
+			})
+		}
+	}
+	return dals
 }
 
 type tickMsg time.Time
@@ -214,6 +289,14 @@ func (m Model) handleInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) refreshDalStatus() {
+	// If serve is available, reload full list
+	if m.cfg.ServeURL != "" {
+		if fresh := m.fetchDalsFromServe(); len(fresh) > 0 {
+			m.dals = fresh
+			return
+		}
+	}
+	// Fallback: check each dal via pct
 	for i := range m.dals {
 		dal := &m.dals[i]
 		if dal.LXC == "host" {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -242,16 +243,57 @@ func (d *Daemon) register() {
 	if d.cfg.ServeURL == "" {
 		return
 	}
-	// TODO: POST to dalcenter serve /api/dals/register
-	log.Printf("[talk] registered with %s as %s", d.cfg.ServeURL, d.cfg.DalName)
+
+	// Detect own IP
+	ip := detectIP()
+	port := d.cfg.HookPort
+	if port == 0 {
+		port = 10200
+	}
+
+	body := fmt.Sprintf(`{"name":%q,"ip":%q,"port":%d,"vmid":%q,"role":%q}`,
+		d.cfg.DalName, ip, port, detectVMID(), d.cfg.Role)
+	req, _ := http.NewRequest("POST", d.cfg.ServeURL+"/api/dals/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("[talk] register failed: %v", err)
+		return
+	}
+	resp.Body.Close()
+	log.Printf("[talk] registered with %s as %s (%s:%d)", d.cfg.ServeURL, d.cfg.DalName, ip, port)
 }
 
 func (d *Daemon) deregister() {
 	if d.cfg.ServeURL == "" {
 		return
 	}
-	// TODO: DELETE from dalcenter serve /api/dals/{name}
+	req, _ := http.NewRequest("DELETE", d.cfg.ServeURL+"/api/dals/"+d.cfg.DalName, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("[talk] deregister failed: %v", err)
+		return
+	}
+	resp.Body.Close()
 	log.Printf("[talk] deregistered from %s", d.cfg.ServeURL)
+}
+
+func detectIP() string {
+	out, err := exec.Command("hostname", "-I").Output()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) > 0 {
+		return fields[0]
+	}
+	return "127.0.0.1"
+}
+
+func detectVMID() string {
+	// Inside LXC, /proc/1/cpuset or hostname may indicate VMID
+	out, _ := exec.Command("hostname").Output()
+	return strings.TrimSpace(string(out))
 }
 
 // isMentioned checks if the message contains @botUsername or @dalName.
