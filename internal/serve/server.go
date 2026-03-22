@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// AgentEntry represents a registered agent in the registry.
-type AgentEntry struct {
+// DalEntry represents a registered dal in the registry.
+type DalEntry struct {
 	Name         string    `json:"name"`
 	IP           string    `json:"ip"`
 	Port         int       `json:"port"`
@@ -21,45 +21,45 @@ type AgentEntry struct {
 	LastSeen     time.Time `json:"last_seen"`
 }
 
-// Registry holds registered agents.
+// Registry holds registered dals.
 type Registry struct {
-	agents map[string]AgentEntry
+	dals map[string]DalEntry
 	mu     sync.RWMutex
 }
 
 func NewRegistry() *Registry {
-	return &Registry{agents: make(map[string]AgentEntry)}
+	return &Registry{dals: make(map[string]DalEntry)}
 }
 
-func (r *Registry) Register(entry AgentEntry) {
+func (r *Registry) Register(entry DalEntry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	entry.RegisteredAt = time.Now()
 	entry.LastSeen = time.Now()
 	entry.Status = "online"
-	r.agents[entry.Name] = entry
-	log.Printf("[serve] registered agent: %s (%s:%d)", entry.Name, entry.IP, entry.Port)
+	r.dals[entry.Name] = entry
+	log.Printf("[serve] registered dal: %s (%s:%d)", entry.Name, entry.IP, entry.Port)
 }
 
 func (r *Registry) Deregister(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.agents, name)
-	log.Printf("[serve] deregistered agent: %s", name)
+	delete(r.dals, name)
+	log.Printf("[serve] deregistered dal: %s", name)
 }
 
-func (r *Registry) Get(name string) (AgentEntry, bool) {
+func (r *Registry) Get(name string) (DalEntry, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	e, ok := r.agents[name]
+	e, ok := r.dals[name]
 	return e, ok
 }
 
-func (r *Registry) List() []AgentEntry {
+func (r *Registry) List() []DalEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var list []AgentEntry
-	for _, e := range r.agents {
+	var list []DalEntry
+	for _, e := range r.dals {
 		list = append(list, e)
 	}
 	return list
@@ -82,11 +82,11 @@ func NewServer(port int) *Server {
 func (s *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/agents", s.handleList)
-	mux.HandleFunc("GET /api/agents/{name}", s.handleGet)
-	mux.HandleFunc("POST /api/agents/register", s.handleRegister)
-	mux.HandleFunc("DELETE /api/agents/{name}", s.handleDeregister)
-	mux.HandleFunc("POST /api/agents/{name}/hook", s.handleProxy)
+	mux.HandleFunc("GET /api/dals", s.handleList)
+	mux.HandleFunc("GET /api/dals/{name}", s.handleGet)
+	mux.HandleFunc("POST /api/dals/register", s.handleRegister)
+	mux.HandleFunc("DELETE /api/dals/{name}", s.handleDeregister)
+	mux.HandleFunc("POST /api/dals/{name}/hook", s.handleProxy)
 
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", s.port), Handler: mux}
 	log.Printf("[serve] listening on :%d", s.port)
@@ -111,7 +111,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	entry, ok := s.registry.Get(name)
 	if !ok {
-		http.Error(w, fmt.Sprintf("agent %q not found", name), 404)
+		http.Error(w, fmt.Sprintf("dal %q not found", name), 404)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -119,7 +119,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	var entry AgentEntry
+	var entry DalEntry
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
 		http.Error(w, "bad request", 400)
 		return
@@ -143,11 +143,11 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	entry, ok := s.registry.Get(name)
 	if !ok {
-		http.Error(w, fmt.Sprintf("agent %q not found", name), 404)
+		http.Error(w, fmt.Sprintf("dal %q not found", name), 404)
 		return
 	}
 
-	// Forward request to agent's hook server
+	// Forward request to dal's hook server
 	targetURL := fmt.Sprintf("http://%s:%d/hook", entry.IP, entry.Port)
 	proxyReq, _ := http.NewRequestWithContext(r.Context(), "POST", targetURL, r.Body)
 	proxyReq.Header.Set("Content-Type", "application/json")

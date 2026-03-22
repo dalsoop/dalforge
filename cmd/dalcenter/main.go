@@ -993,7 +993,7 @@ func destroyCmd() *cobra.Command {
 func talkCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "talk",
-		Short: "Agent communication (daemon, bot management)",
+		Short: "Dal communication (daemon, bot management)",
 	}
 	cmd.AddCommand(talkRunCmd(), talkConductorCmd(), talkSetupCmd(), talkTeardownCmd())
 	return cmd
@@ -1012,13 +1012,13 @@ func talkRunCmd() *cobra.Command {
 		mentionOnly bool
 		hookPort    int
 		serveURL    string
-		agentName   string
+		dalName     string
 		maxTurns    int
 		cooldown    time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Run agent communication daemon (MM bridge + hook server)",
+		Short: "Run dal communication daemon (MM bridge + hook server)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := talk.Config{
 				BridgeType:  bridgeType,
@@ -1035,7 +1035,7 @@ func talkRunCmd() *cobra.Command {
 				Cooldown:    cooldown,
 				HookPort:    hookPort,
 				ServeURL:    serveURL,
-				AgentName:   agentName,
+				DalName:     dalName,
 			}
 
 			d, err := talk.NewDaemon(cfg)
@@ -1061,13 +1061,13 @@ func talkRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&botToken, "bot-token", "", "bot authentication token")
 	cmd.Flags().StringVar(&channelID, "channel-id", "", "target channel ID")
 	cmd.Flags().StringVar(&botUsername, "bot-username", "", "bot username for mention detection")
-	cmd.Flags().StringVar(&role, "role", "", "agent role description")
+	cmd.Flags().StringVar(&role, "role", "", "dal role description")
 	cmd.Flags().StringVar(&cwd, "cwd", "", "working directory (repo root for code access)")
 	cmd.Flags().BoolVar(&execMode, "exec", false, "enable exec mode (tool use: Bash, Read, Write, Edit)")
 	cmd.Flags().BoolVar(&mentionOnly, "mention-only", false, "only respond when @mentioned")
 	cmd.Flags().IntVar(&hookPort, "hook-port", 10200, "hook server port")
 	cmd.Flags().StringVar(&serveURL, "serve-url", "", "dalcenter serve URL for registry")
-	cmd.Flags().StringVar(&agentName, "agent-name", "", "agent name for registration")
+	cmd.Flags().StringVar(&dalName, "dal-name", "", "dal name for registration")
 	cmd.Flags().IntVar(&maxTurns, "max-turns", 10, "max response turns")
 	cmd.Flags().DurationVar(&cooldown, "cooldown", 3*time.Second, "cooldown between responses")
 	return cmd
@@ -1079,19 +1079,19 @@ func talkConductorCmd() *cobra.Command {
 		botToken   string
 		channelID  string
 		botUsername string
-		agents     []string // "username:role" pairs
+		dals       []string // "username:role" pairs
 	)
 	cmd := &cobra.Command{
 		Use:   "conductor",
-		Short: "Run central orchestrator bot that routes messages to agents",
+		Short: "Run central orchestrator bot that routes messages to dals",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var agentInfos []talk.AgentInfo
-			for _, a := range agents {
+			var dalInfos []talk.DalInfo
+			for _, a := range dals {
 				parts := strings.SplitN(a, ":", 2)
 				if len(parts) != 2 {
-					return fmt.Errorf("agent format must be 'username:role', got %q", a)
+					return fmt.Errorf("dal format must be 'username:role', got %q", a)
 				}
-				agentInfos = append(agentInfos, talk.AgentInfo{
+				dalInfos = append(dalInfos, talk.DalInfo{
 					Username: parts[0],
 					Role:     parts[1],
 				})
@@ -1102,7 +1102,7 @@ func talkConductorCmd() *cobra.Command {
 				BotToken:   botToken,
 				ChannelID:  channelID,
 				BotUsername: botUsername,
-				Agents:     agentInfos,
+				Dals:       dalInfos,
 			}
 
 			c, err := talk.NewConductor(cfg)
@@ -1126,8 +1126,8 @@ func talkConductorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&url, "url", "", "Mattermost server URL")
 	cmd.Flags().StringVar(&botToken, "bot-token", "", "conductor bot token")
 	cmd.Flags().StringVar(&channelID, "channel-id", "", "target channel ID")
-	cmd.Flags().StringVar(&botUsername, "bot-username", "keycenter", "conductor bot username")
-	cmd.Flags().StringSliceVar(&agents, "agent", nil, "agent in 'username:role' format (repeatable)")
+	cmd.Flags().StringVar(&botUsername, "bot-username", "dalcenter", "conductor bot username")
+	cmd.Flags().StringSliceVar(&dals, "dal", nil, "dal in 'username:role' format (repeatable)")
 	cmd.MarkFlagRequired("url")
 	cmd.MarkFlagRequired("bot-token")
 	cmd.MarkFlagRequired("channel-id")
@@ -1147,7 +1147,7 @@ func talkSetupCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Create a Mattermost bot account for an agent",
+		Short: "Create a Mattermost bot account for a dal",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Login
 			adminToken, err := talk.GetAdminToken(url, login, password)
@@ -1166,7 +1166,7 @@ func talkSetupCmd() *cobra.Command {
 				displayName = username
 			}
 			if description == "" {
-				description = "dalcenter talk agent"
+				description = "dalcenter talk dal"
 			}
 			bot, err := talk.SetupBot(url, adminToken, teamID, channelID, username, displayName, description)
 			if err != nil {
@@ -1189,7 +1189,7 @@ func talkSetupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&password, "password", "", "admin password")
 	cmd.Flags().StringVar(&channel, "channel", "", "channel name")
 	cmd.Flags().StringVar(&team, "team", "", "team name (empty = first team)")
-	cmd.Flags().StringVar(&username, "username", "", "bot username (e.g. agent-200)")
+	cmd.Flags().StringVar(&username, "username", "", "bot username (e.g. dal-200)")
 	cmd.Flags().StringVar(&displayName, "display-name", "", "bot display name")
 	cmd.Flags().StringVar(&description, "description", "", "bot description")
 	cmd.MarkFlagRequired("url")
@@ -1239,7 +1239,7 @@ func serveCmd() *cobra.Command {
 	var port int
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Run API server with agent registry",
+		Short: "Run API server with dal registry",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

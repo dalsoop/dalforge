@@ -17,11 +17,11 @@ type ConductorConfig struct {
 	BotToken   string
 	ChannelID  string
 	BotUsername string
-	Agents     []AgentInfo
+	Dals     []DalInfo
 }
 
-// AgentInfo describes a registered agent for the conductor.
-type AgentInfo struct {
+// DalInfo describes a registered dal for the conductor.
+type DalInfo struct {
 	Username string
 	Role     string
 }
@@ -34,7 +34,7 @@ type threadState struct {
 	turns   int
 }
 
-// Conductor is the central orchestrator that routes messages to agents.
+// Conductor is the central orchestrator that routes messages to dals.
 type Conductor struct {
 	cfg       ConductorConfig
 	br        bridge.Bridge
@@ -51,7 +51,7 @@ func NewConductor(cfg ConductorConfig) (*Conductor, error) {
 	return &Conductor{
 		cfg:       cfg,
 		br:        br,
-		executor:  NewExecutor("에이전트 오케스트레이터", ""),
+		executor:  NewExecutor("dal 오케스트레이터", ""),
 		sanitizer: NewSanitizer(),
 		seen:      make(map[string]bool),
 		threads:   make(map[string]*threadState),
@@ -68,8 +68,8 @@ func (c *Conductor) Run(ctx context.Context) error {
 		c.botUserID = mm.BotUserID
 	}
 
-	agentList := c.buildAgentList()
-	log.Printf("[conductor] started, channel=%s, %d agents", c.cfg.ChannelID, len(c.cfg.Agents))
+	dalList := c.buildDalList()
+	log.Printf("[conductor] started, channel=%s, %d dals", c.cfg.ChannelID, len(c.cfg.Dals))
 
 	for {
 		select {
@@ -77,7 +77,7 @@ func (c *Conductor) Run(ctx context.Context) error {
 			if msg.From == c.botUserID {
 				continue
 			}
-			if c.isAgentBot(msg.From) {
+			if c.isDalBot(msg.From) {
 				continue
 			}
 			if c.isDuplicate(msg.ID) {
@@ -86,10 +86,10 @@ func (c *Conductor) Run(ctx context.Context) error {
 
 			if msg.RootID == "" {
 				// New root message → start a thread
-				go c.startThread(ctx, msg, agentList)
+				go c.startThread(ctx, msg, dalList)
 			} else {
 				// Reply in existing thread → re-route or close
-				go c.handleThreadReply(ctx, msg, agentList)
+				go c.handleThreadReply(ctx, msg, dalList)
 			}
 
 		case err := <-c.br.Errors():
@@ -101,7 +101,7 @@ func (c *Conductor) Run(ctx context.Context) error {
 	}
 }
 
-func (c *Conductor) startThread(ctx context.Context, msg bridge.Message, agentList string) {
+func (c *Conductor) startThread(ctx context.Context, msg bridge.Message, dalList string) {
 	log.Printf("[conductor] new topic: %s", truncate(msg.Content, 80))
 
 	c.mu.Lock()
@@ -111,7 +111,7 @@ func (c *Conductor) startThread(ctx context.Context, msg bridge.Message, agentLi
 	}
 	c.mu.Unlock()
 
-	response := c.askRoute(ctx, msg.Content, "", agentList)
+	response := c.askRoute(ctx, msg.Content, "", dalList)
 	if response == "" {
 		return
 	}
@@ -123,7 +123,7 @@ func (c *Conductor) startThread(ctx context.Context, msg bridge.Message, agentLi
 	})
 }
 
-func (c *Conductor) handleThreadReply(ctx context.Context, msg bridge.Message, agentList string) {
+func (c *Conductor) handleThreadReply(ctx context.Context, msg bridge.Message, dalList string) {
 	c.mu.Lock()
 	ts, exists := c.threads[msg.RootID]
 	c.mu.Unlock()
@@ -146,7 +146,7 @@ func (c *Conductor) handleThreadReply(ctx context.Context, msg bridge.Message, a
 	ts.turns++
 	log.Printf("[conductor] thread %s turn %d: %s", ts.rootID[:8], ts.turns, truncate(msg.Content, 80))
 
-	response := c.askRoute(ctx, msg.Content, ts.topic, agentList)
+	response := c.askRoute(ctx, msg.Content, ts.topic, dalList)
 	if response == "" {
 		return
 	}
@@ -174,25 +174,25 @@ func (c *Conductor) closeThread(msg bridge.Message) {
 	})
 }
 
-func (c *Conductor) askRoute(ctx context.Context, message, threadTopic, agentList string) string {
+func (c *Conductor) askRoute(ctx context.Context, message, threadTopic, dalList string) string {
 	contextLine := ""
 	if threadTopic != "" {
 		contextLine = fmt.Sprintf("\n진행 중인 주제: %s\n", threadTopic)
 	}
 
-	prompt := fmt.Sprintf(`너는 에이전트 오케스트레이터야. 사용자의 메시지를 분석해서 적절한 에이전트에게 작업을 배분해.
+	prompt := fmt.Sprintf(`너는 dal 오케스트레이터야. 사용자의 메시지를 분석해서 적절한 dal에게 작업을 배분해.
 
-등록된 에이전트:
+등록된 dal:
 %s
 %s
 사용자 메시지: %s
 
 규칙:
-- 적절한 에이전트를 @멘션으로 태그해서 지시해
-- 여러 에이전트가 필요하면 각각 역할을 명시해
+- 적절한 dal을 @멘션으로 태그해서 지시해
+- 여러 dal이 필요하면 각각 역할을 명시해
 - 간결하게 지시해 (2-3문장)
-- 에이전트가 없는 작업이면 직접 답변해
-- 반드시 @username 형식으로 태그해`, agentList, contextLine, message)
+- dal이 없는 작업이면 직접 답변해
+- 반드시 @username 형식으로 태그해`, dalList, contextLine, message)
 
 	response, err := c.executor.Run(ctx, ModeAsk, prompt)
 	if err != nil {
@@ -204,15 +204,15 @@ func (c *Conductor) askRoute(ctx context.Context, message, threadTopic, agentLis
 	return response
 }
 
-func (c *Conductor) buildAgentList() string {
+func (c *Conductor) buildDalList() string {
 	var parts []string
-	for _, a := range c.cfg.Agents {
+	for _, a := range c.cfg.Dals {
 		parts = append(parts, fmt.Sprintf("- @%s: %s", a.Username, a.Role))
 	}
 	return strings.Join(parts, "\n")
 }
 
-func (c *Conductor) isAgentBot(userID string) bool {
+func (c *Conductor) isDalBot(userID string) bool {
 	// Known bot user IDs from bridge
 	// In production, this would query the serve registry
 	if mm, ok := c.br.(*bridge.MattermostBridge); ok {

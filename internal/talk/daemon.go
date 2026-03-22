@@ -19,8 +19,8 @@ type Config struct {
 	URL         string // bridge server URL
 	BotToken    string // bot auth token
 	ChannelID   string // target channel ID
-	BotUsername string // bot username for mention detection (e.g. "agent-200")
-	Role        string // agent role description
+	BotUsername string // bot username for mention detection (e.g. "dal-200")
+	Role        string // dal role description
 	Cwd         string // working directory (repo root for code access)
 	AskMode     bool   // enable ask mode
 	ExecMode    bool   // enable exec mode
@@ -29,13 +29,13 @@ type Config struct {
 	Cooldown    time.Duration
 	HookPort    int    // hook server port (default 10200)
 	ServeURL    string // dalcenter serve URL for registry
-	AgentName   string // agent name for registration
+	DalName   string // dal name for registration
 }
 
-// HookRequest is the JSON body for direct agent-to-agent calls.
+// HookRequest is the JSON body for direct dal-to-dal calls.
 type HookRequest struct {
 	Event   string `json:"event"`   // "ask" or "exec"
-	From    string `json:"from"`    // sender agent name
+	From    string `json:"from"`    // sender dal name
 	Content string `json:"content"` // message content
 }
 
@@ -214,7 +214,7 @@ func (d *Daemon) serveHook(ctx context.Context, port int) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(HookResponse{
-			From:       d.cfg.AgentName,
+			From:       d.cfg.DalName,
 			Content:    response,
 			DurationMs: time.Since(start).Milliseconds(),
 		})
@@ -237,34 +237,34 @@ func (d *Daemon) register() {
 	if d.cfg.ServeURL == "" {
 		return
 	}
-	// TODO: POST to dalcenter serve /api/agents/register
-	log.Printf("[talk] registered with %s as %s", d.cfg.ServeURL, d.cfg.AgentName)
+	// TODO: POST to dalcenter serve /api/dals/register
+	log.Printf("[talk] registered with %s as %s", d.cfg.ServeURL, d.cfg.DalName)
 }
 
 func (d *Daemon) deregister() {
 	if d.cfg.ServeURL == "" {
 		return
 	}
-	// TODO: DELETE from dalcenter serve /api/agents/{name}
+	// TODO: DELETE from dalcenter serve /api/dals/{name}
 	log.Printf("[talk] deregistered from %s", d.cfg.ServeURL)
 }
 
-// isMentioned checks if the message contains @botUsername or @agentName.
+// isMentioned checks if the message contains @botUsername or @dalName.
 func (d *Daemon) isMentioned(content string) bool {
 	lower := strings.ToLower(content)
 	if d.cfg.BotUsername != "" && strings.Contains(lower, "@"+strings.ToLower(d.cfg.BotUsername)) {
 		return true
 	}
-	if d.cfg.AgentName != "" && strings.Contains(lower, "@"+strings.ToLower(d.cfg.AgentName)) {
+	if d.cfg.DalName != "" && strings.Contains(lower, "@"+strings.ToLower(d.cfg.DalName)) {
 		return true
 	}
 	return false
 }
 
-// stripMention removes @botUsername and @agentName from content.
+// stripMention removes @botUsername and @dalName from content.
 func (d *Daemon) stripMention(content string) string {
 	result := content
-	for _, name := range []string{d.cfg.BotUsername, d.cfg.AgentName} {
+	for _, name := range []string{d.cfg.BotUsername, d.cfg.DalName} {
 		if name == "" {
 			continue
 		}

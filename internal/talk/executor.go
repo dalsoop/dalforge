@@ -73,7 +73,7 @@ func (e *Executor) Run(ctx context.Context, mode Mode, message string) (string, 
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// Sanitizer redacts sensitive content from agent output.
+// Sanitizer redacts sensitive content from dal output.
 type Sanitizer struct {
 	rules []sanitizeRule
 }
