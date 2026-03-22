@@ -131,6 +131,11 @@ func BuildAllCommands(spec Spec) []string {
 		cmds = append(cmds, BuildAgentInstallCommand(vmid, agent))
 	}
 
+	// Credential sync step
+	if filter := agentFilter(spec.Agents); filter != "" {
+		cmds = append(cmds, fmt.Sprintf("proxmox-host-setup ai mount --vmid %s --agent %s", vmid, filter))
+	}
+
 	return cmds
 }
 
@@ -229,6 +234,9 @@ func Provision(instanceRoot string, spec Spec, dryRun bool) Result {
 		agentStatuses[agent.Name] = "installed"
 	}
 
+	// Sync AI agent credentials from host into container
+	syncAgentCredentials(vmid, spec.Agents)
+
 	writeProvisionState(instanceRoot, vmid, "provisioned", "", "")
 	// Record agent statuses
 	if len(agentStatuses) > 0 {
@@ -238,6 +246,59 @@ func Provision(instanceRoot string, spec Spec, dryRun bool) Result {
 		}
 	}
 	return Result{VMID: vmid, Commands: cmds}
+}
+
+// syncAgentCredentials calls proxmox-host-setup to copy host credentials into the container.
+func syncAgentCredentials(vmid string, agents []export.AgentSpec) {
+	phs, err := exec.LookPath("proxmox-host-setup")
+	if err != nil {
+		fmt.Println("[provision] proxmox-host-setup not found, skipping credential sync")
+		return
+	}
+
+	// Determine which agents to mount
+	filter := agentFilter(agents)
+	if filter == "" {
+		return
+	}
+
+	fmt.Printf("[provision] syncing agent credentials → LXC %s (filter=%s)\n", vmid, filter)
+	cmd := exec.Command(phs, "ai", "mount", "--vmid", vmid, "--agent", filter)
+	out, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(out))
+	if err != nil {
+		fmt.Printf("[provision] credential sync warning: %s\n", output)
+	} else if output != "" {
+		fmt.Println(output)
+	}
+}
+
+// agentFilter maps dalforge agent types to proxmox-host-setup agent filter values.
+func agentFilter(agents []export.AgentSpec) string {
+	has := map[string]bool{}
+	for _, a := range agents {
+		switch a.Type {
+		case "claude_sdk":
+			has["claude"] = true
+		case "codex_appserver":
+			has["codex"] = true
+		case "gemini_cli":
+			has["gemini"] = true
+		}
+	}
+	if len(has) == 0 {
+		return ""
+	}
+	if has["claude"] && has["codex"] && has["gemini"] {
+		return "all"
+	}
+	if len(has) == 1 {
+		for k := range has {
+			return k
+		}
+	}
+	// Multiple but not all — call with "all" and let proxmox-host-setup handle it
+	return "all"
 }
 
 func rollback(vmid string) string {
