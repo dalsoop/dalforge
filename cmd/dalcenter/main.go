@@ -485,11 +485,12 @@ func validateCmd() *cobra.Command {
 
 			specPath := specPath()
 			hasError := false
-			for _, path := range paths {
+			for _, arg := range paths {
+				path := resolveRepoPath(arg)
 				manifestPath, err := validate.ResolveManifestPath(path)
 				if err != nil {
 					hasError = true
-					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", path, err)
+					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", arg, err)
 					continue
 				}
 				if _, err := validate.Manifest(specPath, manifestPath); err != nil {
@@ -519,11 +520,12 @@ func exportCmd() *cobra.Command {
 			}
 
 			hasError := false
-			for _, path := range paths {
+			for _, arg := range paths {
+				path := resolveRepoPath(arg)
 				plan, err := export.LoadPlan(path)
 				if err != nil {
 					hasError = true
-					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", path, err)
+					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", arg, err)
 					continue
 				}
 				if err := export.Apply(plan); err != nil {
@@ -553,11 +555,12 @@ func unexportCmd() *cobra.Command {
 			}
 
 			hasError := false
-			for _, path := range paths {
+			for _, arg := range paths {
+				path := resolveRepoPath(arg)
 				plan, err := export.LoadPlan(path)
 				if err != nil {
 					hasError = true
-					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", path, err)
+					fmt.Fprintf(os.Stderr, "invalid %s: %v\n", arg, err)
 					continue
 				}
 				if err := export.Remove(plan); err != nil {
@@ -589,6 +592,28 @@ func resolveInstanceRoot(name string) (string, error) {
 		return "", fmt.Errorf("instance %q has no instance root", name)
 	}
 	return result.Instance.InstanceRoot, nil
+}
+
+// resolveRepoPath resolves a name-or-path argument to a repo path.
+// If it looks like a registered instance name (no slash, not ".", doesn't exist as path),
+// resolve via the registry. Otherwise return as-is.
+func resolveRepoPath(arg string) string {
+	if arg == "." || strings.Contains(arg, "/") {
+		return arg
+	}
+	if _, err := os.Stat(arg); err == nil {
+		return arg // existing path takes precedence
+	}
+	reg, err := openRegistry()
+	if err != nil {
+		return arg
+	}
+	defer reg.Close()
+	result, err := reg.Status(arg)
+	if err != nil || result.Instance.RepoRoot == "" {
+		return arg
+	}
+	return result.Instance.RepoRoot
 }
 
 // resolveDefaultCmd returns (command, repoRoot) from the manifest.
