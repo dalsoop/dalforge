@@ -23,6 +23,8 @@ import (
 	"dalforge-hub/dalcenter/internal/serve"
 	"dalforge-hub/dalcenter/internal/state"
 	"dalforge-hub/dalcenter/internal/talk"
+	tea "github.com/charmbracelet/bubbletea"
+	"dalforge-hub/dalcenter/internal/tui"
 	"dalforge-hub/dalcenter/internal/validate"
 	"dalforge-hub/dalcenter/internal/vault"
 
@@ -79,7 +81,7 @@ func main() {
 		Short: "DalForge local dal center CLI",
 	}
 
-	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd(), watchCmd(), provisionCmd(), destroyCmd(), catalogCmd(), talkCmd(), serveCmd())
+	root.AddCommand(joinCmd(), listCmd(), statusCmd(), secretCmd(), validateCmd(), exportCmd(), unexportCmd(), startCmd(), stopCmd(), restartCmd(), reconcileCmd(), watchCmd(), provisionCmd(), destroyCmd(), catalogCmd(), talkCmd(), serveCmd(), tuiCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -1257,4 +1259,17 @@ func serveCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&port, "port", 10100, "API server port")
 	return cmd
+}
+
+func tuiCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Interactive terminal dashboard for dal management",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			m := tui.New(tui.Config{})
+			p := tea.NewProgram(m, tea.WithAltScreen())
+			_, err := p.Run()
+			return err
+		},
+	}
 }
