@@ -110,11 +110,17 @@ setup_file() {
     [ "$status" -eq 0 ]
 }
 
-# --- RECONCILE ---
+# --- RECONCILE / WATCH ---
 
 @test "reconcile 동작" {
     run $DALCENTER reconcile
     [ "$status" -eq 0 ]
+}
+
+@test "watch 한 사이클 동작" {
+    run timeout 3 $DALCENTER watch --interval 1
+    # timeout 종료(exit 124)도 정상 — 한 사이클 돌고 강제 종료됨
+    [[ "$status" -eq 124 || "$status" -eq 0 ]]
 }
 
 # --- PROVISION (dry-run) ---
