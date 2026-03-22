@@ -1262,14 +1262,27 @@ func serveCmd() *cobra.Command {
 }
 
 func tuiCmd() *cobra.Command {
-	return &cobra.Command{
+	var (
+		mmURL     string
+		mmToken   string
+		channelID string
+	)
+	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Interactive terminal dashboard for dal management",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			m := tui.New(tui.Config{})
+			m := tui.New(tui.Config{
+				MMURL:     mmURL,
+				MMToken:   mmToken,
+				ChannelID: channelID,
+			})
 			p := tea.NewProgram(m, tea.WithAltScreen())
 			_, err := p.Run()
 			return err
 		},
 	}
+	cmd.Flags().StringVar(&mmURL, "mm-url", "", "Mattermost server URL")
+	cmd.Flags().StringVar(&mmToken, "mm-token", "", "Mattermost bot token for reading")
+	cmd.Flags().StringVar(&channelID, "channel-id", "", "Mattermost channel ID")
+	return cmd
 }
