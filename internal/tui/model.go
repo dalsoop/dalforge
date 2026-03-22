@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"strings"
 	"time"
@@ -35,15 +38,16 @@ type TalkMessage struct {
 	User    string
 	Content string
 	Time    time.Time
-	IsThread bool
 }
 
 // Config for the TUI.
 type Config struct {
-	ServeURL string // dalcenter serve URL
-	MMURL    string // Mattermost URL
-	MMToken  string // Mattermost token
-	Channel  string // channel ID
+	ServeURL  string // dalcenter serve URL
+	MMURL     string // Mattermost URL
+	MMToken   string // Mattermost bot token (for reading)
+	ChannelID string // channel ID
+	// Bot name mapping: user_id → display name
+	BotNames map[string]string
 }
 
 // Model is the top-level Bubble Tea model.
@@ -57,7 +61,9 @@ type Model struct {
 	logLines  []string
 	cursor    int
 	input     string
+	inputMode bool
 	err       error
+	lastMsgAt int64 // last message create_at for polling
 }
 
 // New creates a new TUI model.
@@ -66,14 +72,16 @@ func New(cfg Config) Model {
 		cfg:       cfg,
 		activeTab: tabDals,
 		dals: []DalStatus{
-			{Name: "dal-leader", Role: "오케스트레이터", LXC: "host", Status: "online"},
-			{Name: "dal-marketing-200", Role: "마케팅 전략가", LXC: "200", Status: "online"},
-			{Name: "dal-tech-writer-201", Role: "기술 콘텐츠 담당", LXC: "201", Status: "online"},
+			{Name: "dal-leader", Role: "오케스트레이터", LXC: "host", Channel: cfg.ChannelID, Status: "unknown"},
+			{Name: "dal-marketing-200", Role: "마케팅 전략가", LXC: "200", Channel: cfg.ChannelID, Status: "unknown"},
+			{Name: "dal-tech-writer-201", Role: "기술 콘텐츠 담당", LXC: "201", Channel: cfg.ChannelID, Status: "unknown"},
 		},
+		lastMsgAt: time.Now().UnixMilli(),
 	}
 }
 
 type tickMsg time.Time
+type messagesMsg []TalkMessage
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
@@ -88,22 +96,27 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.inputMode {
+			return m.handleInput(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
 			m.activeTab = (m.activeTab + 1) % 3
+			m.cursor = 0
 			return m, nil
 		case "shift+tab":
 			m.activeTab = (m.activeTab + 2) % 3
+			m.cursor = 0
 			return m, nil
 		case "j", "down":
-			if m.cursor < len(m.dals)-1 {
+			if m.activeTab == tabDals && m.cursor < len(m.dals)-1 {
 				m.cursor++
 			}
 			return m, nil
 		case "k", "up":
-			if m.cursor > 0 {
+			if m.activeTab == tabDals && m.cursor > 0 {
 				m.cursor--
 			}
 			return m, nil
@@ -114,9 +127,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, openTmuxWindow(dal)
 				}
 			}
+			if m.activeTab == tabTalk {
+				m.inputMode = true
+				m.input = ""
+				return m, nil
+			}
 			return m, nil
 		case "s":
-			// Shell into dal's LXC
 			if m.activeTab == tabDals && m.cursor < len(m.dals) {
 				dal := m.dals[m.cursor]
 				if dal.LXC != "host" {
@@ -125,7 +142,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "l":
-			// View logs
 			if m.activeTab == tabDals && m.cursor < len(m.dals) {
 				dal := m.dals[m.cursor]
 				if dal.LXC != "host" {
@@ -134,16 +150,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "r":
-			// Restart dal
 			if m.activeTab == tabDals && m.cursor < len(m.dals) {
 				dal := m.dals[m.cursor]
 				m.logLines = append(m.logLines, fmt.Sprintf("[%s] restarting %s...", time.Now().Format("15:04:05"), dal.Name))
+				return m, restartDal(dal)
 			}
 			return m, nil
 		}
 
 	case tickMsg:
 		m.refreshDalStatus()
+		if m.cfg.MMURL != "" && m.cfg.MMToken != "" && m.cfg.ChannelID != "" {
+			return m, m.fetchMessages()
+		}
+		return m, tickCmd()
+
+	case messagesMsg:
+		m.messages = append(m.messages, []TalkMessage(msg)...)
+		// Keep last 50
+		if len(m.messages) > 50 {
+			m.messages = m.messages[len(m.messages)-50:]
+		}
 		return m, tickCmd()
 
 	case tea.WindowSizeMsg:
@@ -153,6 +180,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) handleInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.input != "" {
+			m.postMessage(m.input)
+			m.messages = append(m.messages, TalkMessage{
+				User:    "나",
+				Content: m.input,
+				Time:    time.Now(),
+			})
+		}
+		m.inputMode = false
+		m.input = ""
+		return m, nil
+	case "esc":
+		m.inputMode = false
+		m.input = ""
+		return m, nil
+	case "backspace":
+		if len(m.input) > 0 {
+			m.input = m.input[:len(m.input)-1]
+		}
+		return m, nil
+	default:
+		if len(msg.String()) == 1 || msg.String() == " " {
+			m.input += msg.String()
+		}
+		return m, nil
+	}
 }
 
 func (m *Model) refreshDalStatus() {
@@ -166,6 +224,80 @@ func (m *Model) refreshDalStatus() {
 			dal.Status = strings.TrimSpace(string(out))
 		}
 		dal.LastSeen = time.Now()
+	}
+}
+
+func (m *Model) fetchMessages() tea.Cmd {
+	return func() tea.Msg {
+		url := fmt.Sprintf("%s/api/v4/channels/%s/posts?since=%d",
+			m.cfg.MMURL, m.cfg.ChannelID, m.lastMsgAt)
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+m.cfg.MMToken)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return messagesMsg{}
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		var result struct {
+			Order []string                   `json:"order"`
+			Posts map[string]json.RawMessage `json:"posts"`
+		}
+		if json.Unmarshal(body, &result) != nil {
+			return messagesMsg{}
+		}
+
+		var msgs []TalkMessage
+		for i := len(result.Order) - 1; i >= 0; i-- {
+			id := result.Order[i]
+			var post struct {
+				UserID   string `json:"user_id"`
+				Message  string `json:"message"`
+				CreateAt int64  `json:"create_at"`
+			}
+			if json.Unmarshal(result.Posts[id], &post) != nil {
+				continue
+			}
+			if post.CreateAt <= m.lastMsgAt {
+				continue
+			}
+			if post.CreateAt > m.lastMsgAt {
+				m.lastMsgAt = post.CreateAt
+			}
+			user := post.UserID[:8]
+			if name, ok := m.cfg.BotNames[post.UserID]; ok {
+				user = name
+			}
+			msgs = append(msgs, TalkMessage{
+				User:    user,
+				Content: post.Message,
+				Time:    time.UnixMilli(post.CreateAt),
+			})
+		}
+		return messagesMsg(msgs)
+	}
+}
+
+func (m *Model) postMessage(content string) {
+	if m.cfg.MMURL == "" || m.cfg.MMToken == "" {
+		return
+	}
+	body := fmt.Sprintf(`{"channel_id":%q,"message":%q}`, m.cfg.ChannelID, content)
+	req, _ := http.NewRequest("POST", m.cfg.MMURL+"/api/v4/posts", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+m.cfg.MMToken)
+	req.Header.Set("Content-Type", "application/json")
+	http.DefaultClient.Do(req)
+}
+
+func restartDal(dal DalStatus) tea.Cmd {
+	return func() tea.Msg {
+		if dal.LXC == "host" {
+			return nil
+		}
+		// Kill and let healthcheck or systemd restart
+		exec.Command("pct", "exec", dal.LXC, "--", "bash", "-c", "pkill -f 'dalcenter talk'").Run()
+		return nil
 	}
 }
 
@@ -222,15 +354,27 @@ func (m Model) View() string {
 	}
 
 	// Help
-	help := helpStyle.Render("[Tab] 탭 전환  [Enter] tmux 접속  [s] shell  [l] 로그  [r] 재시작  [q] 종료")
+	var help string
+	switch m.activeTab {
+	case tabDals:
+		help = "[Tab] 탭  [Enter] tmux  [s] shell  [l] 로그  [r] 재시작  [q] 종료"
+	case tabTalk:
+		if m.inputMode {
+			help = "[Enter] 전송  [Esc] 취소"
+		} else {
+			help = "[Tab] 탭  [Enter] 메시지 입력  [q] 종료"
+		}
+	case tabLogs:
+		help = "[Tab] 탭  [q] 종료"
+	}
 
-	return header + "\n\n" + content + "\n\n" + help
+	return header + "\n\n" + content + "\n\n" + helpStyle.Render(help)
 }
 
 func (m Model) viewDals() string {
-	header := fmt.Sprintf("  %-25s %-20s %-6s %-10s %-10s",
-		"DAL", "ROLE", "LXC", "CHANNEL", "STATUS")
-	headerStyle := lipgloss.NewStyle().Foreground(subtle).Render(header)
+	header := fmt.Sprintf("  %-25s %-20s %-6s %-10s",
+		"DAL", "ROLE", "LXC", "STATUS")
+	headerLine := lipgloss.NewStyle().Foreground(subtle).Render(header)
 
 	var rows []string
 	for i, dal := range m.dals {
@@ -244,8 +388,8 @@ func (m Model) viewDals() string {
 			status = statusOffline
 		}
 
-		row := fmt.Sprintf("%s%-25s %-20s %-6s %-10s %s",
-			cursor, dal.Name, dal.Role, dal.LXC, dal.Channel, status)
+		row := fmt.Sprintf("%s%-25s %-20s %-6s %s",
+			cursor, dal.Name, dal.Role, dal.LXC, status)
 
 		if i == m.cursor {
 			row = lipgloss.NewStyle().Bold(true).Render(row)
@@ -253,28 +397,60 @@ func (m Model) viewDals() string {
 		rows = append(rows, row)
 	}
 
-	return headerStyle + "\n" + strings.Join(rows, "\n")
+	return headerLine + "\n" + strings.Join(rows, "\n")
 }
 
 func (m Model) viewTalk() string {
-	if len(m.messages) == 0 {
-		return helpStyle.Render("  Mattermost 연동 준비 중... (다음 버전에서 지원)")
+	maxLines := m.height - 8
+	if maxLines < 5 {
+		maxLines = 5
 	}
+
 	var lines []string
-	for _, msg := range m.messages {
-		lines = append(lines, fmt.Sprintf("  [%s] %s: %s",
-			msg.Time.Format("15:04"), msg.User, msg.Content))
+	start := 0
+	if len(m.messages) > maxLines {
+		start = len(m.messages) - maxLines
 	}
-	return strings.Join(lines, "\n")
+	for _, msg := range m.messages[start:] {
+		userStyle := lipgloss.NewStyle().Foreground(accent).Bold(true)
+		timeStyle := lipgloss.NewStyle().Foreground(subtle)
+		content := msg.Content
+		if len(content) > m.width-30 && m.width > 40 {
+			content = content[:m.width-33] + "..."
+		}
+		line := fmt.Sprintf("  %s %s %s",
+			timeStyle.Render(msg.Time.Format("15:04")),
+			userStyle.Render(msg.User+":"),
+			content)
+		lines = append(lines, line)
+	}
+
+	if len(lines) == 0 {
+		lines = append(lines, helpStyle.Render("  대화가 없습니다. Mattermost 채널에 메시지를 보내보세요."))
+	}
+
+	result := strings.Join(lines, "\n")
+
+	// Input bar
+	if m.inputMode {
+		inputBar := fmt.Sprintf("\n  > %s_", m.input)
+		result += lipgloss.NewStyle().Foreground(highlight).Render(inputBar)
+	}
+
+	return result
 }
 
 func (m Model) viewLogs() string {
 	if len(m.logLines) == 0 {
-		return helpStyle.Render("  dal을 선택하고 [l]을 누르면 로그를 볼 수 있습니다")
+		return helpStyle.Render("  Dals 탭에서 [l]을 누르면 로그를 볼 수 있습니다\n  [r]을 누르면 재시작 로그가 여기에 표시됩니다")
+	}
+	maxLines := m.height - 8
+	if maxLines < 5 {
+		maxLines = 5
 	}
 	start := 0
-	if len(m.logLines) > 20 {
-		start = len(m.logLines) - 20
+	if len(m.logLines) > maxLines {
+		start = len(m.logLines) - maxLines
 	}
 	return strings.Join(m.logLines[start:], "\n")
 }
