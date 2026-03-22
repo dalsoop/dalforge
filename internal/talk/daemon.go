@@ -161,10 +161,17 @@ func (d *Daemon) handleMessage(ctx context.Context, msg bridge.Message) {
 
 	response = d.sanitizer.Clean(response)
 
+	// Thread: if the message is already in a thread, continue there.
+	// Otherwise, start a thread on the original message.
+	rootID := msg.RootID
+	if rootID == "" {
+		rootID = msg.ID
+	}
+
 	if err := d.sendWithRetry(bridge.Message{
 		Channel: msg.Channel,
 		Content: response,
-		ReplyTo: msg.ID,
+		RootID:  rootID,
 	}); err != nil {
 		log.Printf("[talk] send error: %v", err)
 	}

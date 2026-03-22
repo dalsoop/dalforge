@@ -9,6 +9,7 @@ type Message struct {
 	Channel   string // channel or topic name
 	Content   string
 	ReplyTo   string // reply target message ID (optional)
+	RootID    string // thread root ID (for threaded replies)
 	Timestamp time.Time
 }
 

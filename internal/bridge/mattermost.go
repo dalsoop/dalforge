@@ -55,7 +55,12 @@ func (m *MattermostBridge) Listen() <-chan Message { return m.messages }
 func (m *MattermostBridge) Errors() <-chan error   { return m.errors }
 
 func (m *MattermostBridge) Send(msg Message) error {
-	body := fmt.Sprintf(`{"channel_id":%q,"message":%q}`, m.ChannelID, msg.Content)
+	rootID := msg.RootID
+	if rootID == "" {
+		rootID = msg.ReplyTo // reply to a root post starts a thread
+	}
+	body := fmt.Sprintf(`{"channel_id":%q,"root_id":%q,"message":%q}`,
+		m.ChannelID, rootID, msg.Content)
 	_, err := m.apiPost("/api/v4/posts", body)
 	return err
 }
@@ -120,6 +125,7 @@ func (m *MattermostBridge) fetchNewPosts() ([]Message, error) {
 			ID       string `json:"id"`
 			UserID   string `json:"user_id"`
 			Message  string `json:"message"`
+			RootID   string `json:"root_id"`
 			CreateAt int64  `json:"create_at"`
 		}
 		if err := json.Unmarshal(raw, &post); err != nil {
@@ -136,6 +142,7 @@ func (m *MattermostBridge) fetchNewPosts() ([]Message, error) {
 			From:      post.UserID,
 			Channel:   m.ChannelID,
 			Content:   post.Message,
+			RootID:    post.RootID,
 			Timestamp: time.UnixMilli(post.CreateAt),
 		})
 	}
