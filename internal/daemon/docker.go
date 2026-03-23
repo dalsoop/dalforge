@@ -42,8 +42,8 @@ func playerHome(player string) string {
 }
 
 // dockerRun creates and starts a Docker container for a dal.
-func dockerRun(localdalRoot, serviceRepo string, dal *localdal.DalProfile) (string, error) {
-	containerName := fmt.Sprintf("dal-%s", dal.Name)
+func dockerRun(localdalRoot, serviceRepo, instanceName string, dal *localdal.DalProfile) (string, error) {
+	containerName := fmt.Sprintf("dal-%s", instanceName)
 	image := fmt.Sprintf("dalcenter/%s:latest", dal.Player)
 
 	dalDir := filepath.Join(localdalRoot, dal.FolderName)

@@ -69,8 +69,20 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 			fmt.Printf("localdal initialized: %s\n", root)
+
+			// soft-serve 레포 생성 + subtree 연결
 			if repoPath != "" {
-				fmt.Printf("service repo: %s (subtree 연결은 아직 미구현)\n", repoPath)
+				repoName := filepath.Base(repoPath) + "-localdal"
+				if err := daemon.EnsureSoftServeRepo(repoName); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: soft-serve repo: %v\n", err)
+				} else {
+					fmt.Printf("soft-serve repo: %s\n", repoName)
+				}
+				if err := daemon.SetupSubtree(repoPath, repoName); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: subtree: %v\n", err)
+				} else {
+					fmt.Printf("subtree linked: %s/.dal → %s\n", repoPath, repoName)
+				}
 			}
 			return nil
 		},

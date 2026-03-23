@@ -58,6 +58,17 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 
 // Run starts the HTTP server.
 func (d *Daemon) Run(ctx context.Context) error {
+	// Start soft-serve as child process
+	if ss, err := startSoftServe(ctx); err != nil {
+		log.Printf("[daemon] soft-serve start failed: %v (continuing without)", err)
+	} else if ss != nil {
+		log.Printf("[daemon] soft-serve started (pid=%d)", ss.Process.Pid)
+		defer func() {
+			ss.Process.Kill()
+			ss.Wait()
+		}()
+	}
+
 	// Setup Mattermost channel (repo name = channel name)
 	if d.mm != nil && d.mm.URL != "" {
 		repoName := filepath.Base(d.serviceRepo)
@@ -174,15 +185,21 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Support multiple instances: dev, dev-2, dev-3, ...
+	instanceName := name
 	d.mu.Lock()
-	if c, ok := d.containers[name]; ok && c.Status == "running" {
-		d.mu.Unlock()
-		http.Error(w, fmt.Sprintf("dal %q is already awake", name), 409)
-		return
+	if _, ok := d.containers[name]; ok {
+		for i := 2; ; i++ {
+			candidate := fmt.Sprintf("%s-%d", name, i)
+			if _, ok := d.containers[candidate]; !ok {
+				instanceName = candidate
+				break
+			}
+		}
 	}
 	d.mu.Unlock()
 
-	containerID, err := dockerRun(d.localdalRoot, d.serviceRepo, dal)
+	containerID, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, dal)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("wake failed: %v", err), 500)
 		return
@@ -203,8 +220,8 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.mu.Lock()
-	d.containers[name] = &Container{
-		DalName:     dal.Name,
+	d.containers[instanceName] = &Container{
+		DalName:     instanceName,
 		UUID:        dal.UUID,
 		Player:      dal.Player,
 		Role:        dal.Role,
@@ -223,10 +240,10 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	if len(uid) > 8 {
 		uid = uid[:8]
 	}
-	log.Printf("[daemon] wake: %s (uuid=%s, container=%s)", name, uid, cid)
+	log.Printf("[daemon] wake: %s (uuid=%s, container=%s)", instanceName, uid, cid)
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":       "awake",
-		"dal":          name,
+		"dal":          instanceName,
 		"container_id": containerID,
 	})
 }
