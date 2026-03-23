@@ -167,7 +167,15 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Unlock()
 
-	log.Printf("[daemon] wake: %s (uuid=%s, container=%s)", name, dal.UUID[:8], containerID[:12])
+	cid := containerID
+	if len(cid) > 12 {
+		cid = cid[:12]
+	}
+	uid := dal.UUID
+	if len(uid) > 8 {
+		uid = uid[:8]
+	}
+	log.Printf("[daemon] wake: %s (uuid=%s, container=%s)", name, uid, cid)
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":       "awake",
 		"dal":          name,

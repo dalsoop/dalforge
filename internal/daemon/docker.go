@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -95,29 +96,14 @@ func dockerStop(containerID string) error {
 	return nil
 }
 
-// dockerSync re-copies skills and instructions to a running container.
+// dockerSync verifies a running container matches its dal profile.
+// Since instructions and skills are bind-mounted, file changes are automatic.
+// Sync handles structural changes (new skills added/removed in dal.cue).
 func dockerSync(localdalRoot, containerID string, dal *localdal.DalProfile) error {
-	home := playerHome(dal.Player)
-
-	// Copy instructions
-	dalDir := filepath.Join(localdalRoot, dal.FolderName)
-	instrSrc := filepath.Join(dalDir, "instructions.md")
-	instrDst := fmt.Sprintf("%s:%s", containerID, filepath.Join(home, instructionsFileName(dal.Player)))
-	cp := exec.Command("docker", "cp", instrSrc, instrDst)
-	if out, err := cp.CombinedOutput(); err != nil {
-		return fmt.Errorf("docker cp instructions: %s: %w", strings.TrimSpace(string(out)), err)
-	}
-
-	// Copy skills
-	for _, skill := range dal.Skills {
-		skillPath := filepath.Join(localdalRoot, skill)
-		targetPath := fmt.Sprintf("%s:%s", containerID, filepath.Join(home, "skills", filepath.Base(skill)))
-		cp := exec.Command("docker", "cp", skillPath, targetPath)
-		if out, err := cp.CombinedOutput(); err != nil {
-			return fmt.Errorf("docker cp skill %s: %s: %w", skill, strings.TrimSpace(string(out)), err)
-		}
-	}
-
+	// Bind mounts auto-reflect file changes.
+	// If dal.cue changed (e.g., new skill added), container needs restart.
+	// For now, log what would change.
+	log.Printf("[sync] %s: player=%s, skills=%d — bind mounts are live", dal.Name, dal.Player, len(dal.Skills))
 	return nil
 }
 

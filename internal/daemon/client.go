@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // Client talks to the dalcenter daemon over HTTP.
@@ -23,7 +24,7 @@ func NewClient() *Client {
 	}
 	return &Client{
 		baseURL: strings.TrimRight(url, "/"),
-		http:    &http.Client{},
+		http:    &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
