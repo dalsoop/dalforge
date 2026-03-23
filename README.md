@@ -1,30 +1,29 @@
 <div align="center">
-  <h1>dalforge</h1>
-  <p><strong>Self-hosted orchestration for turning <code>.dalfactory</code> declarations into local runtime and Proxmox LXC operations.</strong></p>
+  <h1>dalcenter</h1>
+  <p><strong>Self-hosted orchestration for turning <code>.dal-template</code> declarations into local runtime and Proxmox LXC operations.</strong></p>
   <p>
-    <a href="https://github.com/dalsoop/dalforge"><img src="https://img.shields.io/badge/github-dalsoop%2Fdalforge-181717?logo=github&logoColor=white" alt="GitHub repository"></a>
-    <a href="https://github.com/dalsoop/dalforge/releases"><img src="https://img.shields.io/github/v/release/dalsoop/dalforge?display_name=tag" alt="GitHub release"></a>
-    <a href="https://dalforge.com"><img src="https://img.shields.io/badge/home-dalforge.com-0f766e?logo=googlechrome&logoColor=white" alt="Website"></a>
+    <a href="https://github.com/dalsoop/dalcenter"><img src="https://img.shields.io/badge/github-dalsoop%2Fdalcenter-181717?logo=github&logoColor=white" alt="GitHub repository"></a>
+    <a href="https://github.com/dalsoop/dalcenter/releases"><img src="https://img.shields.io/github/v/release/dalsoop/dalcenter?display_name=tag" alt="GitHub release"></a>
+    <a href="https://dalcenter.com"><img src="https://img.shields.io/badge/home-dalcenter.com-0f766e?logo=googlechrome&logoColor=white" alt="Website"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb.svg" alt="MIT License"></a>
   </p>
   <p><a href="./README.ko.md">한국어</a></p>
 </div>
 
-`dalforge` is a self-hosted orchestration stack that turns `.dalfactory` declarations into local runtime and LXC operations. `dalforge` distributes packages and specs; `dalcenter` reads, registers, and manages `.dalfactory` from user repos.
+`dalcenter` is a self-hosted orchestration stack that turns `.dal-template` declarations into local runtime and LXC operations. `dalcenter` distributes packages and specs, reads `.dal-template` from user repos, registers, and manages them.
 
-Canonical domain: `https://dalforge.com`
+Canonical domain: `https://dalcenter.com`
 
 ## What It Is
 
 In short:
 
-- **`dalforge`** — Cloud hub that distributes packages and specs
-- **`dalcenter`** — Management agent that reads `.dalfactory`, handles registration, export, execution, and provisioning
-- **User repo** — The actual project containing a `.dalfactory/` directory
+- **`dalcenter`** — Self-hosted hub that distributes packages and specs, reads `.dal-template`, handles registration, export, execution, and provisioning
+- **User repo** — The actual project containing a `.dal-template/` directory
 
 Or in one line:
 
-`.dalfactory` is the SSOT. `dalforge` distributes. `dalcenter` executes and manages.
+`.dal-template` is the SSOT. `dalcenter` distributes, executes, and manages.
 
 ## Why It Exists
 
@@ -34,14 +33,14 @@ The problem is usually this:
 - Local execution and container execution easily drift apart
 - Reproducing which repo requires which agent environment is difficult
 
-`dalforge` bundles all of this into a single `.dalfactory` declaration, connecting local exports all the way to Proxmox LXC provisioning.
+`dalcenter` bundles all of this into a single `.dal-template` declaration, connecting local exports all the way to Proxmox LXC provisioning.
 
 ## Current Capabilities
 
-`dalcenter` currently connects `.dalfactory` to real operational workflows:
+`dalcenter` currently connects `.dal-template` to real operational workflows:
 
-- `catalog search` for querying dalforge cloud packages
-- `.dalfactory` validate
+- `catalog search` for querying dalcenter cloud packages
+- `.dal-template` validate
 - `join/list/status` for repo registration and inspection
 - Claude/Codex skill export, Claude hook export and settings injection
 - `start/stop/restart` for local process management
@@ -57,7 +56,7 @@ Live Proxmox verification is complete:
 - `bash`, `python3`, `tmux` package installation confirmed
 - `destroy` followed by container removal confirmed
 
-This is not a design document — it is an early operational version where `.dalfactory` in a user repo drives local execution and LXC operations end to end.
+This is not a design document — it is an early operational version where `.dal-template` in a user repo drives local execution and LXC operations end to end.
 
 ## Quick Start
 
@@ -104,7 +103,7 @@ health_status:  ok
 ## Architecture
 
 ```
-dalforge-hub/
+dalforge/
   dalcenter/                     Central registry + secret management
     dal.spec.cue                 Core spec (CUE)
   dalcli/                        CLI tool packages
@@ -122,31 +121,24 @@ dalforge-hub/
 
 A dal is an AI agent instance. Inside its container, agents like Claude, Codex, or Gemini are already installed and authenticated. One dal equals one working environment.
 
-### dalforge (cloud hub)
+### dalcenter (hub + management)
 
-`dalforge` is the upper-level distribution hub, similar to an npm registry.
+`dalcenter` is the self-hosted hub that distributes packages and specs, reads `.dal-template`, registers packages, and manages runtime state.
 
-- Package distribution
-- Spec and documentation delivery
-- Version catalog
-
-### dalcenter (management agent)
-
-`dalcenter` reads `.dalfactory`, registers packages, and manages runtime state.
-
+- Package distribution, spec and documentation delivery, version catalog
 - Package (CLI/skill/hook) registration and versioning
 - Instance creation and state tracking
 - Secret (API keys, etc.) encrypted storage and distribution
 - Per-node installation inventory
 - Audit event logging
 
-### .dalfactory (repo declaration)
+### .dal-template (repo declaration)
 
-A directory at the root of a user repo. It lives in the actual project repo, not in the dalforge cloud hub repo. This directory is the SSOT for execution, exports, containers, and agents.
+A directory at the root of a user repo. It lives in the actual project repo, not in the dalcenter hub repo. This directory is the SSOT for execution, exports, containers, and agents.
 
 ```
 my-project/
-  .dalfactory/
+  .dal-template/
     dal.cue                      Dal definition for this repo
     templates/
       claude-dev.cue             Claude development puppet template
@@ -190,7 +182,7 @@ Categories are extensible. Adding a new category requires no change to dal.spec.
 
 ### 1. Define a template
 
-Define a puppet template in `.dalfactory/templates/claude-dev.cue`. Declare the container base image, packages to install, agents, CLI tools, skills, and required secrets.
+Define a puppet template in `.dal-template/templates/claude-dev.cue`. Declare the container base image, packages to install, agents, CLI tools, skills, and required secrets.
 
 ### 2. Register a repo
 
@@ -200,7 +192,7 @@ dalcenter join /path/to/repo
 
 `join` currently performs:
 
-1. Read `.dalfactory/dal.cue` from the user repo
+1. Read `.dal-template/dal.cue` from the user repo
 2. Validate the manifest
 3. Export skills and hooks
 4. Create a local instance directory
@@ -213,12 +205,12 @@ dalcenter status <name-or-id>
 
 ### 3. Build and export
 
-`.dalfactory/` is the source (SSOT). Agent-specific configs are exported as build artifacts.
+`.dal-template/` is the source (SSOT). Agent-specific configs are exported as build artifacts.
 
 The primary rule is to export original assets directly from the repo root (e.g., `skills/{name}/SKILL.md`). Hub-style repos may optionally declare `source/document/skills/{name}/SKILL.md` as a fallback export source.
 
 ```
-.dalfactory/ (source)
+.dal-template/ (source)
     -> export
 .claude/
     skills/
@@ -260,10 +252,10 @@ dalcenter watch --interval 60
 ### Validate a manifest
 
 ```bash
-dalcenter validate /root/dalforge-hub/dalcli/dalcli-agent-coach
+dalcenter validate /root/dalforge/dalcli/dalcli-agent-coach
 ```
 
-### Search dalforge packages
+### Search dalcenter packages
 
 ```bash
 dalcenter catalog search agent-coach
@@ -272,12 +264,12 @@ dalcenter catalog search agent-coach
 ### Register a repo
 
 ```bash
-dalcenter join /root/dalforge-hub/dalcli/dalcli-agent-coach
+dalcenter join /root/dalforge/dalcli/dalcli-agent-coach
 dalcenter list
 dalcenter status dalcli-agent-coach
 ```
 
-Register by package name (fetches from dalforge):
+Register by package name (fetches from dalcenter):
 
 ```bash
 dalcenter join agent-coach
@@ -340,30 +332,30 @@ Usable today, but these areas still have room to grow:
 
 - A tool that only installs packages
 - A product with only a cloud SaaS control plane
-- A runtime that assumes manual configuration without `.dalfactory`
+- A runtime that assumes manual configuration without `.dal-template`
 - A finished large-scale multi-tenant operations platform
 
 ## Tradeoffs
 
 - More structure and concepts than a simple script
 - Operational complexity rises when covering Proxmox/LXC
-- `.dalfactory` declarations must be maintained, but in return you get reproducibility and manageability
+- `.dal-template` declarations must be maintained, but in return you get reproducibility and manageability
 
 ## Rough Comparison
 
-| Tool type | Baseline model | How dalforge differs |
+| Tool type | Baseline model | How dalcenter differs |
 |---|---|---|
-| Simple CLI installer | Install packages and done | dalforge reads `.dalfactory`, handles registration, export, state, and provisioning |
-| General task runner | Local command execution | dalforge manages repo declarations and runtime state together |
-| Container provisioning tool | Infrastructure creation | dalforge also covers skill/hook export and local execution flows |
+| Simple CLI installer | Install packages and done | dalcenter reads `.dal-template`, handles registration, export, state, and provisioning |
+| General task runner | Local command execution | dalcenter manages repo declarations and runtime state together |
+| Container provisioning tool | Infrastructure creation | dalcenter also covers skill/hook export and local execution flows |
 
 ## Current Gaps
 
-Compared to more productized agent stacks like OpenClaw, dalforge is still weaker in:
+Compared to more productized agent stacks like OpenClaw, dalcenter is still weaker in:
 
 - No unified agent-facing gateway
 - No session-level context compaction policy
-- `.dalfactory`-based skill/hook discovery works, but auto-registration UX is still rough
+- `.dal-template`-based skill/hook discovery works, but auto-registration UX is still rough
 - Per-service health exposure and healthcheck contracts are not fully unified
 
 In other words: it is a working operational stack, but the first impression is still closer to "a well-built self-hosted toolkit."
@@ -377,7 +369,7 @@ In other words: it is a working operational stack, but the first impression is s
 
 ## Spec
 
-All contracts are defined in CUE at `dalcenter/dal.spec.cue`. This file is the foundation of dalforge-hub, and all tools follow this spec.
+All contracts are defined in CUE at `dalcenter/dal.spec.cue`. This file is the foundation of dalforge, and all tools follow this spec.
 
 ## Contributing
 

@@ -2,7 +2,7 @@
 # dalcenter smoke tests
 # 실행: bats tests/smoke.bats
 # LXC 안에서: dalcenter 바이너리가 PATH에 있어야 함
-# 네트워크 필요: catalog search가 dalforge 클라우드에 접속
+# 네트워크 필요: catalog search가 dalcenter 클라우드에 접속
 
 DALCENTER="${DALCENTER:-dalcenter}"
 
@@ -23,7 +23,7 @@ teardown_file() {
 @test "help 출력" {
     run $DALCENTER --help
     [ "$status" -eq 0 ]
-    [[ "$output" == *"DalForge"* ]]
+    [[ "$output" == *"DalCenter"* ]]
 }
 
 @test "모든 서브커맨드 존재" {
@@ -50,7 +50,7 @@ teardown_file() {
 # --- 전제조건 ---
 
 @test "dal.spec.cue 존재" {
-    [ -f /root/dalforge-dalcenter/dal.spec.cue ] || skip "dal.spec.cue 없음 — join 테스트 실패 예상"
+    [ -f /root/dalcenter-dalcenter/dal.spec.cue ] || skip "dal.spec.cue 없음 — join 테스트 실패 예상"
 }
 
 # --- JOIN / LIST / STATUS ---

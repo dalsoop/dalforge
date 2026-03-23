@@ -1,6 +1,6 @@
 # Contributing
 
-`dalforge`는 `.dalfactory` 선언을 실제 운영 흐름으로 연결하는 도구다.
+`dalcenter`는 `.dal-template` 선언을 실제 운영 흐름으로 연결하는 도구다.
 
 그래서 기여는 “코드가 돌아간다”만으로 충분하지 않고, 선언과 실제 동작이 함께 맞아야 한다.
 
@@ -9,7 +9,7 @@
 1. 동작 변경은 회귀 테스트를 같이 넣는다.
 2. 사용자-facing 동작이 바뀌면 README나 문서를 같은 변경에 포함한다.
 3. `validate`, `join`, `export`, `start/stop`, `provision/destroy` 중 영향을 받는 실제 경로를 최소 하나는 검증한다.
-4. `.dalfactory` 계약을 바꾸는 변경은 예시나 검증 경로도 같이 갱신한다.
+4. `.dal-template` 계약을 바꾸는 변경은 예시나 검증 경로도 같이 갱신한다.
 
 ## Where To Start
 
@@ -19,7 +19,7 @@
 
 ## Common Contribution Areas
 
-- `.dalfactory` 검증 강화
+- `.dal-template` 검증 강화
 - skill/hook export 개선
 - catalog / cloud source 흐름 개선
 - start/stop/reconcile/watch UX 개선

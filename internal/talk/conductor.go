@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"dalforge-hub/dalcenter/internal/bridge"
+	"github.com/dalsoop/dalcenter/internal/bridge"
 )
 
 // ConductorConfig for the central orchestrator bot.

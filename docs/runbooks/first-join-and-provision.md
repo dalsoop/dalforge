@@ -1,6 +1,6 @@
 # First Join And Provision
 
-이 runbook은 `dalforge`에서 패키지를 찾고, `dalcenter`에 등록하고, Proxmox LXC까지 만드는 가장 짧은 흐름이다.
+이 runbook은 `dalcenter`에서 패키지를 찾고 등록하고, Proxmox LXC까지 만드는 가장 짧은 흐름이다.
 
 ## 1. 패키지 찾기
 

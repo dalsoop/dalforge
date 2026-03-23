@@ -1,8 +1,8 @@
-# dalforge Docs
+# dalcenter Docs
 
-이 디렉터리는 `dalforge`와 `dalcenter`를 실제로 운영할 때 필요한 문서의 입구다.
+이 디렉터리는 `dalcenter`를 실제로 운영할 때 필요한 문서의 입구다.
 
-Canonical home: `https://dalforge.com`
+Canonical home: `https://dalcenter.com`
 
 ## Start Here
 
@@ -13,12 +13,10 @@ Canonical home: `https://dalforge.com`
 
 ## Mental Model
 
-- `dalforge`
-  - 패키지와 스펙을 유통하는 클라우드 허브
 - `dalcenter`
-  - 사용자 레포의 `.dalfactory`를 읽고 등록, export, 실행, provision을 담당하는 관리 주체
+  - 패키지와 스펙을 유통하고, 사용자 레포의 `.dal-template`를 읽어 등록, export, 실행, provision을 담당하는 self-hosted 허브
 - 사용자 레포
-  - `.dalfactory/`를 가진 실제 프로젝트
+  - `.dal-template/`를 가진 실제 프로젝트
 
 ## Core Commands
 
@@ -37,5 +35,5 @@ Canonical home: `https://dalforge.com`
 
 - gateway/runbook 문서
 - healthcheck 표준 규약
-- `.dalfactory` discovery 규칙
+- `.dal-template` discovery 규칙
 - multi-runtime 운영 예시
