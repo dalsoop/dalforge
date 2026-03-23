@@ -199,7 +199,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Unlock()
 
-	containerID, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, dal)
+	containerID, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, dal)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("wake failed: %v", err), 500)
 		return

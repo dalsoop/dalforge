@@ -16,11 +16,12 @@ type Client struct {
 	http    *http.Client
 }
 
-// NewClient creates a daemon client.
+// NewClient creates a daemon client. Requires DALCENTER_URL.
 func NewClient() *Client {
 	url := os.Getenv("DALCENTER_URL")
 	if url == "" {
-		url = "http://localhost:11190"
+		fmt.Fprintln(os.Stderr, "error: DALCENTER_URL is not set")
+		os.Exit(1)
 	}
 	return &Client{
 		baseURL: strings.TrimRight(url, "/"),

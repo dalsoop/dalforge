@@ -42,7 +42,7 @@ func playerHome(player string) string {
 }
 
 // dockerRun creates and starts a Docker container for a dal.
-func dockerRun(localdalRoot, serviceRepo, instanceName string, dal *localdal.DalProfile) (string, error) {
+func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *localdal.DalProfile) (string, error) {
 	containerName := fmt.Sprintf("dal-%s", instanceName)
 	tag := "latest"
 	if dal.PlayerVersion != "" {
@@ -63,7 +63,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName string, dal *localdal.Dal
 		"-e", fmt.Sprintf("DAL_UUID=%s", dal.UUID),
 		"-e", fmt.Sprintf("DAL_ROLE=%s", dal.Role),
 		"-e", fmt.Sprintf("DAL_PLAYER=%s", dal.Player),
-		"-e", fmt.Sprintf("DALCENTER_URL=http://host.docker.internal:11190"),
+		"-e", fmt.Sprintf("DALCENTER_URL=http://host.docker.internal%s", daemonAddr),
 		// VeilKey — pass through if available
 		"-e", fmt.Sprintf("VEILKEY_LOCALVAULT_URL=%s", os.Getenv("VEILKEY_LOCALVAULT_URL")),
 		// Mount dal directory (read-only)
