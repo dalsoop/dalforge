@@ -217,10 +217,9 @@ Requires=docker.service
 [Service]
 Type=simple
 Environment=PATH=/usr/local/bin:/usr/local/go/bin:/root/go/bin:/usr/bin:/bin
+Environment=HOME=/root
 Environment=DALCENTER_LOCALDAL_PATH=/root/<project>/.dal
 Environment=GITHUB_TOKEN=<token>
-Environment=VEILKEY_LOCALVAULT_URL=http://localhost:10180
-ExecStartPre=/bin/bash -c 'until curl -sk http://localhost:10180/health | grep ok; do sleep 2; done'
 ExecStart=/usr/local/bin/dalcenter serve --addr :11190 --repo /root/<project> --mm-url http://<MM_HOST>:8065 --mm-token <BOT_TOKEN> --mm-team <TEAM>
 Restart=always
 [Install]
