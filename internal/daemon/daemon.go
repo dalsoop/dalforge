@@ -13,10 +13,11 @@ import (
 
 // Daemon is the dalcenter HTTP API server.
 type Daemon struct {
-	addr       string
+	addr         string
 	localdalRoot string
-	containers map[string]*Container // dal name -> container
-	mu         sync.RWMutex
+	serviceRepo  string // service repo path to mount as /workspace
+	containers   map[string]*Container // dal name -> container
+	mu           sync.RWMutex
 }
 
 // Container tracks a running dal Docker container.
@@ -31,10 +32,11 @@ type Container struct {
 }
 
 // New creates a daemon.
-func New(addr, localdalRoot string) *Daemon {
+func New(addr, localdalRoot, serviceRepo string) *Daemon {
 	return &Daemon{
 		addr:         addr,
 		localdalRoot: localdalRoot,
+		serviceRepo:  serviceRepo,
 		containers:   make(map[string]*Container),
 	}
 }
@@ -149,7 +151,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Unlock()
 
-	containerID, err := dockerRun(d.localdalRoot, dal)
+	containerID, err := dockerRun(d.localdalRoot, d.serviceRepo, dal)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("wake failed: %v", err), 500)
 		return

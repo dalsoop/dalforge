@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -39,12 +40,13 @@ func playerHome(player string) string {
 }
 
 // dockerRun creates and starts a Docker container for a dal.
-func dockerRun(localdalRoot string, dal *localdal.DalProfile) (string, error) {
+func dockerRun(localdalRoot, serviceRepo string, dal *localdal.DalProfile) (string, error) {
 	containerName := fmt.Sprintf("dal-%s", dal.Name)
 	image := fmt.Sprintf("dalcenter/%s:latest", dal.Player)
 
 	dalDir := filepath.Join(localdalRoot, dal.FolderName)
 	home := playerHome(dal.Player)
+	hostHome, _ := os.UserHomeDir()
 
 	args := []string{
 		"run", "-d",
@@ -55,8 +57,24 @@ func dockerRun(localdalRoot string, dal *localdal.DalProfile) (string, error) {
 		"-e", fmt.Sprintf("DAL_UUID=%s", dal.UUID),
 		"-e", fmt.Sprintf("DAL_ROLE=%s", dal.Role),
 		"-e", fmt.Sprintf("DAL_PLAYER=%s", dal.Player),
+		"-e", fmt.Sprintf("DALCENTER_URL=http://host.docker.internal:11190"),
 		// Mount dal directory (read-only)
 		"-v", fmt.Sprintf("%s:%s:ro", dalDir, "/dal"),
+		// Working directory
+		"-w", "/workspace",
+	}
+
+	// Mount service repo as /workspace
+	if serviceRepo != "" {
+		args = append(args, "-v", fmt.Sprintf("%s:/workspace", serviceRepo))
+	}
+
+	// Mount credentials (player-specific)
+	credPath := filepath.Join(hostHome, ".claude", ".credentials.json")
+	if dal.Player == "claude" {
+		if _, err := os.Stat(credPath); err == nil {
+			args = append(args, "-v", fmt.Sprintf("%s:%s/.credentials.json:ro", credPath, home))
+		}
 	}
 
 	// Mount skills
@@ -70,6 +88,12 @@ func dockerRun(localdalRoot string, dal *localdal.DalProfile) (string, error) {
 	instrSrc := filepath.Join(dalDir, "instructions.md")
 	instrDst := filepath.Join(home, instructionsFileName(dal.Player))
 	args = append(args, "-v", fmt.Sprintf("%s:%s:ro", instrSrc, instrDst))
+
+	// Git config
+	args = append(args, "-e", fmt.Sprintf("GIT_AUTHOR_NAME=dal-%s", dal.Name))
+	args = append(args, "-e", fmt.Sprintf("GIT_AUTHOR_EMAIL=dal-%s@dalcenter.local", dal.Name))
+	args = append(args, "-e", fmt.Sprintf("GIT_COMMITTER_NAME=dal-%s", dal.Name))
+	args = append(args, "-e", fmt.Sprintf("GIT_COMMITTER_EMAIL=dal-%s@dalcenter.local", dal.Name))
 
 	args = append(args, image)
 
