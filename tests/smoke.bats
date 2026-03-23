@@ -1,21 +1,11 @@
 #!/usr/bin/env bats
 # dalcenter smoke tests
 # 실행: bats tests/smoke.bats
-# LXC 안에서: dalcenter 바이너리가 PATH에 있어야 함
-# 네트워크 필요: catalog search가 dalcenter 클라우드에 접속
 
 DALCENTER="${DALCENTER:-dalcenter}"
 
 setup_file() {
-    # 기존 상태 전체 정리 (멱등한 테스트를 위해)
-    $DALCENTER stop agent-coach 2>/dev/null || true
-    $DALCENTER destroy agent-coach 2>/dev/null || true
-    rm -rf ~/.dalcenter 2>/dev/null || true
-}
-
-teardown_file() {
-    # 테스트 후 남은 프로세스 정리
-    $DALCENTER stop agent-coach 2>/dev/null || true
+    export DALCENTER_LOCALDAL_PATH="$BATS_FILE_TMPDIR/.dal"
 }
 
 # --- CLI 기본 ---
@@ -23,155 +13,118 @@ teardown_file() {
 @test "help 출력" {
     run $DALCENTER --help
     [ "$status" -eq 0 ]
-    [[ "$output" == *"DalCenter"* ]]
+    [[ "$output" == *"wake"* ]]
+    [[ "$output" == *"sleep"* ]]
+    [[ "$output" == *"sync"* ]]
 }
 
 @test "모든 서브커맨드 존재" {
-    for cmd in catalog join list status validate export unexport start stop restart reconcile watch provision destroy secret; do
+    for cmd in serve init validate wake sleep sync status ps logs attach; do
         run $DALCENTER $cmd --help
         [ "$status" -eq 0 ]
     done
 }
 
-# --- CATALOG ---
+# --- INIT ---
 
-@test "catalog search 동작" {
-    run $DALCENTER catalog search ""
+@test "init 동작" {
+    run $DALCENTER init
     [ "$status" -eq 0 ]
-    [[ "$output" == *"NAME"* ]]
-}
-
-@test "catalog search 특정 패키지" {
-    run $DALCENTER catalog search agent-coach
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"agent-coach"* ]]
-}
-
-# --- 전제조건 ---
-
-@test "dal.spec.cue 존재" {
-    [ -f /root/dalcenter-dalcenter/dal.spec.cue ] || skip "dal.spec.cue 없음 — join 테스트 실패 예상"
-}
-
-# --- JOIN / LIST / STATUS ---
-
-@test "join 클라우드 패키지" {
-    run $DALCENTER join agent-coach
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"instance created"* ]]
-}
-
-@test "list 등록된 인스턴스 표시" {
-    run $DALCENTER list
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"agent-coach"* ]]
-}
-
-@test "status 인스턴스 상세" {
-    run $DALCENTER status agent-coach
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"dal_id"* ]]
-    [[ "$output" == *"source_ref"* ]]
+    [ -d "$DALCENTER_LOCALDAL_PATH" ]
+    [ -f "$DALCENTER_LOCALDAL_PATH/dal.spec.cue" ]
 }
 
 # --- VALIDATE ---
 
-@test "validate 이름으로 동작" {
-    run $DALCENTER validate agent-coach
+@test "validate 빈 localdal 에러" {
+    run $DALCENTER validate
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no dals found"* ]]
+}
+
+@test "validate leader 없으면 에러" {
+    mkdir -p "$DALCENTER_LOCALDAL_PATH/dev"
+    cat > "$DALCENTER_LOCALDAL_PATH/dev/dal.cue" << 'EOF'
+uuid:    "test-001"
+name:    "dev"
+version: "1.0.0"
+player:  "claude"
+role:    "member"
+skills:  []
+hooks:   []
+EOF
+    echo "# dev" > "$DALCENTER_LOCALDAL_PATH/dev/instructions.md"
+
+    run $DALCENTER validate
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"no leader"* ]]
+}
+
+@test "validate 정상 통과" {
+    mkdir -p "$DALCENTER_LOCALDAL_PATH/leader"
+    cat > "$DALCENTER_LOCALDAL_PATH/leader/dal.cue" << 'EOF'
+uuid:    "leader-001"
+name:    "leader"
+version: "1.0.0"
+player:  "claude"
+role:    "leader"
+skills:  []
+hooks:   []
+EOF
+    echo "# leader" > "$DALCENTER_LOCALDAL_PATH/leader/instructions.md"
+
+    run $DALCENTER validate
     [ "$status" -eq 0 ]
     [[ "$output" == *"ok"* ]]
 }
 
-# --- EXPORT / UNEXPORT ---
+# --- STATUS ---
 
-@test "export 이름으로 동작" {
-    run $DALCENTER export agent-coach
+@test "status 목록 표시" {
+    run $DALCENTER status
     [ "$status" -eq 0 ]
-    [[ "$output" == *"ok"* ]]
+    [[ "$output" == *"leader"* ]]
+    [[ "$output" == *"dev"* ]]
 }
 
-@test "unexport 이름으로 동작" {
-    run $DALCENTER unexport agent-coach
+@test "status 개별 dal 표시" {
+    run $DALCENTER status dev
     [ "$status" -eq 0 ]
-    [[ "$output" == *"ok"* ]]
+    [[ "$output" == *"uuid"* ]]
+    [[ "$output" == *"player"* ]]
 }
 
-# --- START / STOP / RESTART ---
-
-@test "start 프로세스 실행" {
-    run $DALCENTER start agent-coach
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"started"* ]]
-}
-
-@test "stop 프로세스 정지" {
-    run $DALCENTER stop agent-coach
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"stopped"* ]]
-}
-
-@test "restart 프로세스 재시작" {
-    run $DALCENTER restart agent-coach
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"restarted"* ]]
-}
-
-@test "stop 정리" {
-    run $DALCENTER stop agent-coach
-    [ "$status" -eq 0 ]
-}
-
-# --- RECONCILE / WATCH ---
-
-@test "reconcile 동작" {
-    run $DALCENTER reconcile
-    [ "$status" -eq 0 ]
-}
-
-@test "watch 한 사이클 동작" {
-    run timeout 3 $DALCENTER watch --interval 1
-    # timeout 종료(exit 124)도 정상 — 한 사이클 돌고 강제 종료됨
-    [[ "$status" -eq 124 || "$status" -eq 0 ]]
-}
-
-# --- PROVISION (dry-run) ---
-
-@test "provision dry-run 동작" {
-    run $DALCENTER provision agent-coach --dry-run --vmid 999 --storage local-lvm --bridge vmbr0
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"pct create 999"* ]]
-    [[ "$output" == *"pct start"* ]]
-}
-
-@test "provision dry-run credential sync 표시" {
-    run $DALCENTER provision agent-coach --dry-run --vmid 999 --storage local-lvm --bridge vmbr0
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"proxmox-host-setup ai mount"* ]]
-}
-
-# --- SECRET ---
-
-@test "secret list 동작 (빈 상태)" {
-    run $DALCENTER secret list
-    [ "$status" -eq 0 ]
-}
-
-# --- DESTROY (no-op) ---
-
-@test "destroy 컨테이너 없으면 no-op" {
-    run $DALCENTER destroy agent-coach
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"nothing to destroy"* ]]
-}
-
-# --- 에러 케이스 ---
-
-@test "status 존재하지 않는 인스턴스 에러" {
-    run $DALCENTER status nonexistent-instance-xyz
+@test "status 존재하지 않는 dal 에러" {
+    run $DALCENTER status nonexistent
     [ "$status" -ne 0 ]
 }
 
-@test "validate 존재하지 않는 경로 에러" {
-    run $DALCENTER validate /nonexistent/path
+# --- WAKE/SLEEP (데몬 없이 에러 확인) ---
+
+@test "wake 데몬 없으면 에러" {
+    export DALCENTER_URL="http://localhost:19999"
+    run $DALCENTER wake dev
     [ "$status" -ne 0 ]
+    [[ "$output" == *"daemon unreachable"* ]]
+}
+
+@test "sleep 데몬 없으면 에러" {
+    export DALCENTER_URL="http://localhost:19999"
+    run $DALCENTER sleep dev
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"daemon unreachable"* ]]
+}
+
+@test "ps 데몬 없으면 에러" {
+    export DALCENTER_URL="http://localhost:19999"
+    run $DALCENTER ps
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"daemon unreachable"* ]]
+}
+
+@test "sync 데몬 없으면 에러" {
+    export DALCENTER_URL="http://localhost:19999"
+    run $DALCENTER sync
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"daemon unreachable"* ]]
 }
