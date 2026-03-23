@@ -133,4 +133,113 @@ dalcenter/gemini:latest    ubuntu + python3 + gemini-cli
   DALCENTER_URL               데몬 주소
   GH_TOKEN / GITHUB_TOKEN     GitHub 인증
   GIT_AUTHOR_NAME/EMAIL       git 커밋 정보
+  VEILKEY_LOCALVAULT_URL      VeilKey localvault (있으면 전달)
 ```
+
+## 시크릿 흐름
+
+```
+VeilKey LocalVault (LXC 내)
+  → dalcenter (veil resolve / localvault API)
+  → 환경변수로 Docker 컨테이너에 주입
+  → 컨테이너는 평문으로 사용 (GH_TOKEN, API keys 등)
+```
+
+dal.cue에서 시크릿 참조 방식:
+- `"env:GITHUB_TOKEN"` — dalcenter 프로세스의 환경변수에서 가져옴
+- `"VK:LOCAL:xxxx"` — veil resolve로 평문 변환 후 주입
+- 직접 값 — 그대로 주입 (비추천)
+
+## 배포 가이드
+
+### 1. LXC 생성
+
+```bash
+pct create <VMID> local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst \
+  --hostname dalcenter \
+  --storage local-lvm --rootfs local-lvm:16 \
+  --memory 4096 --cores 4 \
+  --net0 name=eth0,bridge=vmbr1,ip=10.50.0.105/16,gw=10.50.0.1,type=veth \
+  --unprivileged 0
+```
+
+LXC config에 추가 (Docker 지원):
+```
+lxc.apparmor.profile: unconfined
+lxc.cap.drop:
+lxc.mount.auto: proc:rw sys:rw
+```
+
+### 2. 패키지 설치
+
+```bash
+apt-get install -y docker.io git curl ca-certificates
+# Go 1.25
+curl -sL https://go.dev/dl/go1.25.0.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+```
+
+### 3. VeilKey LocalVault 설치
+
+```bash
+cd /root/veilkey-selfhosted
+VEILKEY_CENTER_URL=https://<VC_HOST>:11181 VEILKEY_NAME=dalcenter-lv \
+  bash install/common/install-localvault.sh
+# init + unlock
+echo '<MASTER_PASSWORD>' | veilkey-localvault init --root --center https://<VC_HOST>:11181
+curl -X POST http://localhost:10180/api/unlock -d '{"password":"<MASTER_PASSWORD>"}'
+```
+
+veil CLI:
+```bash
+VEILKEY_URL=http://localhost:10180 bash install/common/install-veil-cli.sh
+```
+
+### 4. systemd 서비스
+
+```ini
+# /etc/systemd/system/localvault.service
+[Unit]
+Description=VeilKey LocalVault
+After=network.target
+[Service]
+Type=simple
+EnvironmentFile=/root/.localvault/.env
+ExecStart=/root/.localvault/veilkey-localvault
+Restart=always
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/dalcenter.service
+[Unit]
+Description=DalCenter Daemon
+After=network.target docker.service localvault.service
+Requires=docker.service
+[Service]
+Type=simple
+Environment=PATH=/usr/local/bin:/usr/local/go/bin:/root/go/bin:/usr/bin:/bin
+Environment=DALCENTER_LOCALDAL_PATH=/root/<project>/.dal
+Environment=GITHUB_TOKEN=<token>
+Environment=VEILKEY_LOCALVAULT_URL=http://localhost:10180
+ExecStartPre=/bin/bash -c 'until curl -sk http://localhost:10180/health | grep ok; do sleep 2; done'
+ExecStart=/usr/local/bin/dalcenter serve --addr :11190 --repo /root/<project> --mm-url http://<MM_HOST>:8065 --mm-token <BOT_TOKEN> --mm-team <TEAM>
+Restart=always
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl enable localvault dalcenter
+systemctl start localvault dalcenter
+```
+
+### 5. Docker 이미지 빌드
+
+```bash
+docker build -t dalcenter/claude:latest -f dockerfiles/claude.Dockerfile dockerfiles/
+```
+
+### 네트워크 요구사항
+
+- dalcenter LXC: 내부 대역 (vmbr1, 10.50.0.x) — VaultCenter/Mattermost 접근 필요
+- Docker: nesting=1 + apparmor unconfined
+- Mattermost: 봇 토큰 (만료 없음) 필요
