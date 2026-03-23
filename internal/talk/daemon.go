@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"dalforge-hub/dalcenter/internal/bridge"
+	"github.com/dalsoop/dalcenter/internal/bridge"
 )
 
 // Config for the talk daemon.

@@ -1,4 +1,4 @@
-module dalforge-hub/dalcenter
+module github.com/dalsoop/dalcenter
 
 go 1.25.0
 

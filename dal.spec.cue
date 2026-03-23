@@ -1,10 +1,10 @@
-package dalforge
+package dalcenter
 
 // ===================================================
-// dal.spec.cue — dalforge-hub 핵심 스펙 v1.0.0
+// dal.spec.cue — dalforge 핵심 스펙 v1.0.0
 //
 // 하위 호환 정책:
-//   major: 기존 .dalfactory 호환 깨짐 (마이그레이션 필수)
+//   major: 기존 .dal-template 호환 깨짐 (마이그레이션 필수)
 //   minor: 필드 추가만 허용 (기존 유효성 유지)
 //   patch: 설명/주석만 변경
 // ===================================================
@@ -165,9 +165,25 @@ builtin_categories: {
 	hooks?:  [...string]
 }
 
-// ===== .dalfactory 템플릿 =====
+// ===== dal 프로필 (허브용) =====
 
-// .dalfactory/templates/ 안에 여러 템플릿이 존재
+// dalforge/dalforge 허브 레포의 각 dal 폴더에 위치
+// UUID로 식별, 폴더명은 별명
+#DalProfile: {
+	uuid!:        string & != ""
+	name!:        string & != ""
+	version!:     #SemVer
+	player!:      "claude" | "codex" | "gemini"
+	description?: string
+	container?: #ContainerSpec
+	skills?: [...string]
+	hooks?:  [...string]
+	exports?: [string]: #AgentExport
+}
+
+// ===== .dal-template 템플릿 (레거시) =====
+
+// .dal-template/templates/ 안에 여러 템플릿이 존재
 // dalcenter join {template} 으로 인스턴스 생성
 #DalTemplate: {
 	schema_version!: #SemVer
@@ -185,10 +201,10 @@ builtin_categories: {
 	exports?: [string]: #AgentExport
 }
 
-// ===== .dalfactory 루트 =====
+// ===== .dal-template 루트 =====
 
-// 레포 루트의 .dalfactory/ 폴더 정의
-#DalFactory: {
+// 레포 루트의 .dal-template/ 폴더 정의
+#DalManifest: {
 	schema_version!: #SemVer
 	dal!: {
 		id!:       #DalID
@@ -204,7 +220,7 @@ builtin_categories: {
 // ===== localdal (인형 인스턴스) =====
 
 // localdal 하나 = dal 인형 하나
-// .dalfactory 템플릿 기반으로 생성
+// .dal-template 템플릿 기반으로 생성
 #LocalDalStatus: "active" | "stopped" | "error" | "updating"
 
 #LocalDal: {

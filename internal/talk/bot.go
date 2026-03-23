@@ -183,7 +183,7 @@ func CreateChannel(mmURL, token, teamID, channelName string) (string, error) {
 	mmURL = strings.TrimRight(mmURL, "/")
 
 	// Try create
-	body := fmt.Sprintf(`{"team_id":%q,"name":%q,"display_name":%q,"type":"O","purpose":"dalforge talk channel"}`,
+	body := fmt.Sprintf(`{"team_id":%q,"name":%q,"display_name":%q,"type":"O","purpose":"dalcenter talk channel"}`,
 		teamID, channelName, channelName)
 	resp, err := mmAPI("POST", mmURL+"/api/v4/channels", token, body)
 	if err == nil {
