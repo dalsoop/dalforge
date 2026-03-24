@@ -74,7 +74,9 @@ func playerHome(player string) string {
 }
 
 // dockerRun creates and starts a Docker container for a dal.
-func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *localdal.DalProfile) (string, error) {
+// It returns the container ID, any credential warnings, and an error.
+func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *localdal.DalProfile) (string, []string, error) {
+	var warnings []string
 	containerName := fmt.Sprintf("dal-%s", instanceName)
 	tag := "latest"
 	if dal.PlayerVersion != "" {
@@ -116,27 +118,37 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		if _, err := os.Stat(credPath); err == nil {
 			args = append(args, "-v", fmt.Sprintf("%s:%s/.credentials.json:ro", credPath, home))
 			if expired, _ := isCredentialExpired(credPath); expired {
-				log.Printf("WARNING: Claude credential expired — run: pve-sync-creds")
+				w := "Claude credential expired — run: pve-sync-creds"
+				log.Printf("WARNING: %s", w)
+				warnings = append(warnings, w)
 			}
 		} else {
-			log.Printf("WARNING: Claude credential not found at %s", credPath)
+			w := fmt.Sprintf("Claude credential not found at %s", credPath)
+			log.Printf("WARNING: %s", w)
+			warnings = append(warnings, w)
 		}
 	case "codex":
 		credPath := filepath.Join(hostHome, ".codex", "auth.json")
 		if _, err := os.Stat(credPath); err == nil {
 			args = append(args, "-v", fmt.Sprintf("%s:%s/auth.json:ro", credPath, home))
 			if expired, _ := isCredentialExpired(credPath); expired {
-				log.Printf("WARNING: Codex credential expired — run: pve-sync-creds")
+				w := "Codex credential expired — run: pve-sync-creds"
+				log.Printf("WARNING: %s", w)
+				warnings = append(warnings, w)
 			}
 		} else {
-			log.Printf("WARNING: Codex credential not found at %s", credPath)
+			w := fmt.Sprintf("Codex credential not found at %s", credPath)
+			log.Printf("WARNING: %s", w)
+			warnings = append(warnings, w)
 		}
 	case "gemini":
 		// Gemini uses API key via environment variable
 		if key := os.Getenv("GEMINI_API_KEY"); key != "" {
 			args = append(args, "-e", fmt.Sprintf("GEMINI_API_KEY=%s", key))
 		} else {
-			log.Printf("WARNING: GEMINI_API_KEY not set for gemini dal")
+			w := "GEMINI_API_KEY not set for gemini dal"
+			log.Printf("WARNING: %s", w)
+			warnings = append(warnings, w)
 		}
 	}
 
@@ -192,7 +204,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	cmd := exec.Command("docker", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("docker run: %s: %w", strings.TrimSpace(string(out)), err)
+		return "", nil, fmt.Errorf("docker run: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	containerID := strings.TrimSpace(string(out))
 
@@ -201,7 +213,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		log.Printf("[docker] warning: failed to inject dalcli: %v", err)
 	}
 
-	return containerID, nil
+	return containerID, warnings, nil
 }
 
 // resolveVeilKey resolves a VK: reference via veil CLI or localvault API.

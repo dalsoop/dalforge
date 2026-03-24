@@ -199,7 +199,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Unlock()
 
-	containerID, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, dal)
+	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, dal)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("wake failed: %v", err), 500)
 		return
@@ -241,11 +241,15 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		uid = uid[:8]
 	}
 	log.Printf("[daemon] wake: %s (uuid=%s, container=%s)", instanceName, uid, cid)
-	json.NewEncoder(w).Encode(map[string]string{
+	resp := map[string]any{
 		"status":       "awake",
 		"dal":          instanceName,
 		"container_id": containerID,
-	})
+	}
+	if len(warnings) > 0 {
+		resp["warnings"] = warnings
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (d *Daemon) handleSleep(w http.ResponseWriter, r *http.Request) {
