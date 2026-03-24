@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -9,9 +10,40 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dalsoop/dalcenter/internal/localdal"
 )
+
+// isCredentialExpired checks if a player's credential file has expired.
+// Supports Claude (.credentials.json) and Codex (auth.json).
+func isCredentialExpired(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	// Claude: {"claudeAiOauth":{"expiresAt":1234567890123}}
+	var claude struct {
+		ClaudeAiOauth struct {
+			ExpiresAt int64 `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(data, &claude) == nil && claude.ClaudeAiOauth.ExpiresAt > 0 {
+		return time.Now().UnixMilli() > claude.ClaudeAiOauth.ExpiresAt, nil
+	}
+	// Codex: {"tokens":{"expires_at":"2026-03-20T..."}, "last_refresh":"..."}
+	var codex struct {
+		Tokens struct {
+			ExpiresAt string `json:"expires_at"`
+		} `json:"tokens"`
+	}
+	if json.Unmarshal(data, &codex) == nil && codex.Tokens.ExpiresAt != "" {
+		if t, err := time.Parse(time.RFC3339, codex.Tokens.ExpiresAt); err == nil {
+			return time.Now().After(t), nil
+		}
+	}
+	return false, nil
+}
 
 // instructionsFileName returns the target filename based on player.
 func instructionsFileName(player string) string {
@@ -78,10 +110,33 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	}
 
 	// Mount credentials (player-specific)
-	credPath := filepath.Join(hostHome, ".claude", ".credentials.json")
-	if dal.Player == "claude" {
+	switch dal.Player {
+	case "claude":
+		credPath := filepath.Join(hostHome, ".claude", ".credentials.json")
 		if _, err := os.Stat(credPath); err == nil {
 			args = append(args, "-v", fmt.Sprintf("%s:%s/.credentials.json:ro", credPath, home))
+			if expired, _ := isCredentialExpired(credPath); expired {
+				log.Printf("WARNING: Claude credential expired — run: pve-sync-creds")
+			}
+		} else {
+			log.Printf("WARNING: Claude credential not found at %s", credPath)
+		}
+	case "codex":
+		credPath := filepath.Join(hostHome, ".codex", "auth.json")
+		if _, err := os.Stat(credPath); err == nil {
+			args = append(args, "-v", fmt.Sprintf("%s:%s/auth.json:ro", credPath, home))
+			if expired, _ := isCredentialExpired(credPath); expired {
+				log.Printf("WARNING: Codex credential expired — run: pve-sync-creds")
+			}
+		} else {
+			log.Printf("WARNING: Codex credential not found at %s", credPath)
+		}
+	case "gemini":
+		// Gemini uses API key via environment variable
+		if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+			args = append(args, "-e", fmt.Sprintf("GEMINI_API_KEY=%s", key))
+		} else {
+			log.Printf("WARNING: GEMINI_API_KEY not set for gemini dal")
 		}
 	}
 
