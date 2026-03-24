@@ -3,7 +3,7 @@
   <p><strong>Dal lifecycle manager — wake, sleep, sync AI agent containers</strong></p>
   <p>
     <a href="https://github.com/dalsoop/dalcenter"><img src="https://img.shields.io/badge/github-dalsoop%2Fdalcenter-181717?logo=github&logoColor=white" alt="GitHub repository"></a>
-    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2563eb.svg" alt="MIT License"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-2563eb.svg" alt="AGPL-3.0 License"></a>
   </p>
   <p><a href="./README.ko.md">한국어</a></p>
 </div>
