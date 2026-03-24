@@ -125,7 +125,10 @@ func newWakeCmd() *cobra.Command {
 		Short: "Wake a dal (start Docker container)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			if all {
 				root := localdalRoot()
 				dals, err := localdal.ListDals(root)
@@ -166,7 +169,10 @@ func newSleepCmd() *cobra.Command {
 		Short: "Sleep a dal (stop Docker container)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			if all {
 				containers, err := client.Ps()
 				if err != nil {
@@ -202,7 +208,10 @@ func newSyncCmd() *cobra.Command {
 		Use:   "sync",
 		Short: "Sync changes to awake dal containers",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			result, err := client.Sync()
 			if err != nil {
 				return err
@@ -220,7 +229,10 @@ func newPsCmd() *cobra.Command {
 		Use:   "ps",
 		Short: "List awake dals",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			containers, err := client.Ps()
 			if err != nil {
 				return err
@@ -301,7 +313,10 @@ func newLogsCmd() *cobra.Command {
 		Short: "Show dal container logs",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			logs, err := client.Logs(args[0])
 			if err != nil {
 				return err

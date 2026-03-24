@@ -32,7 +32,10 @@ func statusCmd(dalName string) *cobra.Command {
 			if dalName == "" {
 				return fmt.Errorf("DAL_NAME not set")
 			}
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			containers, err := client.Ps()
 			if err != nil {
 				return err
@@ -58,7 +61,10 @@ func psCmd() *cobra.Command {
 		Use:   "ps",
 		Short: "List team dals",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			containers, err := client.Ps()
 			if err != nil {
 				return err
@@ -84,7 +90,10 @@ func reportCmd(dalName string) *cobra.Command {
 		Short: "Report to leader (via Mattermost)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			msg := fmt.Sprintf("[%s] 보고: %s", dalName, args[0])
 			if _, err := client.Message(dalName, msg); err != nil {
 				return err
