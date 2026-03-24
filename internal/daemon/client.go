@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var errNoURL = fmt.Errorf("DALCENTER_URL is not set")
+
 // Client talks to the dalcenter daemon over HTTP.
 type Client struct {
 	baseURL string
@@ -17,16 +19,15 @@ type Client struct {
 }
 
 // NewClient creates a daemon client. Requires DALCENTER_URL.
-func NewClient() *Client {
+func NewClient() (*Client, error) {
 	url := os.Getenv("DALCENTER_URL")
 	if url == "" {
-		fmt.Fprintln(os.Stderr, "error: DALCENTER_URL is not set")
-		os.Exit(1)
+		return nil, errNoURL
 	}
 	return &Client{
 		baseURL: strings.TrimRight(url, "/"),
 		http:    &http.Client{Timeout: 120 * time.Second},
-	}
+	}, nil
 }
 
 // Wake sends a wake request.
@@ -68,7 +69,9 @@ func (c *Client) MessageThread(from, message, threadID string) (*MessageResult, 
 		return nil, fmt.Errorf("message failed: %s", strings.TrimSpace(string(b)))
 	}
 	var result MessageResult
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("json decode: %w", err)
+	}
 	return &result, nil
 }
 
@@ -115,7 +118,9 @@ func (c *Client) postJSON(path string) (map[string]string, error) {
 		return nil, fmt.Errorf("daemon error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var result map[string]string
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("json unmarshal: %w", err)
+	}
 	return result, nil
 }
 
@@ -130,6 +135,8 @@ func (c *Client) postAny(path string) (map[string]any, error) {
 		return nil, fmt.Errorf("daemon error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var result map[string]any
-	json.Unmarshal(body, &result)
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("json unmarshal: %w", err)
+	}
 	return result, nil
 }

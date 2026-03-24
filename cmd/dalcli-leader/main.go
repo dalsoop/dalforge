@@ -30,7 +30,10 @@ func wakeCmd() *cobra.Command {
 		Short: "Wake a team member",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			result, err := client.Wake(args[0])
 			if err != nil {
 				return err
@@ -47,7 +50,10 @@ func sleepCmd() *cobra.Command {
 		Short: "Sleep a team member",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			if _, err := client.Sleep(args[0]); err != nil {
 				return err
 			}
@@ -62,7 +68,10 @@ func psCmd() *cobra.Command {
 		Use:   "ps",
 		Short: "List team dals",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			containers, err := client.Ps()
 			if err != nil {
 				return err
@@ -92,7 +101,10 @@ func statusCmd() *cobra.Command {
 		Short: "Show team member status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			containers, err := client.Ps()
 			if err != nil {
 				return err
@@ -119,7 +131,10 @@ func logsCmd() *cobra.Command {
 		Short: "Show team member logs",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			logs, err := client.Logs(args[0])
 			if err != nil {
 				return err
@@ -135,7 +150,10 @@ func syncCmd() *cobra.Command {
 		Use:   "sync",
 		Short: "Sync changes to team",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			result, err := client.Sync()
 			if err != nil {
 				return err
@@ -152,7 +170,10 @@ func assignCmd(dalName string) *cobra.Command {
 		Short: "Assign task to team member (via Mattermost)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := daemon.NewClient()
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
 			msg := fmt.Sprintf("@dal-%s 작업 지시: %s", args[0], args[1])
 			result, err := client.Message(dalName, msg)
 			if err != nil {
