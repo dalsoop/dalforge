@@ -302,23 +302,64 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var synced []string
+	var restarted []string
 	for name, c := range running {
 		dal, err := localdal.ReadDalCue(d.dalCuePath(name), name)
 		if err != nil {
 			log.Printf("[daemon] sync skip %s: %v", name, err)
 			continue
 		}
-		if err := dockerSync(d.localdalRoot, c.ContainerID, dal); err != nil {
+		needsRestart, reason, err := dockerSync(d.localdalRoot, c.ContainerID, dal)
+		if err != nil {
 			log.Printf("[daemon] sync error %s: %v", name, err)
 			continue
+		}
+		if needsRestart {
+			log.Printf("[daemon] sync restart %s: %s", name, reason)
+			// Stop old container
+			oldID := c.ContainerID
+			if err := dockerStop(oldID); err != nil {
+				log.Printf("[daemon] sync restart stop %s: %v", name, err)
+				continue
+			}
+			// Start new container
+			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, dal)
+			if err != nil {
+				log.Printf("[daemon] sync restart run %s: %v", name, err)
+				// Remove from containers map since old one is stopped
+				d.mu.Lock()
+				delete(d.containers, name)
+				d.mu.Unlock()
+				continue
+			}
+			// Update containers map
+			d.mu.Lock()
+			d.containers[name] = &Container{
+				DalName:     name,
+				UUID:        dal.UUID,
+				Player:      dal.Player,
+				Role:        dal.Role,
+				ContainerID: newID,
+				Status:      "running",
+				Skills:      len(dal.Skills),
+				BotToken:    c.BotToken, // preserve bot token
+			}
+			d.mu.Unlock()
+			restarted = append(restarted, name)
+			cid := newID
+			if len(cid) > 12 {
+				cid = cid[:12]
+			}
+			log.Printf("[daemon] sync restarted %s: %s (new container=%s)", name, reason, cid)
 		}
 		synced = append(synced, name)
 	}
 
-	log.Printf("[daemon] sync: %v", synced)
+	log.Printf("[daemon] sync: synced=%v restarted=%v", synced, restarted)
 	json.NewEncoder(w).Encode(map[string]any{
-		"status": "synced",
-		"dals":   synced,
+		"status":    "synced",
+		"dals":      synced,
+		"restarted": restarted,
 	})
 }
 

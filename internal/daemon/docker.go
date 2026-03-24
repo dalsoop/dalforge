@@ -317,15 +317,73 @@ func dockerStop(containerID string) error {
 	return nil
 }
 
+// dockerNeedsRestart checks if a container needs to be recreated based on dal.cue changes.
+// Returns a reason string if restart is needed, empty string if not.
+func dockerNeedsRestart(containerID string, dal *localdal.DalProfile) (string, error) {
+	// 1. Check image: compare current container image with expected
+	imgCmd := exec.Command("docker", "inspect", containerID, "--format", "{{.Config.Image}}")
+	imgOut, err := imgCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect image: %w", err)
+	}
+	currentImage := strings.TrimSpace(string(imgOut))
+
+	tag := "latest"
+	if dal.PlayerVersion != "" {
+		tag = dal.PlayerVersion
+	}
+	expectedImage := fmt.Sprintf("dalcenter/%s:%s", dal.Player, tag)
+
+	if currentImage != expectedImage {
+		return fmt.Sprintf("image changed: %s -> %s", currentImage, expectedImage), nil
+	}
+
+	// 2. Check skill mounts: compare mount count with dal.Skills length
+	mountsCmd := exec.Command("docker", "inspect", containerID, "--format", "{{json .Mounts}}")
+	mountsOut, err := mountsCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect mounts: %w", err)
+	}
+
+	var mounts []struct {
+		Type        string `json:"Type"`
+		Source      string `json:"Source"`
+		Destination string `json:"Destination"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(mountsOut))), &mounts); err != nil {
+		return "", fmt.Errorf("parse mounts: %w", err)
+	}
+
+	// Count skill mounts: those targeting <playerHome>/skills/*
+	home := playerHome(dal.Player)
+	skillMountPrefix := home + "/skills/"
+	var skillMountCount int
+	for _, m := range mounts {
+		if strings.HasPrefix(m.Destination, skillMountPrefix) {
+			skillMountCount++
+		}
+	}
+
+	if skillMountCount != len(dal.Skills) {
+		return fmt.Sprintf("skills changed: container has %d mounts, dal.cue has %d skills", skillMountCount, len(dal.Skills)), nil
+	}
+
+	return "", nil
+}
+
 // dockerSync verifies a running container matches its dal profile.
-// Since instructions and skills are bind-mounted, file changes are automatic.
-// Sync handles structural changes (new skills added/removed in dal.cue).
-func dockerSync(localdalRoot, containerID string, dal *localdal.DalProfile) error {
-	// Bind mounts auto-reflect file changes.
-	// If dal.cue changed (e.g., new skill added), container needs restart.
-	// For now, log what would change.
-	log.Printf("[sync] %s: player=%s, skills=%d — bind mounts are live", dal.Name, dal.Player, len(dal.Skills))
-	return nil
+// Since instructions and skills are bind-mounted, file content changes are automatic.
+// Sync detects structural changes (image tag, skills added/removed) that require container recreation.
+func dockerSync(localdalRoot, containerID string, dal *localdal.DalProfile) (needsRestart bool, reason string, err error) {
+	reason, err = dockerNeedsRestart(containerID, dal)
+	if err != nil {
+		return false, "", err
+	}
+	if reason != "" {
+		return true, reason, nil
+	}
+	log.Printf("[sync] %s: no structural changes — bind mounts are live", dal.Name)
+	return false, "", nil
 }
 
 // dockerLogs returns logs from a Docker container.
