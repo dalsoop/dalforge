@@ -41,10 +41,11 @@ type Conductor struct {
 	br        bridge.Bridge
 	executor  *Executor
 	sanitizer *Sanitizer
-	seen      map[string]bool
-	threads   map[string]*threadState // rootID → state
-	mu        sync.Mutex
-	botUserID string
+	seen       map[string]bool
+	threads    map[string]*threadState // rootID → state
+	dalBotIDs  map[string]bool         // known dal bot user IDs
+	mu         sync.Mutex
+	botUserID  string
 }
 
 func NewConductor(cfg ConductorConfig) (*Conductor, error) {
@@ -56,6 +57,7 @@ func NewConductor(cfg ConductorConfig) (*Conductor, error) {
 		sanitizer: NewSanitizer(),
 		seen:      make(map[string]bool),
 		threads:   make(map[string]*threadState),
+		dalBotIDs: make(map[string]bool),
 	}, nil
 }
 
@@ -67,6 +69,15 @@ func (c *Conductor) Run(ctx context.Context) error {
 
 	if mm, ok := c.br.(*bridge.MattermostBridge); ok {
 		c.botUserID = mm.BotUserID
+		for _, d := range c.cfg.Dals {
+			uid, err := mm.GetUserIDByUsername(d.Username)
+			if err != nil {
+				log.Printf("[conductor] warning: could not resolve dal bot %q: %v", d.Username, err)
+				continue
+			}
+			c.dalBotIDs[uid] = true
+			log.Printf("[conductor] registered dal bot: @%s → %s", d.Username, uid)
+		}
 	}
 
 	dalList := c.buildDalList()
@@ -218,12 +229,7 @@ func (c *Conductor) buildDalList() string {
 }
 
 func (c *Conductor) isDalBot(userID string) bool {
-	// Known bot user IDs from bridge
-	// In production, this would query the serve registry
-	if mm, ok := c.br.(*bridge.MattermostBridge); ok {
-		_ = mm // future: check against registered bot IDs
-	}
-	return false
+	return c.dalBotIDs[userID]
 }
 
 func (c *Conductor) isDuplicate(id string) bool {

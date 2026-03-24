@@ -217,6 +217,19 @@ func (m *MattermostBridge) apiPost(path, jsonBody string) ([]byte, error) {
 	return body, nil
 }
 
+// GetUserIDByUsername resolves a Mattermost username to a user ID.
+func (m *MattermostBridge) GetUserIDByUsername(username string) (string, error) {
+	data, err := m.apiGet("/api/v4/users/username/" + username)
+	if err != nil {
+		return "", fmt.Errorf("get user %q: %w", username, err)
+	}
+	id := jsonString(data, "id")
+	if id == "" {
+		return "", fmt.Errorf("get user %q: no id in response", username)
+	}
+	return id, nil
+}
+
 func jsonString(data []byte, key string) string {
 	var m map[string]interface{}
 	if json.Unmarshal(data, &m) != nil {
