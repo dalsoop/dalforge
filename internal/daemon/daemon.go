@@ -85,6 +85,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
+	// Reconcile existing containers from a previous daemon run
+	d.reconcile()
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/ps", d.handlePs)
@@ -203,6 +206,12 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.mu.Unlock()
+
+	// Clean any stopped container with the same name (best-effort, #33)
+	targetContainerName := fmt.Sprintf("dal-%s", instanceName)
+	if err := cleanStaleContainer(targetContainerName); err != nil {
+		log.Printf("[daemon] clean stale container %s: %v (continuing)", targetContainerName, err)
+	}
 
 	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, dal)
 	if err != nil {
@@ -423,6 +432,66 @@ func mmPost(mmURL, token, path, body string) ([]byte, error) {
 		return nil, fmt.Errorf("%d: %s", resp.StatusCode, string(respBody))
 	}
 	return respBody, nil
+}
+
+// reconcile discovers existing dal-* containers and restores daemon state.
+// This is best-effort: running containers with matching dal.cue are added
+// to d.containers; orphans and stopped containers are logged only.
+func (d *Daemon) reconcile() {
+	containers, err := discoverContainers()
+	if err != nil {
+		log.Printf("[daemon] reconcile: %v", err)
+		return
+	}
+	if len(containers) == 0 {
+		return
+	}
+
+	var running, stopped int
+	for _, c := range containers {
+		if !strings.HasPrefix(c.Name, "dal-") {
+			continue
+		}
+		instanceName := strings.TrimPrefix(c.Name, "dal-")
+
+		if c.Running {
+			// Try to read dal.cue — for multi-instance like "dev-2", derive base name
+			dalName := instanceName
+			dal, err := localdal.ReadDalCue(d.dalCuePath(dalName), dalName)
+			if err != nil {
+				// Try stripping instance suffix: "dev-2" -> "dev"
+				if idx := strings.LastIndex(dalName, "-"); idx > 0 {
+					baseName := dalName[:idx]
+					dal, err = localdal.ReadDalCue(d.dalCuePath(baseName), baseName)
+				}
+			}
+			if err != nil {
+				log.Printf("[daemon] reconcile: orphan running container %s (%s) — no matching dal.cue", c.Name, c.ID[:12])
+				continue
+			}
+
+			d.mu.Lock()
+			d.containers[instanceName] = &Container{
+				DalName:     instanceName,
+				UUID:        dal.UUID,
+				Player:      dal.Player,
+				Role:        dal.Role,
+				ContainerID: c.ID,
+				Status:      "running",
+				Skills:      len(dal.Skills),
+			}
+			d.mu.Unlock()
+			running++
+			log.Printf("[daemon] reconcile: restored %s (container=%s)", instanceName, c.ID[:12])
+		} else {
+			stopped++
+			log.Printf("[daemon] reconcile: stopped container %s (%s) — skipping", c.Name, c.ID[:12])
+		}
+	}
+
+	if running > 0 || stopped > 0 {
+		log.Printf("[daemon] reconcile: found %d running, %d stopped dal containers", running, stopped)
+	}
 }
 
 func (d *Daemon) dalCuePath(name string) string {

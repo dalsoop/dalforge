@@ -338,6 +338,53 @@ func dockerLogs(containerID string) (string, error) {
 	return string(out), nil
 }
 
+// discoveredContainer represents a container found via docker ps.
+type discoveredContainer struct {
+	ID      string
+	Name    string // e.g. "dal-dev", "dal-dev-2"
+	Running bool
+}
+
+// discoverContainers finds existing dal-* containers (both running and stopped).
+func discoverContainers() ([]discoveredContainer, error) {
+	cmd := exec.Command("docker", "ps", "-a",
+		"--filter", "name=dal-",
+		"--format", "{{.ID}}\t{{.Names}}\t{{.State}}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("docker ps: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	output := strings.TrimSpace(string(out))
+	if output == "" {
+		return nil, nil
+	}
+
+	var containers []discoveredContainer
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		containers = append(containers, discoveredContainer{
+			ID:      parts[0],
+			Name:    parts[1],
+			Running: parts[2] == "running",
+		})
+	}
+	return containers, nil
+}
+
+// cleanStaleContainer force-removes a container by name (best-effort).
+func cleanStaleContainer(name string) error {
+	cmd := exec.Command("docker", "rm", "-f", name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker rm -f %s: %s: %w", name, strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // dockerExec runs a command inside a Docker container (for attach).
 func dockerExec(containerID string) *exec.Cmd {
 	return exec.Command("docker", "exec", "-it", containerID, "/bin/bash")
