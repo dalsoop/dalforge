@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dalsoop/dalcenter/internal/localdal"
 	"github.com/dalsoop/dalcenter/internal/talk"
@@ -101,7 +102,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		srv.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("[daemon] shutdown error: %v", err)
+		}
 	}()
 
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
