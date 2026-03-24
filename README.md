@@ -1,6 +1,6 @@
 <div align="center">
   <h1>dalcenter</h1>
-  <p><strong>Dal lifecycle manager — wake, sleep, sync AI agent containers</strong></p>
+  <p><strong>Dal lifecycle manager — join, provision, reconcile AI agent instances</strong></p>
   <p>
     <a href="https://github.com/dalsoop/dalcenter"><img src="https://img.shields.io/badge/github-dalsoop%2Fdalcenter-181717?logo=github&logoColor=white" alt="GitHub repository"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-2563eb.svg" alt="AGPL-3.0 License"></a>
@@ -8,80 +8,91 @@
   <p><a href="./README.ko.md">한국어</a></p>
 </div>
 
-dalcenter manages dal (AI puppets) — Docker containers with Claude Code, Codex, or Gemini installed, each with their own skills, instructions, and git identity. Templates live in git (localdal), dalcenter handles the runtime.
+dalcenter manages dal (AI agents) — instances provisioned from `.dalfactory` manifests with skills, secrets, and health checks. Packages live in dalforge cloud or local sources, dalcenter handles the lifecycle.
 
 ## Quick Start
 
 ```bash
-# 1. Start the daemon
-dalcenter serve --addr :11190 --repo /path/to/your-project \
-  --mm-url http://mattermost:8065 --mm-token TOKEN --mm-team myteam
+# 1. Start the API server
+dalcenter serve --port 10100
 
-# 2. Initialize localdal in your project
-dalcenter init --repo /path/to/your-project
+# 2. Browse and join a dal package
+dalcenter catalog search agent-coach
+dalcenter join dalcli-agent-coach
 
-# 3. Create dal templates (via git)
-# .dal/leader/dal.cue + instructions.md
-# .dal/dev/dal.cue + instructions.md
-# .dal/skills/code-review/SKILL.md
-
-# 4. Validate
+# 3. Validate manifests
 dalcenter validate
 
-# 5. Wake dals
-dalcenter wake leader
-dalcenter wake dev
-dalcenter ps
+# 4. Provision and start
+dalcenter provision <name>
+dalcenter start <name>
+dalcenter list
 
-# 6. Sleep when done
-dalcenter sleep --all
+# 5. Stop when done
+dalcenter stop <name>
 ```
 
 ## How It Works
 
 ```
-.dal/ (git-managed, localdal)
-  leader/dal.cue + instructions.md     ← dal template
-  dev/dal.cue + instructions.md
-  skills/code-review/SKILL.md          ← shared skills
+.dalfactory/ (manifest)
+  dal.cue                            ← dal definition + templates
 
-dalcenter serve
-  → starts soft-serve (git server)
-  → starts HTTP API
+dalcenter join <source>
+  → downloads/clones package source
+  → creates instance in ~/.dalcenter/instances/
 
-dalcenter wake dev
-  → reads .dal/dev/dal.cue
-  → creates Docker container (dalcenter/claude:latest)
-  → injects instructions.md → CLAUDE.md
-  → mounts skills, credentials, service repo
-  → injects dalcli binary
-  → dal starts working
+dalcenter provision <name>
+  → reads .dalfactory/dal.cue
+  → provisions LXC container (bridge, cores, memory, storage)
+
+dalcenter start <name>
+  → runs build.entry from manifest
+  → exports skills to Claude/Codex
+  → health check begins
+
+dalcenter reconcile
+  → checks all instances
+  → repairs exports (skills, hooks, settings)
 ```
 
 ## Architecture
 
 ```
 LXC: dalcenter
-├── dalcenter serve          HTTP API + soft-serve + Docker
-├── soft-serve               localdal git hosting + webhooks
-├── Docker: leader (claude)  dalcli-leader inside
-├── Docker: dev (claude)     dalcli inside
-└── Docker: dev-2 (claude)   multiple instances supported
+├── dalcenter serve          API server (port 10100)
+├── dalcenter watch          continuous reconcile loop
+├── instance: leader         dalcli-leader inside
+├── instance: dev            dalcli inside
+└── instance: dev-2          multiple instances supported
 ```
 
 ## CLI
 
 ```
-dalcenter serve                   # daemon (HTTP API + soft-serve + Docker)
-dalcenter init --repo <path>      # initialize localdal (.dal/ + soft-serve + subtree)
-dalcenter wake <dal> [--all]      # create Docker container
-dalcenter sleep <dal> [--all]     # stop Docker container
-dalcenter sync                    # propagate changes to running containers
-dalcenter validate [path]         # CUE schema + reference validation
-dalcenter status [dal]            # show dal status
-dalcenter ps                      # list awake dals
-dalcenter logs <dal>              # container logs
-dalcenter attach <dal>            # enter container
+dalcenter serve                          # API server (dal registry)
+dalcenter join <source>                  # create instance from .dalfactory manifest
+dalcenter provision <name>               # provision LXC container
+dalcenter start <name>                   # start process in instance
+dalcenter stop <name>                    # stop process
+dalcenter restart <name>                 # restart process
+dalcenter destroy <name>                 # stop and destroy container
+dalcenter list                           # list all instances
+dalcenter status [name]                  # show instance status
+dalcenter validate [path...]             # CUE schema validation
+dalcenter reconcile                      # check and repair all exports
+dalcenter watch                          # continuous reconcile (default 60s)
+dalcenter export [path...]               # export Claude skills from manifests
+dalcenter unexport [path...]             # remove exported skills
+dalcenter secret set <name>              # store secret (reads from stdin)
+dalcenter secret get <name>              # retrieve secret
+dalcenter secret list                    # list all secrets
+dalcenter catalog search [query]         # browse dalforge cloud packages
+dalcenter talk run                       # dal communication daemon (MM bridge)
+dalcenter talk conductor                 # central orchestrator bot
+dalcenter talk setup                     # create Mattermost bot account
+dalcenter talk teardown                  # disable bot account
+dalcenter tui                            # interactive terminal dashboard
 ```
 
 ### Inside containers
@@ -97,53 +108,67 @@ dalcli-leader (leader only)       dalcli (all members)
   assign <dal> <task>
 ```
 
-## dal.cue
+## .dalfactory/dal.cue
 
 ```cue
-uuid:    "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-name:    "dev"
-version: "1.0.0"
-player:  "claude"
-role:    "member"
-skills:  ["skills/code-review", "skills/testing"]
-hooks:   []
-git: {
-    user:         "dal-dev"
-    email:        "dal-dev@myproject.dev"
-    github_token: "env:GITHUB_TOKEN"
+schema_version: "1.0.0"
+
+dal: {
+    id:       "DAL:CLI:848a4292"
+    name:     "dalcli-agent-coach"
+    version:  "0.1.0"
+    category: "CLI"
 }
-```
 
-## localdal Structure
+description: "AI agent coaching CLI tool"
 
-```
-.dal/
-  dal.spec.cue              schema definition
-  leader/
-    dal.cue                 uuid, player, role:leader
-    instructions.md         → CLAUDE.md at wake
-  dev/
-    dal.cue                 uuid, player, role:member
-    instructions.md
-  skills/
-    code-review/SKILL.md    shared across dals
-    testing/SKILL.md
+templates: default: {
+    schema_version: "1.0.0"
+    name:           "default"
+    description:    "Default runtime"
+    container: {
+        base:     "ubuntu:24.04"
+        packages: ["bash", "python3"]
+        agents: {}
+    }
+    permissions: {
+        filesystem: ["/tmp/dal-*"]
+        network:    false
+    }
+    build: {
+        language: "python"
+        entry:    "bin/app"
+        output:   "bin/app"
+    }
+    health_check: {
+        command: "bin/app status"
+    }
+    exports: claude: {
+        skills: ["skills/my-skill/SKILL.md"]
+    }
+}
 ```
 
 ## Communication
 
-Dals communicate via Mattermost. One channel per project (auto-created on serve).
+Dals communicate via Mattermost. `dalcenter talk` manages bot accounts and message routing.
 
-- `dalcli-leader assign dev "task"` → posts `@dal-dev 작업 지시: task`
-- `dalcli report "done"` → posts `[dev] 보고: done`
+```bash
+# Set up a bot for a dal
+dalcenter talk setup --url http://mm:8065 --username dal-dev \
+  --login admin@example.com --password pass --channel project
 
-## File Name Conversion
+# Run communication daemon
+dalcenter talk run --url http://mm:8065 --bot-token TOKEN \
+  --bot-username dal-dev --channel-id CHID
 
-| Source | Player | In Container |
-|---|---|---|
-| instructions.md | claude | CLAUDE.md |
-| instructions.md | codex | AGENTS.md |
-| instructions.md | gemini | GEMINI.md |
+# Run central orchestrator
+dalcenter talk conductor --url http://mm:8065 --bot-token TOKEN \
+  --channel-id CHID --dal dev:member --dal leader:leader
+```
+
+- `dalcli-leader assign dev "task"` → posts `@dal-dev task`
+- `dalcli report "done"` → posts `[dev] done`
 
 ## Contributing
 
