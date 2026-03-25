@@ -16,20 +16,29 @@ type BotInfo struct {
 	TokenID  string `json:"token_id"`
 }
 
-// SetupBot creates a Mattermost bot account, generates a token, and adds it to the team and channel.
+// SetupBot creates a Mattermost bot account (or reuses existing), generates a token, and adds it to the team and channel.
 func SetupBot(mmURL, adminToken, teamID, channelID, username, displayName, description string) (*BotInfo, error) {
 	mmURL = strings.TrimRight(mmURL, "/")
 
-	// Create bot
+	// Try to create bot
 	botBody := fmt.Sprintf(`{"username":%q,"display_name":%q,"description":%q}`,
 		username, displayName, description)
 	botResp, err := mmAPI("POST", mmURL+"/api/v4/bots", adminToken, botBody)
+
+	var userID string
 	if err != nil {
-		return nil, fmt.Errorf("create bot: %w", err)
-	}
-	userID := jsonStr(botResp, "user_id")
-	if userID == "" {
-		return nil, fmt.Errorf("create bot: no user_id in response: %s", string(botResp))
+		// Bot may already exist — try to find it
+		userID = findExistingBotUserID(mmURL, adminToken, username)
+		if userID == "" {
+			return nil, fmt.Errorf("create bot: %w (and existing bot not found)", err)
+		}
+		// Re-enable if disabled
+		mmAPI("POST", mmURL+"/api/v4/bots/"+userID+"/enable", adminToken, "")
+	} else {
+		userID = jsonStr(botResp, "user_id")
+		if userID == "" {
+			return nil, fmt.Errorf("create bot: no user_id in response: %s", string(botResp))
+		}
 	}
 
 	// Create token
@@ -249,6 +258,27 @@ func mmAPI(method, url, token, body string) ([]byte, error) {
 		return nil, fmt.Errorf("%d: %s", resp.StatusCode, string(respBody))
 	}
 	return respBody, nil
+}
+
+// findExistingBotUserID looks up an existing bot by username, including disabled bots.
+func findExistingBotUserID(mmURL, adminToken, username string) string {
+	resp, err := mmAPI("GET", mmURL+"/api/v4/bots?per_page=200&include_deleted=true", adminToken, "")
+	if err != nil {
+		return ""
+	}
+	var bots []struct {
+		UserID   string `json:"user_id"`
+		Username string `json:"username"`
+	}
+	if json.Unmarshal(resp, &bots) != nil {
+		return ""
+	}
+	for _, b := range bots {
+		if b.Username == username {
+			return b.UserID
+		}
+	}
+	return ""
 }
 
 func jsonStr(data []byte, key string) string {

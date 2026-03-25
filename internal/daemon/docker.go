@@ -142,7 +142,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	case "claude":
 		credPath := filepath.Join(hostHome, ".claude", ".credentials.json")
 		if _, err := os.Stat(credPath); err == nil {
-			args = append(args, "-v", fmt.Sprintf("%s:%s/.credentials.json:ro", credPath, home))
+			args = append(args, "-v", fmt.Sprintf("%s:%s/.credentials.json", credPath, home))
 			if expired, _ := isCredentialExpired(credPath); expired {
 				w := "Claude credential expired — run: pve-sync-creds"
 				log.Printf("WARNING: %s", w)
