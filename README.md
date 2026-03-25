@@ -145,6 +145,32 @@ Dals communicate via Mattermost. One channel per project (auto-created on serve)
 | instructions.md | codex | AGENTS.md |
 | instructions.md | gemini | GEMINI.md |
 
+## Credentials
+
+dalcenter auto-mounts player credentials into containers (read-only bind mount). Expired tokens trigger a warning at wake time.
+
+| Player | Host Path | Container Path | Expiry Check |
+|--------|-----------|---------------|-------------|
+| claude | `~/.claude/.credentials.json` | `~/.claude/.credentials.json` | `expiresAt` (ms) |
+| codex | `~/.codex/auth.json` | `~/.codex/auth.json` | `tokens.expires_at` (RFC3339) |
+| gemini | env `GEMINI_API_KEY` | env `GEMINI_API_KEY` | — |
+
+### Proxmox LXC Setup
+
+When dalcenter runs inside an LXC container, credentials must be synced from the Proxmox host:
+
+```bash
+pve-sync-creds [CT_ID]   # default: 105
+```
+
+Uses `tee` (in-place write) to preserve file inode — Docker bind mounts stay intact.
+
+### Token Refresh
+
+- **Claude**: OAuth token. If expired, run `claude auth login` on the host, then `pve-sync-creds`.
+- **Codex**: ChatGPT OAuth. If expired, run `codex auth login` on the host, then `pve-sync-creds`.
+- **Gemini**: API key (no expiry). Set `GEMINI_API_KEY` env var on the dalcenter host.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
