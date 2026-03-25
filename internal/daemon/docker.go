@@ -15,6 +15,29 @@ import (
 	"github.com/dalsoop/dalcenter/internal/localdal"
 )
 
+const (
+	// containerPrefix is the naming prefix for dal Docker containers.
+	containerPrefix = "dal-"
+
+	// imagePrefix is the Docker image repository prefix.
+	imagePrefix = "dalcenter/"
+
+	// containerWorkDir is the working directory inside dal containers.
+	containerWorkDir = "/workspace"
+
+	// containerDalDir is the mount point for the dal directory inside containers.
+	containerDalDir = "/dal"
+
+	// dockerHostAlias is the hostname used to reach the host from inside containers.
+	dockerHostAlias = "host.docker.internal"
+
+	// defaultGitEmailDomain is the fallback domain for dal git email.
+	defaultGitEmailDomain = "dalcenter.local"
+
+	// defaultLogTail is the default number of log lines to return.
+	defaultLogTail = "100"
+)
+
 // isCredentialExpired checks if a player's credential file has expired.
 // Supports Claude (.credentials.json) and Codex (auth.json).
 func isCredentialExpired(path string) (bool, error) {
@@ -77,12 +100,12 @@ func playerHome(player string) string {
 // It returns the container ID, any credential warnings, and an error.
 func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *localdal.DalProfile) (string, []string, error) {
 	var warnings []string
-	containerName := fmt.Sprintf("dal-%s", instanceName)
+	containerName := containerPrefix + instanceName
 	tag := "latest"
 	if dal.PlayerVersion != "" {
 		tag = dal.PlayerVersion
 	}
-	image := fmt.Sprintf("dalcenter/%s:%s", dal.Player, tag)
+	image := fmt.Sprintf("%s%s:%s", imagePrefix, dal.Player, tag)
 
 	dalDir := filepath.Join(localdalRoot, dal.FolderName)
 	home := playerHome(dal.Player)
@@ -94,24 +117,24 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		"--hostname", dal.Name,
 		// Linux Docker: host.docker.internal is not available by default.
 		// Add it explicitly pointing to the Docker bridge gateway.
-		"--add-host", "host.docker.internal:host-gateway",
+		"--add-host", dockerHostAlias + ":host-gateway",
 		// Environment
 		"-e", fmt.Sprintf("DAL_NAME=%s", dal.Name),
 		"-e", fmt.Sprintf("DAL_UUID=%s", dal.UUID),
 		"-e", fmt.Sprintf("DAL_ROLE=%s", dal.Role),
 		"-e", fmt.Sprintf("DAL_PLAYER=%s", dal.Player),
-		"-e", fmt.Sprintf("DALCENTER_URL=http://host.docker.internal%s", daemonAddr),
+		"-e", fmt.Sprintf("DALCENTER_URL=http://%s%s", dockerHostAlias, daemonAddr),
 		// VeilKey — pass through if available
 		"-e", fmt.Sprintf("VEILKEY_LOCALVAULT_URL=%s", os.Getenv("VEILKEY_LOCALVAULT_URL")),
 		// Mount dal directory (read-only)
-		"-v", fmt.Sprintf("%s:%s:ro", dalDir, "/dal"),
+		"-v", fmt.Sprintf("%s:%s:ro", dalDir, containerDalDir),
 		// Working directory
-		"-w", "/workspace",
+		"-w", containerWorkDir,
 	}
 
-	// Mount service repo as /workspace
+	// Mount service repo as workspace
 	if serviceRepo != "" {
-		args = append(args, "-v", fmt.Sprintf("%s:/workspace", serviceRepo))
+		args = append(args, "-v", fmt.Sprintf("%s:%s", serviceRepo, containerWorkDir))
 	}
 
 	// Mount credentials (player-specific)
@@ -187,11 +210,11 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	// Git config from dal.cue or defaults
 	gitUser := dal.GitUser
 	if gitUser == "" {
-		gitUser = "dal-" + dal.Name
+		gitUser = containerPrefix + dal.Name
 	}
 	gitEmail := dal.GitEmail
 	if gitEmail == "" {
-		gitEmail = fmt.Sprintf("dal-%s@dalcenter.local", dal.Name)
+		gitEmail = fmt.Sprintf("%s%s@%s", containerPrefix, dal.Name, defaultGitEmailDomain)
 	}
 	args = append(args, "-e", fmt.Sprintf("GIT_AUTHOR_NAME=%s", gitUser))
 	args = append(args, "-e", fmt.Sprintf("GIT_AUTHOR_EMAIL=%s", gitEmail))
@@ -335,7 +358,7 @@ func dockerNeedsRestart(containerID string, dal *localdal.DalProfile) (string, e
 	if dal.PlayerVersion != "" {
 		tag = dal.PlayerVersion
 	}
-	expectedImage := fmt.Sprintf("dalcenter/%s:%s", dal.Player, tag)
+	expectedImage := fmt.Sprintf("%s%s:%s", imagePrefix, dal.Player, tag)
 
 	if currentImage != expectedImage {
 		return fmt.Sprintf("image changed: %s -> %s", currentImage, expectedImage), nil
@@ -391,7 +414,7 @@ func dockerSync(localdalRoot, containerID string, dal *localdal.DalProfile) (nee
 
 // dockerLogs returns logs from a Docker container.
 func dockerLogs(containerID string) (string, error) {
-	cmd := exec.Command("docker", "logs", "--tail", "100", containerID)
+	cmd := exec.Command("docker", "logs", "--tail", defaultLogTail, containerID)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("docker logs: %s: %w", strings.TrimSpace(string(out)), err)
@@ -409,7 +432,7 @@ type discoveredContainer struct {
 // discoverContainers finds existing dal-* containers (both running and stopped).
 func discoverContainers() ([]discoveredContainer, error) {
 	cmd := exec.Command("docker", "ps", "-a",
-		"--filter", "name=dal-",
+		"--filter", "name="+containerPrefix,
 		"--format", "{{.ID}}\t{{.Names}}\t{{.State}}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

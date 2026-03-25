@@ -235,7 +235,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	d.mu.Unlock()
 
 	// Clean any stopped container with the same name (best-effort, #33)
-	targetContainerName := fmt.Sprintf("dal-%s", instanceName)
+	targetContainerName := containerPrefix + instanceName
 	if err := cleanStaleContainer(targetContainerName); err != nil {
 		log.Printf("[daemon] clean stale container %s: %v (continuing)", targetContainerName, err)
 	}
@@ -249,7 +249,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	// Setup Mattermost bot for this dal
 	var botToken string
 	if d.mm != nil && d.mm.URL != "" && d.channelID != "" {
-		botUsername := fmt.Sprintf("dal-%s", dal.Name)
+		botUsername := containerPrefix + dal.Name
 		teamID, _, _ := talk.GetTeamAndChannel(d.mm.URL, d.mm.AdminToken, d.mm.TeamName, filepath.Base(d.serviceRepo))
 		bot, err := talk.SetupBot(d.mm.URL, d.mm.AdminToken, teamID, d.channelID, botUsername, dal.Name, fmt.Sprintf("dal %s (%s)", dal.Name, dal.Role))
 		if err != nil {
@@ -517,10 +517,10 @@ func (d *Daemon) reconcile() {
 
 	var running, stopped int
 	for _, c := range containers {
-		if !strings.HasPrefix(c.Name, "dal-") {
+		if !strings.HasPrefix(c.Name, containerPrefix) {
 			continue
 		}
-		instanceName := strings.TrimPrefix(c.Name, "dal-")
+		instanceName := strings.TrimPrefix(c.Name, containerPrefix)
 
 		if c.Running {
 			// Try to read dal.cue — for multi-instance like "dev-2", derive base name
