@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dalsoop/dalcenter/internal/bridge"
 )
@@ -407,9 +408,96 @@ func TestMessageRouting_FreeFormFallback(t *testing.T) {
 // ── autoGitWorkflow branch naming ──
 
 func TestAutoGitWorkflow_BranchFormat(t *testing.T) {
-	// Verify branch format pattern
 	branch := fmt.Sprintf("dal/%s/%d", "writer", 1774449828)
 	if !strings.HasPrefix(branch, "dal/writer/") {
 		t.Errorf("branch = %q, should start with dal/writer/", branch)
+	}
+}
+
+// ── isRetryable ──
+
+func TestIsRetryable(t *testing.T) {
+	tests := []struct {
+		output string
+		want   bool
+	}{
+		{"Error: rate limit exceeded", true},
+		{"429 Too Many Requests", true},
+		{"529 overloaded", true},
+		{"API Error: too many requests", true},
+		{"server at capacity", true},
+		{"Overloaded, please retry", true},
+		{"normal error: file not found", false},
+		{"authentication failed", false},
+		{"", false},
+		{"exit status 1", false},
+	}
+	for _, tt := range tests {
+		got := isRetryable(tt.output)
+		if got != tt.want {
+			t.Errorf("isRetryable(%q) = %v, want %v", tt.output, got, tt.want)
+		}
+	}
+}
+
+// ── executeTask retry (no claude binary → fails fast, not retryable) ──
+
+func TestExecuteTask_NonRetryable_NoLoop(t *testing.T) {
+	os.Setenv("DAL_ROLE", "member")
+	os.Setenv("DAL_PLAYER", "claude")
+	defer os.Unsetenv("DAL_ROLE")
+	defer os.Unsetenv("DAL_PLAYER")
+
+	// claude not available → error → NOT retryable → returns after 1 try
+	start := time.Now()
+	_, err := executeTask("test")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Log("claude available — skip")
+		return
+	}
+	// Should return fast (< 5s), not wait 30s for retry
+	if elapsed > 10*time.Second {
+		t.Errorf("took %s — seems like retry loop on non-retryable error", elapsed)
+	}
+}
+
+// ── runClaude player branching ──
+
+func TestRunClaude_Codex(t *testing.T) {
+	os.Setenv("DAL_PLAYER", "codex")
+	os.Setenv("DAL_ROLE", "member")
+	defer os.Unsetenv("DAL_PLAYER")
+	defer os.Unsetenv("DAL_ROLE")
+
+	// codex not available in test → just verify it doesn't panic
+	_, err := runClaude("test")
+	if err == nil {
+		t.Log("codex available — unusual but ok")
+	}
+}
+
+func TestRunClaude_Claude_Leader(t *testing.T) {
+	os.Setenv("DAL_PLAYER", "claude")
+	os.Setenv("DAL_ROLE", "leader")
+	defer os.Unsetenv("DAL_PLAYER")
+	defer os.Unsetenv("DAL_ROLE")
+
+	_, err := runClaude("test")
+	if err == nil {
+		t.Log("claude available — unusual but ok")
+	}
+}
+
+func TestRunClaude_Claude_Member(t *testing.T) {
+	os.Setenv("DAL_PLAYER", "claude")
+	os.Setenv("DAL_ROLE", "member")
+	defer os.Unsetenv("DAL_PLAYER")
+	defer os.Unsetenv("DAL_ROLE")
+
+	_, err := runClaude("test")
+	if err == nil {
+		t.Log("claude available — unusual but ok")
 	}
 }

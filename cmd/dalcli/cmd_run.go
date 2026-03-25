@@ -267,26 +267,74 @@ func fetchAgentConfig(dalName string) (*agentConfig, error) {
 	return &cfg, nil
 }
 
+const maxRetries = 3
+
 func executeTask(task string) (string, error) {
+	var lastOut string
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		out, err := runClaude(task)
+		if err == nil {
+			return out, nil
+		}
+
+		lastOut = out
+		lastErr = err
+
+		// Check if rate limited or overloaded
+		if isRetryable(out) {
+			wait := time.Duration(attempt*30) * time.Second
+			log.Printf("[agent] rate limited (attempt %d/%d), waiting %s...", attempt, maxRetries, wait)
+			time.Sleep(wait)
+			continue
+		}
+
+		// Non-retryable error — return immediately
+		return out, err
+	}
+
+	return lastOut, fmt.Errorf("max retries (%d) exceeded: %w", maxRetries, lastErr)
+}
+
+func runClaude(task string) (string, error) {
 	role := os.Getenv("DAL_ROLE")
+	player := os.Getenv("DAL_PLAYER")
 
 	var cmd *exec.Cmd
-	if role == "leader" {
-		// Leader: delegation (dalcli-leader) + file ops + git
-		cmd = exec.Command("claude",
-			"--allowedTools", "Bash(dalcli-leader:*,git:*,gh:*) Read Write Glob Grep Edit",
-			"--print", task)
-	} else {
-		// Member: file ops + git
-		cmd = exec.Command("claude",
-			"--allowedTools", "Bash(git:*,gh:*) Read Write Glob Grep Edit",
-			"--print", task)
+	switch player {
+	case "codex":
+		cmd = exec.Command("codex",
+			"--quiet",
+			"--full-auto",
+			task)
+	default: // claude
+		if role == "leader" {
+			cmd = exec.Command("claude",
+				"--allowedTools", "Bash(dalcli-leader:*,git:*,gh:*) Read Write Glob Grep Edit",
+				"--print", task)
+		} else {
+			cmd = exec.Command("claude",
+				"--allowedTools", "Bash(git:*,gh:*) Read Write Glob Grep Edit",
+				"--print", task)
+		}
 	}
 
 	cmd.Dir = "/workspace"
 	cmd.Env = append(os.Environ(), "CLAUDE_CODE_ENTRYPOINT=dalcli")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// isRetryable checks if the error output indicates a rate limit or overload.
+func isRetryable(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "overloaded") ||
+		strings.Contains(lower, "429") ||
+		strings.Contains(lower, "529") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "capacity")
 }
 
 func extractTask(content, prefix string) string {
