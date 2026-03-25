@@ -92,14 +92,16 @@ func runAgentLoop(dalName string) error {
 
 		log.Printf("[agent] message: %s", truncate(task, 80))
 
-		// DALCENTER_EXTERNAL_URL: 외부에서 접근 가능한 URL (설정 안 하면 내부 URL 사용)
 		externalURL := os.Getenv("DALCENTER_EXTERNAL_URL")
-		if externalURL == "" {
-			externalURL = strings.Replace(os.Getenv("DALCENTER_URL"), "host.docker.internal", "10.50.0.105", 1)
+		var statusMsg string
+		if externalURL != "" {
+			logsURL := fmt.Sprintf("%s/api/logs/%s", externalURL, dalName)
+			statusMsg = fmt.Sprintf("💬 작업 중... ([로그](%s))", logsURL)
+		} else {
+			statusMsg = "💬 작업 중..."
 		}
-		logsURL := fmt.Sprintf("%s/api/logs/%s", externalURL, dalName)
 		mm.Send(bridge.Message{
-			Content: fmt.Sprintf("💬 작업 중... ([로그](%s))", logsURL),
+			Content: statusMsg,
 			ReplyTo: threadID,
 		})
 
