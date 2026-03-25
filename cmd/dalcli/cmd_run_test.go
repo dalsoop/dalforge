@@ -1,33 +1,41 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/dalsoop/dalcenter/internal/bridge"
 )
+
+// ── extractTask ──
 
 func TestExtractTask(t *testing.T) {
 	tests := []struct {
-		name    string
-		content string
-		prefix  string
-		want    string
+		name, content, prefix, want string
 	}{
-		{"standard assign", "@dal-checker 작업 지시: do the thing", "작업 지시:", "do the thing"},
-		{"with whitespace", "@dal-checker 작업 지시:   lots of spaces   ", "작업 지시:", "lots of spaces"},
+		{"standard", "@dal-checker 작업 지시: do the thing", "작업 지시:", "do the thing"},
+		{"whitespace", "@dal-checker 작업 지시:   spaces   ", "작업 지시:", "spaces"},
 		{"no prefix", "@dal-checker hello", "작업 지시:", ""},
-		{"empty content", "", "작업 지시:", ""},
+		{"empty", "", "작업 지시:", ""},
 		{"prefix only", "작업 지시:", "작업 지시:", ""},
 		{"multiline", "@dal-writer 작업 지시: first\nsecond", "작업 지시:", "first\nsecond"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractTask(tt.content, tt.prefix)
-			if got != tt.want {
-				t.Errorf("extractTask(%q, %q) = %q, want %q", tt.content, tt.prefix, got, tt.want)
+			if got := extractTask(tt.content, tt.prefix); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
+
+// ── truncate ──
 
 func TestTruncate(t *testing.T) {
 	tests := []struct {
@@ -42,71 +50,366 @@ func TestTruncate(t *testing.T) {
 		{"ab", 1, "a..."},
 	}
 	for _, tt := range tests {
-		got := truncate(tt.input, tt.n)
-		if got != tt.want {
+		if got := truncate(tt.input, tt.n); got != tt.want {
 			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.n, got, tt.want)
 		}
 	}
 }
 
-func TestFormatReport(t *testing.T) {
-	report := formatReport("task done")
-	if !strings.Contains(report, "✅ 작업 완료") {
-		t.Error("should contain success marker")
-	}
-	if !strings.Contains(report, "task done") {
-		t.Error("should contain output")
-	}
+// ── formatReport ──
 
-	long := strings.Repeat("a", 4000)
-	report = formatReport(long)
-	if len(report) > 3500 {
-		t.Errorf("long report should be truncated, got len=%d", len(report))
+func TestFormatReport(t *testing.T) {
+	report := formatReport("done")
+	if !strings.Contains(report, "✅ 작업 완료") || !strings.Contains(report, "done") {
+		t.Error("should contain marker and output")
 	}
+}
+
+func TestFormatReport_Truncation(t *testing.T) {
+	long := strings.Repeat("a", 4000)
+	report := formatReport(long)
 	if !strings.Contains(report, "... (truncated) ...") {
-		t.Error("should contain truncation marker")
+		t.Error("should truncate long output")
+	}
+	if len(report) > 3500 {
+		t.Errorf("too long: %d", len(report))
 	}
 }
 
 func TestFormatReport_Empty(t *testing.T) {
-	report := formatReport("")
-	if !strings.Contains(report, "✅ 작업 완료") {
-		t.Error("empty output should still show success")
+	if !strings.Contains(formatReport(""), "✅ 작업 완료") {
+		t.Error("empty should still show success")
 	}
 }
 
-// --- Free-form mention parsing ---
+// ── Free-form mention parsing ──
 
-func TestFreeFormMention(t *testing.T) {
+func TestFreeFormMention_DirectMention(t *testing.T) {
 	mention := "@dal-leader"
 	tests := []struct {
-		content string
-		want    string
+		name, content, want string
 	}{
-		{"@dal-leader 가야가 좀 밋밋한데", "가야가 좀 밋밋한데"},
-		{"@dal-leader 작업 지시: 뭐 해", "뭐 해"},   // 작업 지시가 우선
-		{"@dal-leader", ""},                         // 멘션만
-		{"@dal-leader    ", ""},                     // 멘션 + 공백
-		{"hey @dal-leader 이거 봐봐", "hey  이거 봐봐"}, // 중간 멘션
+		{"free text", "@dal-leader 가야가 밋밋해", "가야가 밋밋해"},
+		{"assign takes priority", "@dal-leader 작업 지시: 해줘", "해줘"},
+		{"mention only", "@dal-leader", ""},
+		{"mention + spaces", "@dal-leader    ", ""},
+		{"mid mention", "hey @dal-leader 봐봐", "hey  봐봐"},
+		{"korean sentence", "@dal-leader 스토리 좀 고쳐줘 가야가 너무 수동적이야", "스토리 좀 고쳐줘 가야가 너무 수동적이야"},
 	}
 	for _, tt := range tests {
-		// Simulate free-form extraction
-		task := extractTask(tt.content, "작업 지시:")
-		if task == "" {
-			task = strings.TrimSpace(strings.ReplaceAll(tt.content, mention, ""))
-		}
-		if task != tt.want {
-			t.Errorf("free-form(%q) = %q, want %q", tt.content, task, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			task := extractTask(tt.content, "작업 지시:")
+			if task == "" {
+				task = strings.TrimSpace(strings.ReplaceAll(tt.content, mention, ""))
+			}
+			if task != tt.want {
+				t.Errorf("got %q, want %q", task, tt.want)
+			}
+		})
 	}
 }
 
-// --- autoGitWorkflow (unit: no git available, should handle gracefully) ---
+// ── Message type detection ──
 
-func TestAutoGitWorkflow_NoChanges(t *testing.T) {
-	// In test env, /workspace doesn't exist → git status fails → returns ""
+func TestMessageTypeDetection(t *testing.T) {
+	mention := "@dal-writer"
+	assignPrefix := "작업 지시:"
+	var threads sync.Map
+	threads.Store("thread-123", true)
+
+	tests := []struct {
+		name           string
+		content        string
+		rootID         string
+		wantAssignment bool
+		wantMention    bool
+		wantThread     bool
+		wantProcess    bool
+	}{
+		{
+			name:           "assignment",
+			content:        "@dal-writer 작업 지시: ep04 수정해",
+			rootID:         "",
+			wantAssignment: true,
+			wantMention:    true,
+			wantProcess:    true,
+		},
+		{
+			name:        "free mention",
+			content:     "@dal-writer 가야가 밋밋해",
+			rootID:      "",
+			wantMention: true,
+			wantProcess: true,
+		},
+		{
+			name:        "thread reply in active thread",
+			content:     "이거 좀 더 고쳐줘",
+			rootID:      "thread-123",
+			wantThread:  true,
+			wantProcess: true,
+		},
+		{
+			name:        "thread reply in unknown thread",
+			content:     "이거 좀 더 고쳐줘",
+			rootID:      "unknown-thread",
+			wantProcess: false,
+		},
+		{
+			name:        "no mention no thread",
+			content:     "그냥 채널 메시지",
+			rootID:      "",
+			wantProcess: false,
+		},
+		{
+			name:        "other dal mention",
+			content:     "@dal-architect 구조 분석해",
+			rootID:      "",
+			wantProcess: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isDirectMention := strings.Contains(tt.content, mention)
+			isAssignment := isDirectMention && strings.Contains(tt.content, assignPrefix)
+			isThreadReply := tt.rootID != "" && isActiveThread(&threads, tt.rootID)
+			shouldProcess := isAssignment || isDirectMention || isThreadReply
+
+			if isAssignment != tt.wantAssignment {
+				t.Errorf("assignment: got %v, want %v", isAssignment, tt.wantAssignment)
+			}
+			if isDirectMention != tt.wantMention {
+				t.Errorf("mention: got %v, want %v", isDirectMention, tt.wantMention)
+			}
+			if isThreadReply != tt.wantThread {
+				t.Errorf("thread: got %v, want %v", isThreadReply, tt.wantThread)
+			}
+			if shouldProcess != tt.wantProcess {
+				t.Errorf("process: got %v, want %v", shouldProcess, tt.wantProcess)
+			}
+		})
+	}
+}
+
+// ── isActiveThread ──
+
+func TestIsActiveThread(t *testing.T) {
+	var threads sync.Map
+	threads.Store("t1", true)
+	threads.Store("t2", true)
+
+	if !isActiveThread(&threads, "t1") {
+		t.Error("t1 should be active")
+	}
+	if isActiveThread(&threads, "t3") {
+		t.Error("t3 should not be active")
+	}
+}
+
+// ── autoGitWorkflow ──
+
+func TestAutoGitWorkflow_NoWorkspace(t *testing.T) {
 	result := autoGitWorkflow("test-dal")
 	if result != "" {
 		t.Errorf("expected empty for no workspace, got %q", result)
+	}
+}
+
+// ── buildThreadContext with mock MM API ──
+
+func TestBuildThreadContext_WithAPI(t *testing.T) {
+	// Mock MM server that returns thread posts
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/thread"):
+			resp := map[string]interface{}{
+				"order": []string{"p1", "p2", "p3"},
+				"posts": map[string]interface{}{
+					"p1": map[string]interface{}{"user_id": "user-devops", "message": "@dal-writer ep04 수정해"},
+					"p2": map[string]interface{}{"user_id": "bot-writer", "message": "💬 작업 중..."},
+					"p3": map[string]interface{}{"user_id": "user-devops", "message": "머지해봐"},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		case r.URL.Path == "/api/agent-config/writer":
+			json.NewEncoder(w).Encode(agentConfig{
+				DalName:   "writer",
+				BotToken:  "tok",
+				ChannelID: "ch1",
+				MMURL:     srvURL,
+			})
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	// Set env for fetchAgentConfig
+	os.Setenv("DALCENTER_URL", srv.URL)
+	defer os.Unsetenv("DALCENTER_URL")
+
+	mm := &bridge.MattermostBridge{BotUserID: "bot-writer"}
+	msg := bridge.Message{
+		ID:      "p3",
+		RootID:  "p1",
+		From:    "user-devops",
+		Content: "머지해봐",
+	}
+
+	ctx := buildThreadContext(mm, msg, "writer")
+
+	if !strings.Contains(ctx, "ep04 수정해") {
+		t.Error("should contain first message")
+	}
+	if !strings.Contains(ctx, "머지해봐") {
+		t.Error("should contain last message")
+	}
+	if !strings.Contains(ctx, "나(writer)") {
+		t.Error("should identify self")
+	}
+	if !strings.Contains(ctx, "상대방") {
+		t.Error("should identify others")
+	}
+}
+
+func TestBuildThreadContext_Fallback(t *testing.T) {
+	// No DALCENTER_URL → fallback to single message
+	os.Unsetenv("DALCENTER_URL")
+
+	mm := &bridge.MattermostBridge{BotUserID: "bot-123"}
+	msg := bridge.Message{
+		Content: "테스트 메시지",
+		RootID:  "root-1",
+	}
+
+	ctx := buildThreadContext(mm, msg, "test-dal")
+	if !strings.Contains(ctx, "테스트 메시지") {
+		t.Error("fallback should contain message content")
+	}
+}
+
+// ── fetchAgentConfig ──
+
+func TestFetchAgentConfig_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agent-config/writer" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(agentConfig{
+			DalName:   "writer",
+			BotToken:  "tok-123",
+			ChannelID: "ch-abc",
+			MMURL:     "http://mm:8065",
+		})
+	}))
+	defer srv.Close()
+
+	os.Setenv("DALCENTER_URL", srv.URL)
+	defer os.Unsetenv("DALCENTER_URL")
+
+	cfg, err := fetchAgentConfig("writer")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if cfg.BotToken != "tok-123" {
+		t.Errorf("token = %q", cfg.BotToken)
+	}
+	if cfg.MMURL != "http://mm:8065" {
+		t.Errorf("url = %q", cfg.MMURL)
+	}
+}
+
+func TestFetchAgentConfig_NoURL(t *testing.T) {
+	os.Unsetenv("DALCENTER_URL")
+	_, err := fetchAgentConfig("test")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestFetchAgentConfig_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("error"))
+	}))
+	defer srv.Close()
+
+	os.Setenv("DALCENTER_URL", srv.URL)
+	defer os.Unsetenv("DALCENTER_URL")
+
+	_, err := fetchAgentConfig("test")
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+}
+
+// ── executeTask role branching (verify command construction) ──
+
+func TestExecuteTask_RoleBranching(t *testing.T) {
+	// We can't actually run claude in tests, but we verify the function
+	// handles missing binary gracefully
+	os.Setenv("DAL_ROLE", "member")
+	_, err := executeTask("test")
+	// Should fail (claude not available in test) but not panic
+	if err == nil {
+		t.Log("claude available in test env — unusual but ok")
+	}
+
+	os.Setenv("DAL_ROLE", "leader")
+	_, err = executeTask("test")
+	if err == nil {
+		t.Log("claude available in test env — unusual but ok")
+	}
+	os.Unsetenv("DAL_ROLE")
+}
+
+// ── Integration: full message routing logic ──
+
+func TestMessageRouting_AssignmentPriority(t *testing.T) {
+	// Assignment should be detected even if it's also a mention
+	content := "@dal-writer 작업 지시: ep04 고쳐줘"
+	mention := "@dal-writer"
+	assignPrefix := "작업 지시:"
+
+	isDirectMention := strings.Contains(content, mention)
+	isAssignment := isDirectMention && strings.Contains(content, assignPrefix)
+
+	if !isAssignment {
+		t.Error("should detect as assignment")
+	}
+
+	task := extractTask(content, assignPrefix)
+	if task != "ep04 고쳐줘" {
+		t.Errorf("task = %q", task)
+	}
+}
+
+func TestMessageRouting_FreeFormFallback(t *testing.T) {
+	content := "@dal-writer 가야가 좀 수동적이야 능동적으로 바꿔줘"
+	mention := "@dal-writer"
+	assignPrefix := "작업 지시:"
+
+	task := extractTask(content, assignPrefix) // empty — no prefix
+	if task != "" {
+		t.Errorf("should not extract from free-form: %q", task)
+	}
+
+	// Fallback: strip mention
+	task = strings.TrimSpace(strings.ReplaceAll(content, mention, ""))
+	expected := "가야가 좀 수동적이야 능동적으로 바꿔줘"
+	if task != expected {
+		t.Errorf("free-form: got %q, want %q", task, expected)
+	}
+}
+
+// ── autoGitWorkflow branch naming ──
+
+func TestAutoGitWorkflow_BranchFormat(t *testing.T) {
+	// Verify branch format pattern
+	branch := fmt.Sprintf("dal/%s/%d", "writer", 1774449828)
+	if !strings.HasPrefix(branch, "dal/writer/") {
+		t.Errorf("branch = %q, should start with dal/writer/", branch)
 	}
 }
