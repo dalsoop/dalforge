@@ -131,8 +131,18 @@ func fetchAgentConfig(dalName string) (*agentConfig, error) {
 }
 
 func executeTask(task string) (string, error) {
-	// Run claude in print mode with the task as prompt
-	cmd := exec.Command("claude", "-p", task)
+	role := os.Getenv("DAL_ROLE")
+
+	var cmd *exec.Cmd
+	if role == "leader" {
+		// Leader needs tool access (Bash) to run dalcli-leader assign.
+		// Pipe task via stdin with full permissions.
+		cmd = exec.Command("claude", "--dangerously-skip-permissions", "-p", task)
+	} else {
+		// Members use print mode (read-only analysis).
+		cmd = exec.Command("claude", "-p", task)
+	}
+
 	cmd.Dir = "/workspace"
 	cmd.Env = append(os.Environ(), "CLAUDE_CODE_ENTRYPOINT=dalcli")
 	out, err := cmd.CombinedOutput()
