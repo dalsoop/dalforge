@@ -126,6 +126,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/sleep/{name}", d.requireAuth(d.handleSleep))
 	mux.HandleFunc("POST /api/sync", d.requireAuth(d.handleSync))
 	mux.HandleFunc("POST /api/message", d.requireAuth(d.handleMessage))
+	mux.HandleFunc("GET /api/agent-config/{name}", d.handleAgentConfig)
 
 	srv := &http.Server{Addr: d.addr, Handler: mux}
 	log.Printf("[daemon] listening on %s", d.addr)
@@ -560,6 +561,31 @@ func (d *Daemon) reconcile() {
 	if running > 0 || stopped > 0 {
 		log.Printf("[daemon] reconcile: found %d running, %d stopped dal containers", running, stopped)
 	}
+}
+
+// handleAgentConfig returns MM connection info for a dal to run its agent loop.
+// Called by dalcli run inside the container.
+func (d *Daemon) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	d.mu.RLock()
+	c, ok := d.containers[name]
+	d.mu.RUnlock()
+	if !ok {
+		http.Error(w, "dal not found", 404)
+		return
+	}
+
+	resp := map[string]string{
+		"dal_name":   c.DalName,
+		"bot_token":  c.BotToken,
+		"channel_id": d.channelID,
+	}
+	if d.mm != nil {
+		resp["mm_url"] = d.mm.URL
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (d *Daemon) dalCuePath(name string) string {
