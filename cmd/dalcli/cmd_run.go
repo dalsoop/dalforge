@@ -92,9 +92,10 @@ func runAgentLoop(dalName string) error {
 
 		log.Printf("[agent] message: %s", truncate(task, 80))
 
-		logsURL := fmt.Sprintf("%s/api/logs/%s", os.Getenv("DALCENTER_URL"), dalName)
-		// Replace host.docker.internal with external-friendly URL if possible
-		logsURL = strings.Replace(logsURL, "host.docker.internal", "dalcenter", 1)
+		dcURL := os.Getenv("DALCENTER_URL")
+		// Map internal Docker hostname to LXC IP for external access
+		logsURL := strings.Replace(dcURL, "host.docker.internal", "10.50.0.105", 1)
+		logsURL = fmt.Sprintf("%s/api/logs/%s", logsURL, dalName)
 		mm.Send(bridge.Message{
 			Content: fmt.Sprintf("💬 작업 중... ([로그](%s))", logsURL),
 			ReplyTo: threadID,
