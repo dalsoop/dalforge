@@ -463,40 +463,40 @@ func TestExecuteTask_NonRetryable_NoLoop(t *testing.T) {
 	}
 }
 
-// ── runClaude player branching ──
+// ── runProvider player branching ──
 
-func TestRunClaude_Codex(t *testing.T) {
+func TestRunProvider_Codex(t *testing.T) {
 	os.Setenv("DAL_PLAYER", "codex")
 	os.Setenv("DAL_ROLE", "member")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
 
 	// codex not available in test → just verify it doesn't panic
-	_, err := runClaude("test")
+	_, err := runClaude(os.Getenv("DAL_PLAYER"), "test")
 	if err == nil {
 		t.Log("codex available — unusual but ok")
 	}
 }
 
-func TestRunClaude_Claude_Leader(t *testing.T) {
+func TestRunProvider_Claude_Leader(t *testing.T) {
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "leader")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
 
-	_, err := runClaude("test")
+	_, err := runClaude(os.Getenv("DAL_PLAYER"), "test")
 	if err == nil {
 		t.Log("claude available — unusual but ok")
 	}
 }
 
-func TestRunClaude_Claude_Member(t *testing.T) {
+func TestRunProvider_Claude_Member(t *testing.T) {
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
 
-	_, err := runClaude("test")
+	_, err := runClaude(os.Getenv("DAL_PLAYER"), "test")
 	if err == nil {
 		t.Log("claude available — unusual but ok")
 	}

@@ -269,37 +269,86 @@ func fetchAgentConfig(dalName string) (*agentConfig, error) {
 
 const maxRetries = 3
 
+// circuit breaker: 3 failures → fallback, 2min cooldown
+var providerCircuit = NewCircuitBreaker(3, 2*time.Minute)
+
 func executeTask(task string) (string, error) {
+	player := os.Getenv("DAL_PLAYER")
+	fallbackPlayer := detectFallback(player)
+
+	// If circuit is open, try fallback provider first
+	if providerCircuit.ShouldFallback() && fallbackPlayer != "" {
+		log.Printf("[circuit] primary %s is open, trying fallback %s", player, fallbackPlayer)
+		out, err := runProvider(fallbackPlayer, task)
+		if err == nil {
+			return out, nil
+		}
+		log.Printf("[circuit] fallback %s also failed: %v", fallbackPlayer, err)
+		// Fall through to retry primary
+	}
+
 	var lastOut string
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		out, err := runClaude(task)
+		out, err := runProvider(player, task)
 		if err == nil {
+			providerCircuit.RecordSuccess()
 			return out, nil
 		}
 
 		lastOut = out
 		lastErr = err
 
-		// Check if rate limited or overloaded
 		if isRetryable(out) {
+			providerCircuit.RecordFailure()
+
+			// After circuit opens, try fallback
+			if providerCircuit.ShouldFallback() && fallbackPlayer != "" {
+				log.Printf("[circuit] switching to fallback %s (attempt %d/%d)", fallbackPlayer, attempt, maxRetries)
+				fbOut, fbErr := runProvider(fallbackPlayer, task)
+				if fbErr == nil {
+					return fbOut, nil
+				}
+				log.Printf("[circuit] fallback %s failed: %v", fallbackPlayer, fbErr)
+			}
+
 			wait := time.Duration(attempt*30) * time.Second
-			log.Printf("[agent] rate limited (attempt %d/%d), waiting %s...", attempt, maxRetries, wait)
+			log.Printf("[agent] retrying primary in %s (attempt %d/%d)", wait, attempt, maxRetries)
 			time.Sleep(wait)
 			continue
 		}
 
-		// Non-retryable error — return immediately
+		// Non-retryable error
 		return out, err
 	}
 
-	return lastOut, fmt.Errorf("max retries (%d) exceeded: %w", maxRetries, lastErr)
+	return lastOut, fmt.Errorf("max retries (%d) exceeded, circuit=%s: %w", maxRetries, providerCircuit.State(), lastErr)
 }
 
-func runClaude(task string) (string, error) {
+// detectFallback returns the fallback player for the given primary.
+func detectFallback(primary string) string {
+	switch primary {
+	case "claude":
+		// Check if codex is available
+		if _, err := exec.LookPath("codex"); err == nil {
+			return "codex"
+		}
+	case "codex":
+		if _, err := exec.LookPath("claude"); err == nil {
+			return "claude"
+		}
+	}
+	return ""
+}
+
+// runProvider executes a task with the specified provider.
+func runProvider(player, task string) (string, error) {
+	return runClaude(player, task)
+}
+
+func runClaude(player, task string) (string, error) {
 	role := os.Getenv("DAL_ROLE")
-	player := os.Getenv("DAL_PLAYER")
 
 	var cmd *exec.Cmd
 	switch player {
