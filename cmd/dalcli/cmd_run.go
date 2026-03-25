@@ -209,14 +209,15 @@ func executeTask(task string) (string, error) {
 
 	var cmd *exec.Cmd
 	if role == "leader" {
-		// Leader needs Bash to run dalcli-leader assign for delegation.
-		// --allowedTools restricts to dalcli-leader commands only.
+		// Leader needs Bash for delegation + Write/Edit for file output.
 		cmd = exec.Command("claude",
-			"--allowedTools", "Bash(dalcli-leader:*) Read Glob Grep",
+			"--allowedTools", "Bash(dalcli-leader:*) Read Write Glob Grep Edit",
 			"--print", task)
 	} else {
-		// Members use print mode (read-only analysis).
-		cmd = exec.Command("claude", "-p", task)
+		// Members: read + write for reports and file creation.
+		cmd = exec.Command("claude",
+			"--allowedTools", "Read Write Glob Grep Edit",
+			"--print", task)
 	}
 
 	cmd.Dir = "/workspace"
