@@ -304,9 +304,9 @@ func runClaude(task string) (string, error) {
 	var cmd *exec.Cmd
 	switch player {
 	case "codex":
-		cmd = exec.Command("codex",
-			"--quiet",
+		cmd = exec.Command("codex", "exec",
 			"--full-auto",
+			"-C", "/workspace",
 			task)
 	default: // claude
 		if role == "leader" {
