@@ -92,8 +92,11 @@ func runAgentLoop(dalName string) error {
 
 		log.Printf("[agent] message: %s", truncate(task, 80))
 
+		logsURL := fmt.Sprintf("%s/api/logs/%s", os.Getenv("DALCENTER_URL"), dalName)
+		// Replace host.docker.internal with external-friendly URL if possible
+		logsURL = strings.Replace(logsURL, "host.docker.internal", "dalcenter", 1)
 		mm.Send(bridge.Message{
-			Content: "💬 작업 중...",
+			Content: fmt.Sprintf("💬 작업 중... ([로그](%s))", logsURL),
 			ReplyTo: threadID,
 		})
 
