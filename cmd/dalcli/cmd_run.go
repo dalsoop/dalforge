@@ -37,7 +37,6 @@ func runCmd(dalName string) *cobra.Command {
 func runAgentLoop(dalName string) error {
 	log.Printf("[agent] starting agent loop for %s", dalName)
 
-	// 1. Fetch MM config from dalcenter daemon
 	cfg, err := fetchAgentConfig(dalName)
 	if err != nil {
 		return fmt.Errorf("fetch agent config: %w", err)
@@ -48,138 +47,159 @@ func runAgentLoop(dalName string) error {
 	}
 	log.Printf("[agent] connected: mm=%s channel=%s", cfg.MMURL, cfg.ChannelID[:8])
 
-	// 2. Connect to Mattermost
 	mm := bridge.NewMattermostBridge(cfg.MMURL, cfg.BotToken, cfg.ChannelID, 5*time.Second)
 	if err := mm.Connect(); err != nil {
 		return fmt.Errorf("mattermost connect: %w", err)
 	}
 	defer mm.Close()
 
-	log.Printf("[agent] listening for tasks...")
+	log.Printf("[agent] listening...")
 
-	// 3. Listen for messages
 	mention := fmt.Sprintf("@dal-%s", dalName)
-	assignPrefix := "작업 지시:"
-
-	// Track active threads this dal is participating in
-	var activeThreads sync.Map // threadID → true
+	var activeThreads sync.Map
 
 	for msg := range mm.Listen() {
-		// Skip own messages
 		if msg.From == mm.BotUserID {
 			continue
 		}
 
-		// Determine message type
 		isDirectMention := strings.Contains(msg.Content, mention)
-		isAssignment := isDirectMention && strings.Contains(msg.Content, assignPrefix)
 		isThreadReply := msg.RootID != "" && isActiveThread(&activeThreads, msg.RootID)
 
-		if !isAssignment && !isDirectMention && !isThreadReply {
+		if !isDirectMention && !isThreadReply {
 			continue
 		}
 
-		// --- Case 1: New task assignment ---
-		if isAssignment {
-			task := extractTask(msg.Content, assignPrefix)
-			if task == "" {
-				continue
-			}
+		// Track thread
+		threadID := msg.RootID
+		if threadID == "" {
+			threadID = msg.ID
+		}
+		activeThreads.Store(threadID, true)
 
-			// Track this thread
-			threadID := msg.ID // new thread starts from this message
-			activeThreads.Store(threadID, true)
-
-			log.Printf("[agent] task received: %s", truncate(task, 80))
-
-			mm.Send(bridge.Message{
-				Content: fmt.Sprintf("작업 시작합니다: %s", truncate(task, 100)),
-				ReplyTo: msg.ID,
-			})
-
-			output, err := executeTask(task)
-			if err != nil {
-				log.Printf("[agent] task failed: %v", err)
-				mm.Send(bridge.Message{
-					Content: fmt.Sprintf("❌ 작업 실패: %v\n```\n%s\n```", err, truncate(output, 500)),
-					ReplyTo: msg.ID,
-				})
-				continue
-			}
-
-			log.Printf("[agent] task completed (%d bytes output)", len(output))
-			mm.Send(bridge.Message{
-				Content: formatReport(output),
-				ReplyTo: msg.ID,
-			})
+		// Extract task — either "작업 지시:" format or free-form mention
+		task := extractTask(msg.Content, "작업 지시:")
+		if task == "" && isDirectMention {
+			// Free-form: strip mention, use entire message
+			task = strings.TrimSpace(strings.ReplaceAll(msg.Content, mention, ""))
+		}
+		if task == "" && isThreadReply {
+			task = msg.Content
+		}
+		if task == "" {
 			continue
 		}
 
-		// --- Case 2: Thread reply (conversation in existing thread) ---
-		if isThreadReply || isDirectMention {
-			threadID := msg.RootID
-			if threadID == "" {
-				threadID = msg.ID
-			}
-			activeThreads.Store(threadID, true)
+		log.Printf("[agent] message: %s", truncate(task, 80))
 
-			// Build context: read thread history + new message
-			context := buildThreadContext(mm, msg, dalName)
+		mm.Send(bridge.Message{
+			Content: "💬 작업 중...",
+			ReplyTo: threadID,
+		})
 
-			log.Printf("[agent] thread reply from %s: %s", msg.From[:8], truncate(msg.Content, 80))
+		// Build context for thread replies
+		prompt := task
+		if isThreadReply && !isDirectMention {
+			prompt = buildThreadContext(mm, msg, dalName)
+		}
 
+		output, err := executeTask(prompt)
+		if err != nil {
+			log.Printf("[agent] failed: %v", err)
 			mm.Send(bridge.Message{
-				Content: "💬 응답 중...",
-				ReplyTo: threadID,
-			})
-
-			output, err := executeTask(context)
-			if err != nil {
-				log.Printf("[agent] thread reply failed: %v", err)
-				mm.Send(bridge.Message{
-					Content: fmt.Sprintf("❌ 응답 실패: %v", err),
-					ReplyTo: threadID,
-				})
-				continue
-			}
-
-			// Thread replies: no code block wrapping, natural conversation
-			mm.Send(bridge.Message{
-				Content: truncate(strings.TrimSpace(output), 3000),
+				Content: fmt.Sprintf("❌ 실패: %v\n```\n%s\n```", err, truncate(output, 500)),
 				ReplyTo: threadID,
 			})
 			continue
 		}
+
+		log.Printf("[agent] done (%d bytes)", len(output))
+
+		// Check if files were modified → auto git workflow
+		gitResult := autoGitWorkflow(dalName)
+
+		// Format response
+		response := truncate(strings.TrimSpace(output), 3000)
+		if gitResult != "" {
+			response += "\n\n" + gitResult
+		}
+
+		mm.Send(bridge.Message{
+			Content: response,
+			ReplyTo: threadID,
+		})
 	}
-
 	return nil
 }
 
-// isActiveThread checks if the dal is participating in this thread.
+// autoGitWorkflow checks for file changes and creates a branch + commit + PR.
+func autoGitWorkflow(dalName string) string {
+	// Check if there are changes
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = "/workspace"
+	statusOut, err := statusCmd.Output()
+	if err != nil || len(strings.TrimSpace(string(statusOut))) == 0 {
+		return "" // no changes
+	}
+
+	changes := strings.TrimSpace(string(statusOut))
+	log.Printf("[git] changes detected:\n%s", changes)
+
+	// Create branch
+	branch := fmt.Sprintf("dal/%s/%d", dalName, time.Now().Unix())
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = "/workspace"
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+
+	if _, err := run("git", "checkout", "-b", branch); err != nil {
+		return fmt.Sprintf("⚠️ 브랜치 생성 실패: %v", err)
+	}
+
+	// Stage all changes
+	if _, err := run("git", "add", "-A"); err != nil {
+		return fmt.Sprintf("⚠️ git add 실패: %v", err)
+	}
+
+	// Commit
+	commitMsg := fmt.Sprintf("feat: %s dal 자동 반영\n\n변경 파일:\n%s\n\nCo-Authored-By: dal-%s <dal-%s@dalcenter.local>",
+		dalName, changes, dalName, dalName)
+	if _, err := run("git", "commit", "-m", commitMsg); err != nil {
+		return fmt.Sprintf("⚠️ 커밋 실패: %v", err)
+	}
+
+	// Push
+	if _, err := run("git", "push", "-u", "origin", branch); err != nil {
+		return fmt.Sprintf("⚠️ 푸시 실패: %v", err)
+	}
+
+	// Create PR
+	prTitle := fmt.Sprintf("dal/%s: 자동 반영", dalName)
+	prBody := fmt.Sprintf("dal-%s가 자동으로 생성한 PR.\n\n변경 파일:\n```\n%s\n```", dalName, changes)
+	prOut, err := run("gh", "pr", "create", "--title", prTitle, "--body", prBody)
+	if err != nil {
+		return fmt.Sprintf("✅ 커밋+푸시 완료 (브랜치: `%s`)\n⚠️ PR 생성 실패: %v", branch, err)
+	}
+
+	// Go back to main
+	run("git", "checkout", "main")
+
+	return fmt.Sprintf("🔀 PR 생성 완료\n브랜치: `%s`\n%s", branch, prOut)
+}
+
 func isActiveThread(threads *sync.Map, threadID string) bool {
 	_, ok := threads.Load(threadID)
 	return ok
 }
 
-// buildThreadContext reads thread history and builds a prompt for Claude
-// so it can respond with full conversation context.
 func buildThreadContext(mm *bridge.MattermostBridge, newMsg bridge.Message, dalName string) string {
 	var sb strings.Builder
 	sb.WriteString("너는 Mattermost 스레드에서 팀원과 대화 중이다. ")
-	sb.WriteString("아래는 스레드 대화 내역이다. 마지막 메시지에 대해 네 역할에 맞게 응답하라.\n\n")
-
-	// Fetch thread posts if possible
-	threadID := newMsg.RootID
-	if threadID == "" {
-		threadID = newMsg.ID
-	}
-
-	sb.WriteString(fmt.Sprintf("--- 스레드 ---\n"))
-	sb.WriteString(fmt.Sprintf("[상대방]: %s\n", newMsg.Content))
-	sb.WriteString(fmt.Sprintf("---\n\n"))
-	sb.WriteString(fmt.Sprintf("너의 이름: %s\n", dalName))
-	sb.WriteString("위 메시지에 대해 너의 역할과 전문성에 맞게 응답하라. 간결하게.")
-
+	sb.WriteString("마지막 메시지에 대해 네 역할에 맞게 응답하라.\n\n")
+	sb.WriteString(fmt.Sprintf("[상대방]: %s\n\n", newMsg.Content))
+	sb.WriteString(fmt.Sprintf("너의 이름: %s. 간결하게 응답.", dalName))
 	return sb.String()
 }
 
@@ -209,14 +229,14 @@ func executeTask(task string) (string, error) {
 
 	var cmd *exec.Cmd
 	if role == "leader" {
-		// Leader needs Bash for delegation + Write/Edit for file output.
+		// Leader: delegation (dalcli-leader) + file ops + git
 		cmd = exec.Command("claude",
-			"--allowedTools", "Bash(dalcli-leader:*) Read Write Glob Grep Edit",
+			"--allowedTools", "Bash(dalcli-leader:*,git:*,gh:*) Read Write Glob Grep Edit",
 			"--print", task)
 	} else {
-		// Members: read + write for reports and file creation.
+		// Member: file ops + git
 		cmd = exec.Command("claude",
-			"--allowedTools", "Read Write Glob Grep Edit",
+			"--allowedTools", "Bash(git:*,gh:*) Read Write Glob Grep Edit",
 			"--print", task)
 	}
 
@@ -231,8 +251,7 @@ func extractTask(content, prefix string) string {
 	if idx < 0 {
 		return ""
 	}
-	task := strings.TrimSpace(content[idx+len(prefix):])
-	return task
+	return strings.TrimSpace(content[idx+len(prefix):])
 }
 
 func formatReport(output string) string {
