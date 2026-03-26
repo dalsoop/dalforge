@@ -64,7 +64,59 @@ func runAgentLoop(dalName string) error {
 	}
 	var activeThreads sync.Map
 
-	for msg := range mm.Listen() {
+	// Periodic auto-task support: DAL_AUTO_TASK + DAL_AUTO_INTERVAL
+	autoTask := os.Getenv("DAL_AUTO_TASK")
+	autoInterval := parseInterval(os.Getenv("DAL_AUTO_INTERVAL"), 0)
+	var autoTicker *time.Ticker
+	var autoC <-chan time.Time
+	if autoTask != "" && autoInterval > 0 {
+		autoTicker = time.NewTicker(autoInterval)
+		autoC = autoTicker.C
+		log.Printf("[agent] auto-task enabled: interval=%s", autoInterval)
+		defer autoTicker.Stop()
+	}
+
+	msgC := mm.Listen()
+
+	for {
+		var msg bridge.Message
+		var isAuto bool
+
+		select {
+		case m, ok := <-msgC:
+			if !ok {
+				return nil
+			}
+			msg = m
+		case <-autoC:
+			isAuto = true
+		}
+
+		if isAuto {
+			log.Printf("[agent] auto-task triggered")
+			output, err := executeTask(autoTask)
+			if err != nil {
+				log.Printf("[agent] auto-task failed: %v", err)
+				mm.Send(bridge.Message{Content: fmt.Sprintf("⚠️ 자동 검증 실패: %v\n```\n%s\n```", err, truncate(output, 500))})
+				continue
+			}
+			log.Printf("[agent] auto-task done (%d bytes)", len(output))
+
+			// If output contains FAIL or error indicators → create GitHub issue
+			if containsFailure(output) {
+				issueURL := createGitHubIssue(dalName, output)
+				result := truncate(strings.TrimSpace(output), 2000)
+				if issueURL != "" {
+					result += fmt.Sprintf("\n\n🐛 GitHub issue 생성: %s", issueURL)
+				}
+				mm.Send(bridge.Message{Content: result})
+			} else {
+				log.Printf("[agent] auto-task: all passed")
+			}
+			continue
+		}
+
+		// --- MM message handling (existing logic) ---
 		if msg.From == mm.BotUserID {
 			continue
 		}
@@ -160,7 +212,6 @@ func runAgentLoop(dalName string) error {
 			ReplyTo: threadID,
 		})
 	}
-	return nil
 }
 
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.
@@ -492,4 +543,45 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// parseInterval parses a duration string, returning fallback on error.
+func parseInterval(s string, fallback time.Duration) time.Duration {
+	if s == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fallback
+	}
+	return d
+}
+
+// containsFailure checks if output indicates test/build failures.
+func containsFailure(output string) bool {
+	lower := strings.ToLower(output)
+	indicators := []string{"fail", "error", "panic", "fatal"}
+	for _, ind := range indicators {
+		if strings.Contains(lower, ind) {
+			return true
+		}
+	}
+	return false
+}
+
+// createGitHubIssue creates a GitHub issue for auto-detected problems.
+func createGitHubIssue(dalName, output string) string {
+	title := fmt.Sprintf("[auto] %s: 자동 검증 실패 감지", dalName)
+	body := fmt.Sprintf("## 자동 검증 결과\n\n`%s` dal이 주기적 검증에서 문제를 발견했습니다.\n\n```\n%s\n```\n\n---\n🤖 자동 생성 by dal-%s", dalName, truncate(output, 3000), dalName)
+
+	cmd := exec.Command("gh", "issue", "create", "--title", title, "--body", body)
+	cmd.Dir = "/workspace"
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[agent] gh issue create failed: %v: %s", err, string(out))
+		return ""
+	}
+	url := strings.TrimSpace(string(out))
+	log.Printf("[agent] created issue: %s", url)
+	return url
 }

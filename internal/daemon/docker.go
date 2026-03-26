@@ -252,6 +252,14 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		args = append(args, "-e", "DAL_EXTRA_BASH=*")
 	}
 
+	// Auto task: periodic self-execution
+	if dal.AutoTask != "" {
+		args = append(args, "-e", fmt.Sprintf("DAL_AUTO_TASK=%s", dal.AutoTask))
+		if dal.AutoInterval != "" {
+			args = append(args, "-e", fmt.Sprintf("DAL_AUTO_INTERVAL=%s", dal.AutoInterval))
+		}
+	}
+
 	args = append(args, image)
 
 	cmd := exec.Command("docker", args...)

@@ -29,6 +29,9 @@ type DalProfile struct {
 	GitEmail       string
 	GitHubToken    string // VeilKey ref or raw token
 	GeminiAPIKey   string // VeilKey ref, env: ref, or raw key
+	// Auto task
+	AutoTask     string // periodic task prompt (empty = disabled)
+	AutoInterval string // interval like "1h", "30m" (default: disabled)
 }
 
 // Init initializes a localdal repository at the given path.
@@ -198,6 +201,13 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	}
 	if v := val.LookupPath(cue.ParsePath("gemini_api_key")); v.Exists() {
 		p.GeminiAPIKey, _ = v.String()
+	}
+	// Auto task
+	if v := val.LookupPath(cue.ParsePath("auto_task")); v.Exists() {
+		p.AutoTask, _ = v.String()
+	}
+	if v := val.LookupPath(cue.ParsePath("auto_interval")); v.Exists() {
+		p.AutoInterval, _ = v.String()
 	}
 	return p, nil
 }
