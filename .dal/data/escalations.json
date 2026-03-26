@@ -1,0 +1,11 @@
+[
+  {
+    "id": "esc-0001",
+    "dal": "leader",
+    "task": "## 기획 지시\n\ndalcenter 이슈 12개(#80~#91)를 검토하고 다음을 수행해줘.\n\n### 1. 우선순위 + 의존관계 정리\n12개 이슈를 Wave로 나눠줘. 의존관계와 가치를 고려해서.\n\n### 2. 팀 구성 제안\n현재 leader, dev만 있음. 이 12개를 효율적으로 처리하려면 어떤 dal을 추가해야 하는지 제안:\n- 어떤 역할이 필요한지 (architect? infra? tester?)\n- 각 역할에 claude vs codex 중 뭐가 적합한지\n- .dal/ 스펙까지 구체적",
+    "error_class": "unknown",
+    "output": "Failed to authenticate. API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"Invalid authentication credentials\"},\"request_id\":\"req_011CZS7EcLDutLBUbXxqge1A\"}\n",
+    "timestamp": "2026-03-26T17:46:17.16642594Z",
+    "resolved": false
+  }
+]
