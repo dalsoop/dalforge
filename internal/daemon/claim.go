@@ -33,15 +33,50 @@ type Claim struct {
 }
 
 type claimStore struct {
-	mu    sync.RWMutex
-	items []Claim
-	seq   int
+	mu       sync.RWMutex
+	items    []Claim
+	seq      int
+	filePath string
 }
 
 const maxClaims = 200
 
 func newClaimStore() *claimStore {
 	return &claimStore{items: make([]Claim, 0)}
+}
+
+// newClaimStoreWithFile creates a persistent claim store.
+func newClaimStoreWithFile(path string) *claimStore {
+	s := &claimStore{items: make([]Claim, 0), filePath: path}
+	s.load()
+	return s
+}
+
+func (s *claimStore) load() {
+	if s.filePath == "" {
+		return
+	}
+	var items []Claim
+	if err := loadJSON(s.filePath, &items); err != nil {
+		return // first run or corrupt — start fresh
+	}
+	s.items = items
+	// Restore seq from highest ID
+	for _, c := range items {
+		var n int
+		fmt.Sscanf(c.ID, "claim-%d", &n)
+		if n > s.seq {
+			s.seq = n
+		}
+	}
+}
+
+func (s *claimStore) save() {
+	if s.filePath == "" {
+		return
+	}
+	// caller holds lock
+	persistJSON(s.filePath, s.items, nil)
 }
 
 func (s *claimStore) Add(dal string, claimType ClaimType, title, detail, context string) Claim {
@@ -71,6 +106,7 @@ func (s *claimStore) Add(dal string, claimType ClaimType, title, detail, context
 	if len(s.items) > maxClaims {
 		s.items = s.items[len(s.items)-maxClaims:]
 	}
+	s.save()
 	return c
 }
 
@@ -95,6 +131,7 @@ func (s *claimStore) Respond(id, status, response string) bool {
 			s.items[i].Response = response
 			now := time.Now().UTC()
 			s.items[i].RespondAt = &now
+			s.save()
 			return true
 		}
 	}

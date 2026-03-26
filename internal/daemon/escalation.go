@@ -20,17 +20,41 @@ type Escalation struct {
 	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
 }
 
-// escalationStore is an in-memory store for escalations.
+// escalationStore is a persistent store for escalations.
 type escalationStore struct {
-	mu    sync.RWMutex
-	items []Escalation
-	seq   int
+	mu       sync.RWMutex
+	items    []Escalation
+	seq      int
+	filePath string
 }
 
 const maxEscalations = 100
 
 func newEscalationStore() *escalationStore {
 	return &escalationStore{items: make([]Escalation, 0)}
+}
+
+func newEscalationStoreWithFile(path string) *escalationStore {
+	s := &escalationStore{items: make([]Escalation, 0), filePath: path}
+	var items []Escalation
+	if err := loadJSON(path, &items); err == nil {
+		s.items = items
+		for _, e := range items {
+			var n int
+			fmt.Sscanf(e.ID, "esc-%d", &n)
+			if n > s.seq {
+				s.seq = n
+			}
+		}
+	}
+	return s
+}
+
+func (s *escalationStore) save() {
+	if s.filePath == "" {
+		return
+	}
+	persistJSON(s.filePath, s.items, nil)
 }
 
 func (s *escalationStore) Add(dal, task, errorClass, output string) Escalation {
@@ -61,6 +85,7 @@ func (s *escalationStore) Add(dal, task, errorClass, output string) Escalation {
 	if len(s.items) > maxEscalations {
 		s.items = s.items[len(s.items)-maxEscalations:]
 	}
+	s.save()
 	return esc
 }
 
@@ -84,6 +109,7 @@ func (s *escalationStore) Resolve(id string) bool {
 			s.items[i].Resolved = true
 			now := time.Now().UTC()
 			s.items[i].ResolvedAt = &now
+			s.save()
 			return true
 		}
 	}
