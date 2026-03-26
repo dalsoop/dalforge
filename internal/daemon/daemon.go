@@ -47,7 +47,8 @@ type Container struct {
 	Player      string `json:"player"`
 	Role        string `json:"role"`
 	ContainerID string `json:"container_id"`
-	Status      string `json:"status"` // "running", "stopped"
+	Status      string `json:"status"`    // "running", "stopped"
+	Workspace   string `json:"workspace"` // "shared" or "clone"
 	Skills      int    `json:"skills"`
 	BotToken    string `json:"-"` // Mattermost bot token
 }
@@ -305,6 +306,10 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	ws := dal.Workspace
+	if ws == "" {
+		ws = "shared"
+	}
 	d.mu.Lock()
 	d.containers[instanceName] = &Container{
 		DalName:     instanceName,
@@ -313,6 +318,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		Role:        dal.Role,
 		ContainerID: containerID,
 		Status:      "running",
+		Workspace:   ws,
 		Skills:      len(dal.Skills),
 		BotToken:    botToken,
 	}

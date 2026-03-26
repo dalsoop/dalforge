@@ -77,7 +77,7 @@ func TestClaimStore_FilterByStatus(t *testing.T) {
 }
 
 func TestHandleClaim_Post(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	body := `{"dal":"dev","type":"bug","title":"cargo missing","detail":"command not found"}`
 	req := httptest.NewRequest("POST", "/api/claim", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -93,7 +93,7 @@ func TestHandleClaim_Post(t *testing.T) {
 }
 
 func TestHandleClaims_Empty(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	req := httptest.NewRequest("GET", "/api/claims", nil)
 	w := httptest.NewRecorder()
 	d.handleClaims(w, req)
@@ -103,7 +103,7 @@ func TestHandleClaims_Empty(t *testing.T) {
 }
 
 func TestHandleClaim_MissingFields(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	body := `{"dal":"","title":""}`
 	req := httptest.NewRequest("POST", "/api/claim", strings.NewReader(body))
 	w := httptest.NewRecorder()

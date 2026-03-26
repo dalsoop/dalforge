@@ -136,8 +136,9 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		"-w", containerWorkDir,
 	}
 
-	// Mount service repo as workspace
-	if serviceRepo != "" {
+	// Mount service repo as workspace (shared mode) or leave empty for clone mode
+	isCloneMode := dal.Workspace == "clone"
+	if serviceRepo != "" && !isCloneMode {
 		args = append(args, "-v", fmt.Sprintf("%s:%s", serviceRepo, containerWorkDir))
 	}
 
@@ -274,7 +275,54 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		log.Printf("[docker] warning: failed to inject dalcli: %v", err)
 	}
 
+	// Clone mode: git clone repo into container workspace
+	if isCloneMode && serviceRepo != "" {
+		repoURL := detectRepoURL(serviceRepo)
+		if repoURL != "" {
+			if err := cloneRepoInContainer(containerID, repoURL); err != nil {
+				w := fmt.Sprintf("workspace clone failed: %v (falling back to empty workspace)", err)
+				log.Printf("[docker] %s", w)
+				warnings = append(warnings, w)
+			} else {
+				log.Printf("[docker] workspace: cloned %s into %s", repoURL, containerName)
+			}
+		} else {
+			w := "clone mode: could not detect repo URL, workspace is empty"
+			log.Printf("[docker] %s", w)
+			warnings = append(warnings, w)
+		}
+	}
+
 	return containerID, warnings, nil
+}
+
+// detectRepoURL gets the git remote URL from a local repo.
+func detectRepoURL(repoPath string) string {
+	cmd := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// cloneRepoInContainer runs git clone inside a running container.
+func cloneRepoInContainer(containerID, repoURL string) error {
+	// Clone into a temp dir, then move contents to /workspace
+	// (container may already have /workspace as WORKDIR)
+	script := fmt.Sprintf(
+		`git clone --depth=50 %s /tmp/_clone && `+
+			`cp -a /tmp/_clone/. /workspace/ && `+
+			`rm -rf /tmp/_clone && `+
+			`cd /workspace && git checkout main 2>/dev/null; true`,
+		repoURL,
+	)
+	cmd := exec.Command("docker", "exec", containerID, "bash", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 // resolveVeilKey resolves a VK: reference via veil CLI or localvault API.

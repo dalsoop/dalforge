@@ -29,6 +29,8 @@ type DalProfile struct {
 	GitEmail       string
 	GitHubToken    string // VeilKey ref or raw token
 	GeminiAPIKey   string // VeilKey ref, env: ref, or raw key
+	// Workspace mode
+	Workspace string // "shared" (default, bind mount) or "clone" (git clone per dal)
 	// Auto task
 	AutoTask     string // periodic task prompt (empty = disabled)
 	AutoInterval string // interval like "1h", "30m" (default: disabled)
@@ -201,6 +203,10 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	}
 	if v := val.LookupPath(cue.ParsePath("gemini_api_key")); v.Exists() {
 		p.GeminiAPIKey, _ = v.String()
+	}
+	// Workspace mode
+	if v := val.LookupPath(cue.ParsePath("workspace")); v.Exists() {
+		p.Workspace, _ = v.String()
 	}
 	// Auto task
 	if v := val.LookupPath(cue.ParsePath("auto_task")); v.Exists() {

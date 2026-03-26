@@ -65,7 +65,7 @@ func TestTaskStore_Eviction(t *testing.T) {
 }
 
 func TestHandleTask_NoDal(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	body := `{"dal":"nonexistent","task":"hello"}`
 	req := httptest.NewRequest("POST", "/api/task", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -76,7 +76,7 @@ func TestHandleTask_NoDal(t *testing.T) {
 }
 
 func TestHandleTask_MissingFields(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	body := `{"dal":"","task":""}`
 	req := httptest.NewRequest("POST", "/api/task", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -87,7 +87,7 @@ func TestHandleTask_MissingFields(t *testing.T) {
 }
 
 func TestHandleTaskList_Empty(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	req := httptest.NewRequest("GET", "/api/tasks", nil)
 	w := httptest.NewRecorder()
 	d.handleTaskList(w, req)
@@ -100,7 +100,7 @@ func TestHandleTaskList_Empty(t *testing.T) {
 }
 
 func TestHandleTaskStatus_NotFound(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	req := httptest.NewRequest("GET", "/api/task/task-9999", nil)
 	req.SetPathValue("id", "task-9999")
 	w := httptest.NewRecorder()
@@ -120,7 +120,7 @@ func TestTruncateStr(t *testing.T) {
 }
 
 func TestMessageFallback_NoMM(t *testing.T) {
-	d := New(":0", "/tmp/test", "/tmp/repo", nil)
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
 	// No MM configured, no running dals → should return 503
 	body := `{"from":"host","message":"test"}`
 	req := httptest.NewRequest("POST", "/api/message", strings.NewReader(body))
