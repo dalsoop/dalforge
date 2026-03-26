@@ -1,0 +1,11 @@
+[
+  {
+    "id": "claim-0001",
+    "dal": "leader",
+    "type": "blocked",
+    "title": "dev git permission blocked — #87 진행 불가",
+    "detail": "dev가 git checkout/branch 명령을 실행하려 하면 tool permission 승인 대기에 빠짐. 반복 지시(5회 이상)로도 해결 불가. dev 컨테이너의 git 명령 자동 승인 설정이 필요함.",
+    "timestamp": "2026-03-26T18:39:08.579657971Z",
+    "status": "open"
+  }
+]
