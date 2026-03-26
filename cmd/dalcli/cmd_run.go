@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,11 @@ type agentConfig struct {
 	BotToken  string `json:"bot_token"`
 	ChannelID string `json:"channel_id"`
 	MMURL     string `json:"mm_url"`
+}
+
+type runBudget struct {
+	MaxTurns  int
+	usedTurns int
 }
 
 func runCmd(dalName string) *cobra.Command {
@@ -64,6 +70,10 @@ func runAgentLoop(dalName string) error {
 		mention = fmt.Sprintf("@dal-%s", dalName)
 	}
 	var activeThreads sync.Map
+	budget := loadRunBudget()
+	if budget.MaxTurns > 0 {
+		log.Printf("[agent] budget enabled: max_turns=%d", budget.MaxTurns)
+	}
 
 	// Periodic auto-task support: DAL_AUTO_TASK + DAL_AUTO_INTERVAL
 	autoTask := os.Getenv("DAL_AUTO_TASK")
@@ -95,6 +105,12 @@ func runAgentLoop(dalName string) error {
 
 		if isAuto {
 			log.Printf("[agent] auto-task triggered")
+			if err := budget.consumeTurn(); err != nil {
+				stopMsg := formatBudgetExceededMessage(budget)
+				log.Printf("[agent] %s", stopMsg)
+				mm.Send(bridge.Message{Content: stopMsg})
+				return err
+			}
 			output, err := executeTask(autoTask)
 			if err != nil {
 				log.Printf("[agent] auto-task failed: %v", err)
@@ -170,6 +186,16 @@ func runAgentLoop(dalName string) error {
 			prompt = buildThreadContext(mm, msg, dalName)
 		}
 
+		if err := budget.consumeTurn(); err != nil {
+			stopMsg := formatBudgetExceededMessage(budget)
+			log.Printf("[agent] %s", stopMsg)
+			mm.Send(bridge.Message{
+				Content: stopMsg,
+				ReplyTo: threadID,
+			})
+			return err
+		}
+
 		output, err := executeTask(prompt)
 		if err != nil {
 			log.Printf("[agent] failed: %v", err)
@@ -233,6 +259,29 @@ func runAgentLoop(dalName string) error {
 			ReplyTo: threadID,
 		})
 	}
+}
+
+func loadRunBudget() runBudget {
+	maxTurns, err := strconv.Atoi(strings.TrimSpace(os.Getenv("DAL_BUDGET_MAX_TURNS")))
+	if err != nil || maxTurns <= 0 {
+		return runBudget{}
+	}
+	return runBudget{MaxTurns: maxTurns}
+}
+
+func (b *runBudget) consumeTurn() error {
+	if b.MaxTurns <= 0 {
+		return nil
+	}
+	if b.usedTurns >= b.MaxTurns {
+		return fmt.Errorf("budget max_turns exceeded (%d)", b.MaxTurns)
+	}
+	b.usedTurns++
+	return nil
+}
+
+func formatBudgetExceededMessage(b runBudget) string {
+	return fmt.Sprintf("🛑 budget.max_turns 초과 (%d/%d). dalcli run을 강제 중단합니다.", b.usedTurns, b.MaxTurns)
 }
 
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.

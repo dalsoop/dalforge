@@ -298,3 +298,27 @@ hooks:   ["pre-commit", "post-deploy"]
 		t.Errorf("Hooks = %v", p.Hooks)
 	}
 }
+
+func TestReadDalCue_BudgetMaxTurns(t *testing.T) {
+	dir := t.TempDir()
+	cue := `
+uuid:    "budget-test-001"
+name:    "budgetdal"
+version: "1.0.0"
+player:  "claude"
+role:    "member"
+budget: {
+	max_turns: 7
+}
+`
+	f := filepath.Join(dir, "dal.cue")
+	os.WriteFile(f, []byte(cue), 0644)
+
+	p, err := ReadDalCue(f, "budgetdal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BudgetMaxTurns != 7 {
+		t.Errorf("BudgetMaxTurns = %d, want 7", p.BudgetMaxTurns)
+	}
+}

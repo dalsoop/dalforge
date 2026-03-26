@@ -346,6 +346,49 @@ func TestFetchAgentConfig_ServerError(t *testing.T) {
 	}
 }
 
+func TestLoadRunBudget(t *testing.T) {
+	os.Setenv("DAL_BUDGET_MAX_TURNS", "4")
+	defer os.Unsetenv("DAL_BUDGET_MAX_TURNS")
+
+	budget := loadRunBudget()
+	if budget.MaxTurns != 4 {
+		t.Fatalf("MaxTurns = %d, want 4", budget.MaxTurns)
+	}
+}
+
+func TestLoadRunBudget_Invalid(t *testing.T) {
+	os.Setenv("DAL_BUDGET_MAX_TURNS", "bad")
+	defer os.Unsetenv("DAL_BUDGET_MAX_TURNS")
+
+	budget := loadRunBudget()
+	if budget.MaxTurns != 0 {
+		t.Fatalf("MaxTurns = %d, want 0", budget.MaxTurns)
+	}
+}
+
+func TestRunBudgetConsumeTurn(t *testing.T) {
+	budget := runBudget{MaxTurns: 2}
+	if err := budget.consumeTurn(); err != nil {
+		t.Fatalf("first consumeTurn() error = %v", err)
+	}
+	if err := budget.consumeTurn(); err != nil {
+		t.Fatalf("second consumeTurn() error = %v", err)
+	}
+	if err := budget.consumeTurn(); err == nil {
+		t.Fatal("expected budget exceed error")
+	}
+}
+
+func TestFormatBudgetExceededMessage(t *testing.T) {
+	msg := formatBudgetExceededMessage(runBudget{MaxTurns: 3, usedTurns: 3})
+	if !strings.Contains(msg, "budget.max_turns 초과") {
+		t.Fatalf("message = %q", msg)
+	}
+	if !strings.Contains(msg, "(3/3)") {
+		t.Fatalf("message = %q", msg)
+	}
+}
+
 // ── executeTask role branching (verify command construction) ──
 
 func TestExecuteTask_RoleBranching(t *testing.T) {

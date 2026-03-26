@@ -260,6 +260,9 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 			args = append(args, "-e", fmt.Sprintf("DAL_AUTO_INTERVAL=%s", dal.AutoInterval))
 		}
 	}
+	if dal.BudgetMaxTurns > 0 {
+		args = append(args, "-e", fmt.Sprintf("DAL_BUDGET_MAX_TURNS=%d", dal.BudgetMaxTurns))
+	}
 
 	args = append(args, image)
 

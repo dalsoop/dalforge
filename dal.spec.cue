@@ -162,6 +162,10 @@ builtin_categories: {
 	hooks?:  [...string]
 }
 
+#Budget: {
+	max_turns?: int & >0
+}
+
 // ===== dal 프로필 =====
 
 // .dal/<name>/dal.cue에 정의
