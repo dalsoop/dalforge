@@ -415,23 +415,34 @@ func TestFormatBudgetExceededMessage(t *testing.T) {
 	}
 }
 
+func TestFormatTurnLimitExceededMessage(t *testing.T) {
+	msg := formatTurnLimitExceededMessage(5, 4)
+	if !strings.Contains(msg, "max_turns 초과") {
+		t.Fatalf("message = %q", msg)
+	}
+	if !strings.Contains(msg, "(5/4)") {
+		t.Fatalf("message = %q", msg)
+	}
+}
+
 // ── executeTask role branching (verify command construction) ──
 
 func TestExecuteTask_RoleBranching(t *testing.T) {
-	// We can't actually run claude in tests, but we verify the function
-	// handles missing binary gracefully
+	// Force provider binaries to be missing so the test is environment-independent.
 	t.Setenv("DAL_PROVIDER_TIMEOUT", "1s")
+	t.Setenv("DAL_PLAYER", "claude")
+	t.Setenv("PATH", t.TempDir())
 	os.Setenv("DAL_ROLE", "member")
 	_, err := executeTask("test")
-	// Should fail (claude not available in test) but not panic
+	// Should fail quickly but not panic.
 	if err == nil {
-		t.Log("claude available in test env — unusual but ok")
+		t.Fatal("expected executeTask to fail when provider binary is unavailable")
 	}
 
 	os.Setenv("DAL_ROLE", "leader")
 	_, err = executeTask("test")
 	if err == nil {
-		t.Log("claude available in test env — unusual but ok")
+		t.Fatal("expected executeTask to fail when provider binary is unavailable")
 	}
 	os.Unsetenv("DAL_ROLE")
 }

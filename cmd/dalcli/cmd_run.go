@@ -84,8 +84,21 @@ func runAgentLoop(dalName string) error {
 	}
 	var activeThreads sync.Map
 	budget := loadRunBudget()
+	turnCount := 0
 	if budget.MaxTurns > 0 {
 		log.Printf("[agent] budget enabled: max_turns=%d action=%s", budget.MaxTurns, budget.Action)
+	}
+	nextTurn := func() error {
+		turnCount++
+		if budget.MaxTurns > 0 {
+			log.Printf("[agent] turn %d/%d", turnCount, budget.MaxTurns)
+			if turnCount > budget.MaxTurns {
+				return fmt.Errorf("max_turns exceeded (%d/%d)", turnCount, budget.MaxTurns)
+			}
+		} else {
+			log.Printf("[agent] turn %d", turnCount)
+		}
+		return nil
 	}
 
 	// Periodic auto-task support: DAL_AUTO_TASK + DAL_AUTO_INTERVAL
@@ -118,16 +131,11 @@ func runAgentLoop(dalName string) error {
 
 		if isAuto {
 			log.Printf("[agent] auto-task triggered")
-			switch budget.consumeTurn() {
-			case budgetActionWarn:
-				warnMsg := formatBudgetExceededMessage(budget)
-				log.Printf("[agent] %s", warnMsg)
-				mm.Send(bridge.Message{Content: warnMsg})
-			case budgetActionKill:
-				stopMsg := formatBudgetExceededMessage(budget)
+			if err := nextTurn(); err != nil {
+				stopMsg := formatTurnLimitExceededMessage(turnCount, budget.MaxTurns)
 				log.Printf("[agent] %s", stopMsg)
 				mm.Send(bridge.Message{Content: stopMsg})
-				return fmt.Errorf("budget max_turns exceeded (%d/%d)", budget.usedTurns, budget.MaxTurns)
+				return err
 			}
 			output, err := executeTask(autoTask)
 			if err != nil {
@@ -204,22 +212,14 @@ func runAgentLoop(dalName string) error {
 			prompt = buildThreadContext(mm, msg, dalName)
 		}
 
-		switch budget.consumeTurn() {
-		case budgetActionWarn:
-			warnMsg := formatBudgetExceededMessage(budget)
-			log.Printf("[agent] %s", warnMsg)
-			mm.Send(bridge.Message{
-				Content: warnMsg,
-				ReplyTo: threadID,
-			})
-		case budgetActionKill:
-			stopMsg := formatBudgetExceededMessage(budget)
+		if err := nextTurn(); err != nil {
+			stopMsg := formatTurnLimitExceededMessage(turnCount, budget.MaxTurns)
 			log.Printf("[agent] %s", stopMsg)
 			mm.Send(bridge.Message{
 				Content: stopMsg,
 				ReplyTo: threadID,
 			})
-			return fmt.Errorf("budget max_turns exceeded (%d/%d)", budget.usedTurns, budget.MaxTurns)
+			return err
 		}
 
 		output, err := executeTask(prompt)
@@ -329,6 +329,10 @@ func formatBudgetExceededMessage(b runBudget) string {
 		return fmt.Sprintf("⚠️ budget.max_turns 초과 (%d/%d). 경고만 남기고 계속 진행합니다.", b.usedTurns, b.MaxTurns)
 	}
 	return fmt.Sprintf("🛑 budget.max_turns 초과 (%d/%d). dalcli run을 강제 중단합니다.", b.usedTurns, b.MaxTurns)
+}
+
+func formatTurnLimitExceededMessage(turnCount, maxTurns int) string {
+	return fmt.Sprintf("🛑 max_turns 초과 (%d/%d). dalcli run을 강제 중단합니다.", turnCount, maxTurns)
 }
 
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.
