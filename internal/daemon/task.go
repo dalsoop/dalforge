@@ -156,7 +156,8 @@ func (d *Daemon) handleTaskList(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 	log.Printf("[task] executing %s on %s: %s", tr.ID, c.DalName, truncateStr(tr.Task, 80))
 
-	// Build claude command with allowedTools
+	// Build docker exec command that pipes task via stdin.
+	// Claude's -p flag requires stdin input (not positional args).
 	var cmdArgs []string
 	switch c.Player {
 	case "codex":
@@ -172,18 +173,23 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 		if c.Role != "leader" {
 			allowedTools = "Bash(git:*,gh:*) Read Write Glob Grep Edit"
 		}
+		// Use bash -c to pipe task via stdin to claude -p
+		claudeCmd := fmt.Sprintf("cd %s && claude -p --allowedTools %q",
+			containerWorkDir, allowedTools)
 		cmdArgs = []string{
 			"docker", "exec",
+			"-i",
 			"-e", "CLAUDE_CODE_ENTRYPOINT=dalcli",
 			c.ContainerID,
-			"claude",
-			"-p",
-			"--allowedTools", allowedTools,
-			tr.Task,
+			"bash", "-c", claudeCmd,
 		}
 	}
 
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	// Pipe task content via stdin for claude -p
+	if c.Player != "codex" {
+		cmd.Stdin = strings.NewReader(tr.Task)
+	}
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
