@@ -169,13 +169,16 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 			tr.Task,
 		}
 	default: // claude
-		allowedTools := "Bash Read Write Glob Grep Edit"
-		if c.Role != "leader" {
-			allowedTools = "Bash(git:*,gh:*) Read Write Glob Grep Edit"
-		}
-		// Use bash -c to pipe task via stdin to claude -p
-		claudeCmd := fmt.Sprintf("cd %s && claude -p --allowedTools %q",
-			containerWorkDir, allowedTools)
+		// Determine allowed tools based on role and DAL_EXTRA_BASH.
+		// Use a shell snippet that reads the container's env at runtime.
+		claudeCmd := fmt.Sprintf(
+			`cd %s && if [ "$DAL_EXTRA_BASH" = "*" ]; then `+
+				`TOOLS="Bash Read Write Glob Grep Edit"; `+
+				`elif [ "$DAL_ROLE" = "leader" ]; then `+
+				`TOOLS="Bash Read Write Glob Grep Edit"; `+
+				`else TOOLS="Bash(git:*,gh:*) Read Write Glob Grep Edit"; fi && `+
+				`claude -p --allowedTools "$TOOLS"`,
+			containerWorkDir)
 		cmdArgs = []string{
 			"docker", "exec",
 			"-i",
