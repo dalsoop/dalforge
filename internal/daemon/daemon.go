@@ -68,12 +68,14 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 	}
 }
 
-// uuidShort returns the first 6 chars of a UUID for resource naming.
+// uuidShort returns a 6-char identifier from a UUID for resource naming.
+// Strips hyphens first to avoid ambiguity in container name parsing.
 func uuidShort(uuid string) string {
-	if len(uuid) > 6 {
-		return uuid[:6]
+	clean := strings.ReplaceAll(uuid, "-", "")
+	if len(clean) > 6 {
+		return clean[:6]
 	}
-	return uuid
+	return clean
 }
 
 // dalContainerName returns the Docker container name: dal-{name}-{uuid[:6]}
