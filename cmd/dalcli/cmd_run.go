@@ -254,6 +254,23 @@ func buildThreadContext(mm *bridge.MattermostBridge, newMsg bridge.Message, dalN
 	return sb.String()
 }
 
+// notifyCredentialRefresh tells dalcenter daemon that credentials need refresh.
+// The daemon can log this or trigger external sync.
+func notifyCredentialRefresh(dalName string) {
+	dcURL := os.Getenv("DALCENTER_URL")
+	if dcURL == "" {
+		return
+	}
+	body := fmt.Sprintf(`{"dal":"%s","message":"[%s] ⚠️ credential 만료. 호스트에서 sync-dal-creds.sh 실행 필요."}`, dalName, dalName)
+	req, _ := http.NewRequest("POST", dcURL+"/api/message", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
+	log.Printf("[agent] credential refresh requested for %s", dalName)
+}
+
 func fetchAgentConfig(dalName string) (*agentConfig, error) {
 	dcURL := os.Getenv("DALCENTER_URL")
 	if dcURL == "" {
@@ -308,10 +325,19 @@ func executeTask(task string) (string, error) {
 		lastOut = out
 		lastErr = err
 
+		// Auth error → wait for credential sync (cron every 5min on host)
+		if isAuthError(out) {
+			wait := 60 * time.Second
+			name := os.Getenv("DAL_NAME")
+			log.Printf("[agent] auth error (attempt %d/%d), waiting %s for credential sync...", attempt, maxRetries, wait)
+			notifyCredentialRefresh(name)
+			time.Sleep(wait)
+			continue
+		}
+
 		if isRetryable(out) {
 			providerCircuit.RecordFailure()
 
-			// After circuit opens, try fallback
 			if providerCircuit.ShouldFallback() && fallbackPlayer != "" {
 				log.Printf("[circuit] switching to fallback %s (attempt %d/%d)", fallbackPlayer, attempt, maxRetries)
 				fbOut, fbErr := runProvider(fallbackPlayer, task)
@@ -402,6 +428,16 @@ func isRetryable(output string) bool {
 		strings.Contains(lower, "529") ||
 		strings.Contains(lower, "too many requests") ||
 		strings.Contains(lower, "capacity")
+}
+
+// isAuthError checks if the error is an authentication failure (401, expired token, etc).
+func isAuthError(output string) bool {
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "401") ||
+		strings.Contains(lower, "authentication_error") ||
+		strings.Contains(lower, "invalid authentication") ||
+		strings.Contains(lower, "oauth token has expired") ||
+		strings.Contains(lower, "failed to authenticate")
 }
 
 func extractTask(content, prefix string) string {

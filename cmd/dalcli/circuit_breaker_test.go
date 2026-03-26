@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -115,4 +116,32 @@ func TestIsRetryable_RateLimit(t *testing.T) {
 	if isRetryable("normal error") {
 		t.Error("should not retry normal error")
 	}
+}
+
+func TestIsAuthError(t *testing.T) {
+	tests := []struct {
+		output string
+		want   bool
+	}{
+		{"Failed to authenticate. API Error: 401", true},
+		{"authentication_error: Invalid authentication credentials", true},
+		{"OAuth token has expired", true},
+		{"Failed to authenticate", true},
+		{"401 Unauthorized", true},
+		{"normal error: file not found", false},
+		{"rate limit exceeded", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		got := isAuthError(tt.output)
+		if got != tt.want {
+			t.Errorf("isAuthError(%q) = %v, want %v", tt.output, got, tt.want)
+		}
+	}
+}
+
+func TestNotifyCredentialRefresh_NoURL(t *testing.T) {
+	os.Unsetenv("DALCENTER_URL")
+	// Should not panic
+	notifyCredentialRefresh("test-dal")
 }
