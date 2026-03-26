@@ -19,6 +19,17 @@
 - 환경변수 하드코딩 금지. 반드시 `os.Getenv`로 읽기
 - `go vet ./...` + `go test ./...` 통과 필수
 
+## 클레임
+
+작업 중 환경 문제, 진행 불가, 버그, 개선 아이디어가 있으면 claim을 제출:
+
+```bash
+dalcli claim --type env "cargo not installed"
+dalcli claim --type blocked --detail "상세 설명" "제목"
+dalcli claim --type bug "문제 설명"
+dalcli claim --type improvement "제안"
+```
+
 ## 참조
 
 - `README.md` — 전체 구조

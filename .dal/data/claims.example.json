@@ -1,0 +1,48 @@
+[
+  {
+    "id": "claim-0001",
+    "dal": "dev",
+    "type": "env",
+    "title": "cargo not installed in container",
+    "detail": "veilkey-selfhosted 빌드에 Rust 필요하지만 기본 claude:latest 이미지에 없음. player_version: rust 설정 필요.",
+    "context": "cargo check 실행 시 command not found",
+    "timestamp": "2026-03-26T14:00:00Z",
+    "status": "resolved",
+    "response": "dalcenter/claude:rust 이미지 빌드 완료. dal.cue에 player_version: rust 추가 후 dalcenter restart",
+    "responded_at": "2026-03-26T15:00:00Z"
+  },
+  {
+    "id": "claim-0002",
+    "dal": "leader",
+    "type": "blocked",
+    "title": "GitHub push 불가 — GH_TOKEN 미설정",
+    "detail": "dal.cue에 git.github_token이 없어서 git push, gh pr create 모두 실패",
+    "context": "이슈 #480 구현 후 push 시도",
+    "timestamp": "2026-03-26T14:30:00Z",
+    "status": "resolved",
+    "response": "dal.cue에 git: { github_token: env:GITHUB_TOKEN } 추가, dalcenter restart leader",
+    "responded_at": "2026-03-26T14:45:00Z"
+  },
+  {
+    "id": "claim-0003",
+    "dal": "dev",
+    "type": "improvement",
+    "title": "task 실행 timeout 설정 필요",
+    "detail": "긴 작업 시 무한 대기 — dalcenter task에 --timeout 옵션이 있으면 좋겠음",
+    "context": "",
+    "timestamp": "2026-03-26T16:00:00Z",
+    "status": "open"
+  },
+  {
+    "id": "claim-0004",
+    "dal": "verifier",
+    "type": "bug",
+    "title": "go-sqlite3 CGO 비활성화로 DB 테스트 전부 실패",
+    "detail": "CGO_ENABLED=0 환경에서 go-sqlite3 스텁만 빌드됨. 테스트가 실제 DB 기능 검증 불가.",
+    "context": "go test ./... 실행 시 대부분의 DB 관련 테스트 FAIL",
+    "timestamp": "2026-03-26T16:30:00Z",
+    "status": "acknowledged",
+    "response": "CGO_ENABLED=1 + gcc 설치된 이미지 필요. claude-go-cgo.Dockerfile 계획 중.",
+    "responded_at": "2026-03-26T16:35:00Z"
+  }
+]

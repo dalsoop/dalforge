@@ -1,0 +1,21 @@
+[
+  {
+    "id": "esc-0001",
+    "dal": "dev",
+    "task": "이슈 #459 구현",
+    "error_class": "instructions",
+    "output": "instructions.md에 이전 작업(#398) 잔재가 남아있어 잘못된 파일 참조",
+    "timestamp": "2026-03-25T10:00:00Z",
+    "resolved": true,
+    "resolved_at": "2026-03-25T10:30:00Z"
+  },
+  {
+    "id": "esc-0002",
+    "dal": "dev",
+    "task": "go test ./... 실행",
+    "error_class": "env",
+    "output": "exec: gcc: executable file not found in $PATH",
+    "timestamp": "2026-03-26T12:00:00Z",
+    "resolved": false
+  }
+]
