@@ -34,6 +34,13 @@ type DalProfile struct {
 	// Auto task
 	AutoTask     string // periodic task prompt (empty = disabled)
 	AutoInterval string // interval like "1h", "30m" (default: disabled)
+	Budget       Budget
+}
+
+type Budget struct {
+	MaxTurns   int
+	MaxCostUSD float64
+	Action     string
 }
 
 // Init initializes a localdal repository at the given path.
@@ -215,6 +222,20 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	if v := val.LookupPath(cue.ParsePath("auto_interval")); v.Exists() {
 		p.AutoInterval, _ = v.String()
 	}
+	if v := val.LookupPath(cue.ParsePath("budget.max_turns")); v.Exists() {
+		if maxTurns, err := v.Int64(); err == nil {
+			p.Budget.MaxTurns = int(maxTurns)
+		}
+	}
+	if v := val.LookupPath(cue.ParsePath("budget.max_cost_usd")); v.Exists() {
+		p.Budget.MaxCostUSD, _ = v.Float64()
+	}
+	if v := val.LookupPath(cue.ParsePath("budget.action")); v.Exists() {
+		p.Budget.Action, _ = v.String()
+	}
+	if p.Budget.Action == "" {
+		p.Budget.Action = "kill"
+	}
 	return p, nil
 }
 
@@ -243,6 +264,11 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 	version!: string
 	player!:  #Player
 	role!:    #Role
+	budget?: {
+		max_turns?:    int & >0
+		max_cost_usd?: number & >=0
+		action?:       "warn" | "kill"
+	}
 	skills?:  [...string]
 	hooks?:   [...string]
 }

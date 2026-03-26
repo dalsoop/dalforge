@@ -346,6 +346,69 @@ func TestFetchAgentConfig_ServerError(t *testing.T) {
 	}
 }
 
+func TestLoadRunBudget(t *testing.T) {
+	t.Setenv("DAL_BUDGET_MAX_TURNS", "4")
+	t.Setenv("DAL_BUDGET_MAX_COST_USD", "12.5")
+	t.Setenv("DAL_BUDGET_ACTION", "warn")
+
+	budget := loadRunBudget()
+	if budget.MaxTurns != 4 {
+		t.Fatalf("MaxTurns = %d, want 4", budget.MaxTurns)
+	}
+	if budget.MaxCostUSD != 12.5 {
+		t.Fatalf("MaxCostUSD = %v, want 12.5", budget.MaxCostUSD)
+	}
+	if budget.Action != "warn" {
+		t.Fatalf("Action = %q, want warn", budget.Action)
+	}
+}
+
+func TestLoadRunBudget_Invalid(t *testing.T) {
+	t.Setenv("DAL_BUDGET_MAX_TURNS", "bad")
+	t.Setenv("DAL_BUDGET_ACTION", "pause")
+
+	budget := loadRunBudget()
+	if budget.MaxTurns != 0 {
+		t.Fatalf("MaxTurns = %d, want 0", budget.MaxTurns)
+	}
+	if budget.Action != "" {
+		t.Fatalf("Action = %q, want empty when budget disabled", budget.Action)
+	}
+}
+
+func TestRunBudgetConsumeTurn(t *testing.T) {
+	budget := runBudget{MaxTurns: 2, Action: "kill"}
+	if action := budget.consumeTurn(); action != budgetActionNone {
+		t.Fatalf("first consumeTurn() = %v, want none", action)
+	}
+	if action := budget.consumeTurn(); action != budgetActionNone {
+		t.Fatalf("second consumeTurn() = %v, want none", action)
+	}
+	if action := budget.consumeTurn(); action != budgetActionKill {
+		t.Fatalf("third consumeTurn() = %v, want kill", action)
+	}
+}
+
+func TestRunBudgetConsumeTurnWarn(t *testing.T) {
+	budget := runBudget{MaxTurns: 1, Action: "warn"}
+	if action := budget.consumeTurn(); action != budgetActionNone {
+		t.Fatalf("first consumeTurn() = %v, want none", action)
+	}
+	if action := budget.consumeTurn(); action != budgetActionWarn {
+		t.Fatalf("second consumeTurn() = %v, want warn", action)
+	}
+}
+
+func TestFormatBudgetExceededMessage(t *testing.T) {
+	msg := formatBudgetExceededMessage(runBudget{MaxTurns: 3, Action: "kill", usedTurns: 4})
+	if !strings.Contains(msg, "budget.max_turns 초과") {
+		t.Fatalf("message = %q", msg)
+	}
+	if !strings.Contains(msg, "(4/3)") {
+		t.Fatalf("message = %q", msg)
+	}
+}
+
 // ── executeTask role branching (verify command construction) ──
 
 func TestExecuteTask_RoleBranching(t *testing.T) {

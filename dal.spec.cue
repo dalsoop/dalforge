@@ -173,6 +173,7 @@ builtin_categories: {
 	player!:      "claude" | "codex" | "gemini"
 	description?: string
 	container?: #ContainerSpec
+	budget?: #Budget
 	skills?: [...string]
 	hooks?:  [...string]
 	exports?: [string]: #AgentExport
@@ -246,6 +247,16 @@ builtin_categories: {
 	status!:       "synced" | "pending" | "conflict" | "offline"
 	pending_updates?: [...#DalID]
 }
+
+// ===== 예산 =====
+
+#Budget: {
+	max_turns?:    int & >0
+	max_cost_usd?: number & >=0
+	action?:       #BudgetAction | *"kill"
+}
+
+#BudgetAction: "warn" | "kill"
 
 // ===== 감사 =====
 
