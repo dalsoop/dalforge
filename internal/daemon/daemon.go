@@ -51,6 +51,7 @@ type Container struct {
 	Workspace   string `json:"workspace"` // "shared" or "clone"
 	Skills      int    `json:"skills"`
 	BotToken    string `json:"-"` // Mattermost bot token
+	BotUsername string `json:"-"` // Mattermost bot @username
 }
 
 // New creates a daemon.
@@ -310,6 +311,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	if ws == "" {
 		ws = "shared"
 	}
+	botUser := dalBotUsername(dal.Name, dal.UUID)
 	d.mu.Lock()
 	d.containers[instanceName] = &Container{
 		DalName:     instanceName,
@@ -321,6 +323,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		Workspace:   ws,
 		Skills:      len(dal.Skills),
 		BotToken:    botToken,
+		BotUsername:  botUser,
 	}
 	d.mu.Unlock()
 
@@ -368,6 +371,11 @@ func (d *Daemon) handleSleep(w http.ResponseWriter, r *http.Request) {
 	if err := dockerStop(c.ContainerID); err != nil {
 		http.Error(w, fmt.Sprintf("sleep failed: %v", err), 500)
 		return
+	}
+
+	// Remove bot from channel on sleep (prevent zombie bots)
+	if d.mm != nil && d.mm.URL != "" && d.channelID != "" && c.BotUsername != "" {
+		talk.RemoveBotFromChannel(d.mm.URL, d.mm.AdminToken, d.channelID, c.BotUsername)
 	}
 
 	d.mu.Lock()
@@ -721,6 +729,19 @@ func (d *Daemon) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if d.mm != nil {
 		resp["mm_url"] = d.mm.URL
+	}
+
+	// Inject team member bot names so leader can mention them correctly
+	d.mu.RLock()
+	var teammates []string
+	for n, cc := range d.containers {
+		if n != name && cc.BotUsername != "" {
+			teammates = append(teammates, fmt.Sprintf("%s=%s", n, cc.BotUsername))
+		}
+	}
+	d.mu.RUnlock()
+	if len(teammates) > 0 {
+		resp["team_members"] = strings.Join(teammates, ",")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
