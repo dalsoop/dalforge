@@ -65,8 +65,8 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 		mm:           mm,
 		apiToken:     token,
 		containers:   make(map[string]*Container),
-		escalations:  newEscalationStore(),
-		claims:       newClaimStore(),
+		escalations:  newEscalationStoreWithFile(filepath.Join(dataDir(serviceRepo), "escalations.json")),
+		claims:       newClaimStoreWithFile(filepath.Join(dataDir(serviceRepo), "claims.json")),
 		tasks:        newTaskStore(),
 		registry:     newRegistry(serviceRepo),
 	}
