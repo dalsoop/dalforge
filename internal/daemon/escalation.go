@@ -114,6 +114,14 @@ func (d *Daemon) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	esc := d.escalations.Add(req.Dal, req.Task, req.ErrorClass, req.Output)
+	// Dispatch webhook for escalation
+	dispatchWebhook(WebhookEvent{
+		Event:     "escalation",
+		Dal:       req.Dal,
+		Task:      req.Task,
+		Error:     req.ErrorClass + ": " + req.Output,
+		Timestamp: esc.Timestamp.Format(time.RFC3339),
+	})
 	respondJSON(w, http.StatusOK, esc)
 }
 
