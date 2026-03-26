@@ -114,11 +114,28 @@ func runAgentLoop(dalName string) error {
 		output, err := executeTask(prompt)
 		if err != nil {
 			log.Printf("[agent] failed: %v", err)
-			mm.Send(bridge.Message{
-				Content: fmt.Sprintf("❌ 실패: %v\n```\n%s\n```", err, truncate(output, 500)),
-				ReplyTo: threadID,
-			})
-			continue
+
+			// Self-repair: try to fix and retry once
+			if shouldRetry, fix := selfRepair(prompt, output, err); shouldRetry {
+				log.Printf("[agent] self-repair applied: %s, retrying", fix)
+				mm.Send(bridge.Message{
+					Content: fmt.Sprintf("🔧 자가 수리: %s — 재시도 중...", fix),
+					ReplyTo: threadID,
+				})
+				output, err = executeTask(prompt)
+			}
+
+			if err != nil {
+				class := classifyTaskError(output)
+				// Post failure to thread
+				mm.Send(bridge.Message{
+					Content: fmt.Sprintf("❌ 실패 (%s): %v\n```\n%s\n```", class, err, truncate(output, 500)),
+					ReplyTo: threadID,
+				})
+				// Escalate to daemon
+				escalateToHost(dalName, prompt, output, string(class))
+				continue
+			}
 		}
 
 		log.Printf("[agent] done (%d bytes)", len(output))

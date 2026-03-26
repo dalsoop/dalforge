@@ -34,6 +34,7 @@ type Daemon struct {
 	channelID    string // channel for this project
 	containers   map[string]*Container // dal name -> container
 	mu           sync.RWMutex
+	escalations  *escalationStore
 }
 
 // Container tracks a running dal Docker container.
@@ -61,6 +62,7 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 		mm:           mm,
 		apiToken:     token,
 		containers:   make(map[string]*Container),
+		escalations:  newEscalationStore(),
 	}
 }
 
@@ -130,6 +132,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/sync", d.requireAuth(d.handleSync))
 	mux.HandleFunc("POST /api/message", d.requireAuth(d.handleMessage))
 	mux.HandleFunc("GET /api/agent-config/{name}", d.handleAgentConfig)
+	// Escalation endpoints
+	mux.HandleFunc("POST /api/escalate", d.requireAuth(d.handleEscalate))
+	mux.HandleFunc("GET /api/escalations", d.handleEscalations)
+	mux.HandleFunc("POST /api/escalations/{id}/resolve", d.requireAuth(d.handleResolveEscalation))
 
 	srv := &http.Server{Addr: d.addr, Handler: mux}
 	log.Printf("[daemon] listening on %s", d.addr)
