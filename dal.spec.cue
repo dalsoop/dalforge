@@ -176,6 +176,7 @@ builtin_categories: {
 	skills?: [...string]
 	hooks?:  [...string]
 	exports?: [string]: #AgentExport
+	budget?: #Budget
 }
 
 // ===== localdal (인형 인스턴스) =====
@@ -261,4 +262,30 @@ builtin_categories: {
 	node_id?:   string
 	detail?:    string
 	timestamp!: #Timestamp
+}
+
+// ===== Budget Guardrails =====
+
+#BudgetPeriod: "hourly" | "daily" | "weekly" | "monthly"
+#BudgetAction: "warn" | "pause" | "kill"
+
+#BudgetLimit: {
+	max_tokens?:   int & >0
+	max_cost_usd?: number & >0
+	max_requests?: int & >0
+	max_prs?:      int & >0
+	period!:       #BudgetPeriod
+}
+
+#BudgetAlert: {
+	threshold_pct!: int & >=1 & <=100
+	action!:        #BudgetAction
+	notify?:        bool | *true
+}
+
+#Budget: {
+	enabled!:   bool | *true
+	limits!:    #BudgetLimit
+	alerts?: [...#BudgetAlert]
+	hard_stop!: bool | *true
 }
