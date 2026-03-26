@@ -14,21 +14,21 @@ import (
 
 // DalProfile represents a dal read from dal.cue.
 type DalProfile struct {
-	UUID       string
-	Name       string
-	Version    string
+	UUID          string
+	Name          string
+	Version       string
 	Player        string
 	PlayerVersion string // e.g. "2.1.81" for claude, empty = latest
 	Role          string // "leader" or "member"
-	Skills     []string
-	Hooks      []string
-	FolderName string // directory name
-	Path       string // absolute path to dal folder
+	Skills        []string
+	Hooks         []string
+	FolderName    string // directory name
+	Path          string // absolute path to dal folder
 	// Git config
-	GitUser        string
-	GitEmail       string
-	GitHubToken    string // VeilKey ref or raw token
-	GeminiAPIKey   string // VeilKey ref, env: ref, or raw key
+	GitUser      string
+	GitEmail     string
+	GitHubToken  string // VeilKey ref or raw token
+	GeminiAPIKey string // VeilKey ref, env: ref, or raw key
 	// Workspace mode
 	Workspace string // "shared" (default, bind mount) or "clone" (git clone per dal)
 	// Auto task
