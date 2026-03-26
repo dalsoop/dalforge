@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,23 @@ type agentConfig struct {
 	MMURL       string `json:"mm_url"`
 	TeamMembers string `json:"team_members"`
 }
+
+type runBudget struct {
+	MaxTurns   int
+	MaxCostUSD float64
+	Action     string
+	usedTurns  int
+}
+
+type budgetAction int
+
+const (
+	budgetActionNone budgetAction = iota
+	budgetActionWarn
+	budgetActionKill
+)
+
+var autoGitWorkspaceDir = "/workspace"
 
 func runCmd(dalName string) *cobra.Command {
 	return &cobra.Command{
@@ -70,6 +89,10 @@ func runAgentLoop(dalName string) error {
 		mention = fmt.Sprintf("@dal-%s", dalName)
 	}
 	var activeThreads sync.Map
+	budget := loadRunBudget()
+	if budget.MaxTurns > 0 {
+		log.Printf("[agent] budget enabled: max_turns=%d action=%s", budget.MaxTurns, budget.Action)
+	}
 
 	// Periodic auto-task support: DAL_AUTO_TASK + DAL_AUTO_INTERVAL
 	autoTask := os.Getenv("DAL_AUTO_TASK")
@@ -101,6 +124,17 @@ func runAgentLoop(dalName string) error {
 
 		if isAuto {
 			log.Printf("[agent] auto-task triggered")
+			switch budget.consumeTurn() {
+			case budgetActionWarn:
+				warnMsg := formatBudgetExceededMessage(budget)
+				log.Printf("[agent] %s", warnMsg)
+				mm.Send(bridge.Message{Content: warnMsg})
+			case budgetActionKill:
+				stopMsg := formatBudgetExceededMessage(budget)
+				log.Printf("[agent] %s", stopMsg)
+				mm.Send(bridge.Message{Content: stopMsg})
+				return fmt.Errorf("budget max_turns exceeded (%d/%d)", budget.usedTurns, budget.MaxTurns)
+			}
 			output, err := executeTask(autoTask)
 			if err != nil {
 				log.Printf("[agent] auto-task failed: %v", err)
@@ -176,6 +210,24 @@ func runAgentLoop(dalName string) error {
 			prompt = buildThreadContext(mm, msg, dalName)
 		}
 
+		switch budget.consumeTurn() {
+		case budgetActionWarn:
+			warnMsg := formatBudgetExceededMessage(budget)
+			log.Printf("[agent] %s", warnMsg)
+			mm.Send(bridge.Message{
+				Content: warnMsg,
+				ReplyTo: threadID,
+			})
+		case budgetActionKill:
+			stopMsg := formatBudgetExceededMessage(budget)
+			log.Printf("[agent] %s", stopMsg)
+			mm.Send(bridge.Message{
+				Content: stopMsg,
+				ReplyTo: threadID,
+			})
+			return fmt.Errorf("budget max_turns exceeded (%d/%d)", budget.usedTurns, budget.MaxTurns)
+		}
+
 		output, err := executeTask(prompt)
 		if err != nil {
 			log.Printf("[agent] failed: %v", err)
@@ -248,11 +300,55 @@ func runAgentLoop(dalName string) error {
 	}
 }
 
+func loadRunBudget() runBudget {
+	budget := runBudget{Action: "kill"}
+
+	if maxTurns, err := strconv.Atoi(strings.TrimSpace(os.Getenv("DAL_BUDGET_MAX_TURNS"))); err == nil && maxTurns > 0 {
+		budget.MaxTurns = maxTurns
+	}
+	if maxCost, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv("DAL_BUDGET_MAX_COST_USD")), 64); err == nil && maxCost >= 0 {
+		budget.MaxCostUSD = maxCost
+	}
+
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DAL_BUDGET_ACTION"))) {
+	case "", "kill":
+		budget.Action = "kill"
+	case "warn":
+		budget.Action = "warn"
+	}
+
+	if budget.MaxTurns <= 0 && budget.MaxCostUSD == 0 {
+		return runBudget{}
+	}
+	return budget
+}
+
+func (b *runBudget) consumeTurn() budgetAction {
+	if b.MaxTurns <= 0 {
+		return budgetActionNone
+	}
+	b.usedTurns++
+	if b.usedTurns <= b.MaxTurns {
+		return budgetActionNone
+	}
+	if b.Action == "warn" {
+		return budgetActionWarn
+	}
+	return budgetActionKill
+}
+
+func formatBudgetExceededMessage(b runBudget) string {
+	if b.Action == "warn" {
+		return fmt.Sprintf("⚠️ budget.max_turns 초과 (%d/%d). 경고만 남기고 계속 진행합니다.", b.usedTurns, b.MaxTurns)
+	}
+	return fmt.Sprintf("🛑 budget.max_turns 초과 (%d/%d). dalcli run을 강제 중단합니다.", b.usedTurns, b.MaxTurns)
+}
+
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.
 func autoGitWorkflow(dalName string) string {
 	// Check if there are changes
 	statusCmd := exec.Command("git", "status", "--porcelain")
-	statusCmd.Dir = "/workspace"
+	statusCmd.Dir = autoGitWorkspaceDir
 	statusOut, err := statusCmd.Output()
 	if err != nil || len(strings.TrimSpace(string(statusOut))) == 0 {
 		return "" // no changes
@@ -265,7 +361,7 @@ func autoGitWorkflow(dalName string) string {
 	branch := fmt.Sprintf("dal/%s/%d", dalName, time.Now().Unix())
 	run := func(args ...string) (string, error) {
 		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = "/workspace"
+		cmd.Dir = autoGitWorkspaceDir
 		out, err := cmd.CombinedOutput()
 		return strings.TrimSpace(string(out)), err
 	}
@@ -491,11 +587,19 @@ func runProvider(player, task string) (string, error) {
 
 func runClaude(player, task string) (string, error) {
 	role := os.Getenv("DAL_ROLE")
+	timeout := parseInterval(os.Getenv("DAL_PROVIDER_TIMEOUT"), 0)
+
+	ctx := context.Background()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	var cmd *exec.Cmd
 	switch player {
 	case "codex":
-		cmd = exec.Command("codex", "exec",
+		cmd = exec.CommandContext(ctx, "codex", "exec",
 			"--dangerously-bypass-approvals-and-sandbox",
 			"-C", "/workspace",
 			task)
@@ -515,7 +619,7 @@ func runClaude(player, task string) (string, error) {
 			}
 			allowedTools = fmt.Sprintf("Bash(%s) Read Write Glob Grep Edit", bashPerms)
 		}
-		cmd = exec.Command("claude",
+		cmd = exec.CommandContext(ctx, "claude",
 			"--allowedTools", allowedTools,
 			"--print", task)
 	}

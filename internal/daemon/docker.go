@@ -269,6 +269,15 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 			args = append(args, "-e", fmt.Sprintf("DAL_AUTO_INTERVAL=%s", dal.AutoInterval))
 		}
 	}
+	if dal.Budget.MaxTurns > 0 {
+		args = append(args, "-e", fmt.Sprintf("DAL_BUDGET_MAX_TURNS=%d", dal.Budget.MaxTurns))
+	}
+	if dal.Budget.MaxCostUSD > 0 {
+		args = append(args, "-e", fmt.Sprintf("DAL_BUDGET_MAX_COST_USD=%g", dal.Budget.MaxCostUSD))
+	}
+	if dal.Budget.Action != "" {
+		args = append(args, "-e", fmt.Sprintf("DAL_BUDGET_ACTION=%s", dal.Budget.Action))
+	}
 
 	args = append(args, image)
 

@@ -206,6 +206,38 @@ role:           "member"
 	}
 }
 
+func TestReadDalCue_Budget(t *testing.T) {
+	dir := t.TempDir()
+	cue := `
+uuid:    "budget-test-001"
+name:    "budgetdal"
+version: "1.0.0"
+player:  "claude"
+role:    "member"
+budget: {
+	max_turns:    7
+	max_cost_usd: 3.5
+	action:       "warn"
+}
+`
+	f := filepath.Join(dir, "dal.cue")
+	os.WriteFile(f, []byte(cue), 0644)
+
+	p, err := ReadDalCue(f, "budgetdal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Budget.MaxTurns != 7 {
+		t.Errorf("Budget.MaxTurns = %d, want 7", p.Budget.MaxTurns)
+	}
+	if p.Budget.MaxCostUSD != 3.5 {
+		t.Errorf("Budget.MaxCostUSD = %v, want 3.5", p.Budget.MaxCostUSD)
+	}
+	if p.Budget.Action != "warn" {
+		t.Errorf("Budget.Action = %q, want warn", p.Budget.Action)
+	}
+}
+
 func TestReadDalCue_MissingUUID(t *testing.T) {
 	dir := t.TempDir()
 	cue := `

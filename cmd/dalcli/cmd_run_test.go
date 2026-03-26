@@ -210,6 +210,12 @@ func TestIsActiveThread(t *testing.T) {
 // ── autoGitWorkflow ──
 
 func TestAutoGitWorkflow_NoWorkspace(t *testing.T) {
+	prev := autoGitWorkspaceDir
+	autoGitWorkspaceDir = t.TempDir()
+	defer func() {
+		autoGitWorkspaceDir = prev
+	}()
+
 	result := autoGitWorkflow("test-dal")
 	if result != "" {
 		t.Errorf("expected empty for no workspace, got %q", result)
@@ -346,11 +352,75 @@ func TestFetchAgentConfig_ServerError(t *testing.T) {
 	}
 }
 
+func TestLoadRunBudget(t *testing.T) {
+	t.Setenv("DAL_BUDGET_MAX_TURNS", "4")
+	t.Setenv("DAL_BUDGET_MAX_COST_USD", "12.5")
+	t.Setenv("DAL_BUDGET_ACTION", "warn")
+
+	budget := loadRunBudget()
+	if budget.MaxTurns != 4 {
+		t.Fatalf("MaxTurns = %d, want 4", budget.MaxTurns)
+	}
+	if budget.MaxCostUSD != 12.5 {
+		t.Fatalf("MaxCostUSD = %v, want 12.5", budget.MaxCostUSD)
+	}
+	if budget.Action != "warn" {
+		t.Fatalf("Action = %q, want warn", budget.Action)
+	}
+}
+
+func TestLoadRunBudget_Invalid(t *testing.T) {
+	t.Setenv("DAL_BUDGET_MAX_TURNS", "bad")
+	t.Setenv("DAL_BUDGET_ACTION", "pause")
+
+	budget := loadRunBudget()
+	if budget.MaxTurns != 0 {
+		t.Fatalf("MaxTurns = %d, want 0", budget.MaxTurns)
+	}
+	if budget.Action != "" {
+		t.Fatalf("Action = %q, want empty when budget disabled", budget.Action)
+	}
+}
+
+func TestRunBudgetConsumeTurn(t *testing.T) {
+	budget := runBudget{MaxTurns: 2, Action: "kill"}
+	if action := budget.consumeTurn(); action != budgetActionNone {
+		t.Fatalf("first consumeTurn() = %v, want none", action)
+	}
+	if action := budget.consumeTurn(); action != budgetActionNone {
+		t.Fatalf("second consumeTurn() = %v, want none", action)
+	}
+	if action := budget.consumeTurn(); action != budgetActionKill {
+		t.Fatalf("third consumeTurn() = %v, want kill", action)
+	}
+}
+
+func TestRunBudgetConsumeTurnWarn(t *testing.T) {
+	budget := runBudget{MaxTurns: 1, Action: "warn"}
+	if action := budget.consumeTurn(); action != budgetActionNone {
+		t.Fatalf("first consumeTurn() = %v, want none", action)
+	}
+	if action := budget.consumeTurn(); action != budgetActionWarn {
+		t.Fatalf("second consumeTurn() = %v, want warn", action)
+	}
+}
+
+func TestFormatBudgetExceededMessage(t *testing.T) {
+	msg := formatBudgetExceededMessage(runBudget{MaxTurns: 3, Action: "kill", usedTurns: 4})
+	if !strings.Contains(msg, "budget.max_turns 초과") {
+		t.Fatalf("message = %q", msg)
+	}
+	if !strings.Contains(msg, "(4/3)") {
+		t.Fatalf("message = %q", msg)
+	}
+}
+
 // ── executeTask role branching (verify command construction) ──
 
 func TestExecuteTask_RoleBranching(t *testing.T) {
 	// We can't actually run claude in tests, but we verify the function
 	// handles missing binary gracefully
+	t.Setenv("DAL_PROVIDER_TIMEOUT", "1s")
 	os.Setenv("DAL_ROLE", "member")
 	_, err := executeTask("test")
 	// Should fail (claude not available in test) but not panic
@@ -445,6 +515,7 @@ func TestIsRetryable(t *testing.T) {
 func TestExecuteTask_NonRetryable_NoLoop(t *testing.T) {
 	os.Setenv("DAL_ROLE", "member")
 	os.Setenv("DAL_PLAYER", "claude")
+	os.Setenv("DAL_PROVIDER_TIMEOUT", "1s")
 	defer os.Unsetenv("DAL_ROLE")
 	defer os.Unsetenv("DAL_PLAYER")
 
@@ -468,6 +539,7 @@ func TestExecuteTask_NonRetryable_NoLoop(t *testing.T) {
 func TestRunProvider_Codex(t *testing.T) {
 	os.Setenv("DAL_PLAYER", "codex")
 	os.Setenv("DAL_ROLE", "member")
+	os.Setenv("DAL_PROVIDER_TIMEOUT", "1s")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
 
@@ -481,6 +553,7 @@ func TestRunProvider_Codex(t *testing.T) {
 func TestRunProvider_Claude_Leader(t *testing.T) {
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "leader")
+	os.Setenv("DAL_PROVIDER_TIMEOUT", "1s")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
 
@@ -493,6 +566,7 @@ func TestRunProvider_Claude_Leader(t *testing.T) {
 func TestRunProvider_Claude_Member(t *testing.T) {
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
+	os.Setenv("DAL_PROVIDER_TIMEOUT", "1s")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
 
