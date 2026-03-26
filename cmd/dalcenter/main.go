@@ -18,11 +18,16 @@ func main() {
 		newValidateCmd(),
 		newWakeCmd(),
 		newSleepCmd(),
+		newRestartCmd(),
 		newSyncCmd(),
 		newPsCmd(),
 		newStatusCmd(),
 		newLogsCmd(),
 		newAttachCmd(),
+		newTaskCmd(),
+		newTaskStatusCmd(),
+		newTaskListCmd(),
+		newImageCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

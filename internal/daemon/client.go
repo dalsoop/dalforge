@@ -162,3 +162,67 @@ func (c *Client) postAny(path string) (map[string]any, error) {
 	}
 	return result, nil
 }
+
+// TaskResult holds the response from a direct task execution.
+type TaskResult struct {
+	ID     string `json:"task_id,omitempty"`
+	Status string `json:"status"`
+	// Full result fields (when polling)
+	Dal    string `json:"dal,omitempty"`
+	Task   string `json:"task,omitempty"`
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// Task submits a direct task to a dal container. If async=true, returns immediately with a task ID.
+func (c *Client) Task(dal, task string, async bool) (*TaskResult, error) {
+	body := fmt.Sprintf(`{"dal":%q,"task":%q,"async":%t}`, dal, task, async)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/task", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("task failed: %s", strings.TrimSpace(string(b)))
+	}
+	var result TaskResult
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// TaskStatus polls a task by ID.
+func (c *Client) TaskStatus(id string) (*TaskResult, error) {
+	resp, err := c.http.Get(c.baseURL + "/api/task/" + id)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("task not found: %s", strings.TrimSpace(string(b)))
+	}
+	var result TaskResult
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// TaskList returns all tracked tasks.
+func (c *Client) TaskList() ([]TaskResult, error) {
+	resp, err := c.http.Get(c.baseURL + "/api/tasks")
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	var results []TaskResult
+	json.NewDecoder(resp.Body).Decode(&results)
+	return results, nil
+}
