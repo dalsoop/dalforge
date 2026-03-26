@@ -230,6 +230,15 @@ func (m *MattermostBridge) GetUserIDByUsername(username string) (string, error) 
 	return id, nil
 }
 
+// GetUsername returns the Mattermost username for a given user ID.
+func (m *MattermostBridge) GetUsername(userID string) string {
+	data, err := m.apiGet("/api/v4/users/" + userID)
+	if err != nil {
+		return ""
+	}
+	return jsonString(data, "username")
+}
+
 func jsonString(data []byte, key string) string {
 	var m map[string]interface{}
 	if json.Unmarshal(data, &m) != nil {

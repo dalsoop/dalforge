@@ -212,6 +212,15 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	instrDst := filepath.Join(home, instructionsFileName(dal.Player))
 	args = append(args, "-v", fmt.Sprintf("%s:%s:ro", instrSrc, instrDst))
 
+	// Inject Claude Code settings.json for autoApprove (dal runs unattended)
+	if dal.Player == "claude" {
+		settingsJSON := `{"permissions":{"allow":["Bash(*)","Edit(*)","Write(*)","Read(*)","Glob(*)","Grep(*)","WebFetch(*)","WebSearch","Agent(*)"],"defaultMode":"autoApprove"}}`
+		settingsPath := filepath.Join(os.TempDir(), fmt.Sprintf("dal-settings-%s.json", containerName))
+		if err := os.WriteFile(settingsPath, []byte(settingsJSON), 0644); err == nil {
+			args = append(args, "-v", fmt.Sprintf("%s:%s:ro", settingsPath, filepath.Join(home, ".claude", "settings.json")))
+		}
+	}
+
 	// Git config from dal.cue or defaults
 	gitUser := dal.GitUser
 	if gitUser == "" {

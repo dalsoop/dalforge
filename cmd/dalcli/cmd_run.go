@@ -19,10 +19,11 @@ import (
 
 // agentConfig holds MM connection info fetched from dalcenter daemon.
 type agentConfig struct {
-	DalName   string `json:"dal_name"`
-	BotToken  string `json:"bot_token"`
-	ChannelID string `json:"channel_id"`
-	MMURL     string `json:"mm_url"`
+	DalName     string `json:"dal_name"`
+	BotToken    string `json:"bot_token"`
+	ChannelID   string `json:"channel_id"`
+	MMURL       string `json:"mm_url"`
+	TeamMembers string `json:"team_members"`
 }
 
 func runCmd(dalName string) *cobra.Command {
@@ -47,6 +48,11 @@ func runAgentLoop(dalName string) error {
 			cfg.MMURL, cfg.BotToken != "", cfg.ChannelID)
 	}
 	log.Printf("[agent] connected: mm=%s channel=%s", cfg.MMURL, cfg.ChannelID[:8])
+
+	// Inject team members into env so leader mentions work correctly
+	if cfg.TeamMembers != "" {
+		os.Setenv("DAL_TEAM_MEMBERS", cfg.TeamMembers)
+	}
 
 	mm := bridge.NewMattermostBridge(cfg.MMURL, cfg.BotToken, cfg.ChannelID, 5*time.Second)
 	if err := mm.Connect(); err != nil {
@@ -232,6 +238,13 @@ func runAgentLoop(dalName string) error {
 			Content: response,
 			ReplyTo: threadID,
 		})
+
+		// Report to leader: when a member dal receives a direct task from user (not from leader),
+		// notify the leader so they stay in the loop
+		role := os.Getenv("DAL_ROLE")
+		if role == "member" && isDirectMention && !isFromLeader(msg.From, mm) {
+			reportToLeader(mm, dalName, task, response, threadID)
+		}
 	}
 }
 
@@ -605,4 +618,31 @@ func createGitHubIssue(dalName, output string) string {
 	url := strings.TrimSpace(string(out))
 	log.Printf("[agent] created issue: %s", url)
 	return url
+}
+
+// isFromLeader checks if a message sender is a leader bot (by checking dal- prefix + leader keyword)
+func isFromLeader(senderID string, mm *bridge.MattermostBridge) bool {
+	username := mm.GetUsername(senderID)
+	return strings.Contains(username, "leader")
+}
+
+// reportToLeader sends a summary to the leader bot in the same channel
+func reportToLeader(mm *bridge.MattermostBridge, dalName, task, result, threadID string) {
+	// Find leader mention from team_members env
+	teamMembers := os.Getenv("DAL_TEAM_MEMBERS")
+	var leaderMention string
+	for _, entry := range strings.Split(teamMembers, ",") {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) == 2 && strings.Contains(parts[0], "leader") {
+			leaderMention = "@" + parts[1]
+			break
+		}
+	}
+	if leaderMention == "" {
+		return // no leader found in team
+	}
+
+	report := fmt.Sprintf("%s 📋 보고: **%s**가 사용자 직접 지시를 수행했습니다.\n\n**태스크:** %s\n**결과:** %s",
+		leaderMention, dalName, truncate(task, 200), truncate(result, 500))
+	mm.Send(bridge.Message{Content: report})
 }
