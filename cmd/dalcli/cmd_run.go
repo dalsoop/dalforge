@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dalsoop/dalcenter/internal/bridge"
+	"github.com/dalsoop/dalcenter/internal/daemon"
 	"github.com/spf13/cobra"
 )
 
@@ -185,13 +186,12 @@ func runAgentLoop(dalName string) error {
 
 			if err != nil {
 				class := classifyTaskError(output)
-				// Post failure to thread
 				mm.Send(bridge.Message{
 					Content: fmt.Sprintf("❌ 실패 (%s): %v\n```\n%s\n```", class, err, truncate(output, 500)),
 					ReplyTo: threadID,
 				})
-				// Escalate to daemon
 				escalateToHost(dalName, prompt, output, string(class))
+				daemon.DispatchTaskFailed(dalName, truncate(prompt, 200), err.Error(), len(output))
 				continue
 			}
 		}
@@ -200,6 +200,23 @@ func runAgentLoop(dalName string) error {
 
 		// Check if files were modified → auto git workflow
 		gitResult := autoGitWorkflow(dalName)
+
+		// Extract git changes and PR URL for webhook
+		var gitChanges []string
+		var prURL string
+		if gitResult != "" {
+			for _, line := range strings.Split(gitResult, "\n") {
+				if strings.HasPrefix(line, "M ") || strings.HasPrefix(line, "?? ") || strings.HasPrefix(line, "A ") {
+					gitChanges = append(gitChanges, strings.TrimSpace(line))
+				}
+				if strings.Contains(line, "github.com") && strings.Contains(line, "/pull/") {
+					prURL = strings.TrimSpace(line)
+				}
+			}
+		}
+
+		// Webhook: task complete
+		daemon.DispatchTaskComplete(dalName, truncate(prompt, 200), len(output), gitChanges, prURL)
 
 		// Format response
 		response := truncate(strings.TrimSpace(output), 3000)
