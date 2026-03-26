@@ -35,6 +35,7 @@ type Daemon struct {
 	containers   map[string]*Container // dal name -> container
 	mu           sync.RWMutex
 	escalations  *escalationStore
+	tasks        *taskStore
 	registry     *Registry
 }
 
@@ -64,6 +65,7 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 		apiToken:     token,
 		containers:   make(map[string]*Container),
 		escalations:  newEscalationStore(),
+		tasks:        newTaskStore(),
 		registry:     newRegistry(serviceRepo),
 	}
 }
@@ -154,6 +156,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/sync", d.requireAuth(d.handleSync))
 	mux.HandleFunc("POST /api/message", d.requireAuth(d.handleMessage))
 	mux.HandleFunc("GET /api/agent-config/{name}", d.handleAgentConfig)
+	// Direct task execution (works without Mattermost)
+	mux.HandleFunc("POST /api/task", d.requireAuth(d.handleTask))
+	mux.HandleFunc("GET /api/task/{id}", d.handleTaskStatus)
+	mux.HandleFunc("GET /api/tasks", d.handleTaskList)
 	// Escalation endpoints
 	mux.HandleFunc("POST /api/escalate", d.requireAuth(d.handleEscalate))
 	mux.HandleFunc("GET /api/escalations", d.handleEscalations)
@@ -485,7 +491,36 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.mm == nil || d.channelID == "" {
-		http.Error(w, "mattermost not configured", 503)
+		// Fallback: if Mattermost is not configured, try direct task execution
+		// Extract task from message and execute in container
+		d.mu.RLock()
+		_, hasDal := d.containers[req.From]
+		d.mu.RUnlock()
+		if !hasDal {
+			// Find first running dal to target (from message content heuristics)
+			d.mu.RLock()
+			for name := range d.containers {
+				req.From = name
+				break
+			}
+			d.mu.RUnlock()
+		}
+		if req.From != "" {
+			d.mu.RLock()
+			c, ok := d.containers[req.From]
+			d.mu.RUnlock()
+			if ok {
+				tr := d.tasks.New(c.DalName, req.Message)
+				go d.execTaskInContainer(c, tr)
+				respondJSON(w, http.StatusAccepted, map[string]string{
+					"status":  "task_dispatched",
+					"task_id": tr.ID,
+					"note":    "mattermost unavailable — task dispatched directly to container",
+				})
+				return
+			}
+		}
+		http.Error(w, "mattermost not configured and no running dals", 503)
 		return
 	}
 

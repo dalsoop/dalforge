@@ -247,8 +247,8 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	}
 
 	// Extra bash tools: unrestricted for leader (needs dalcli-leader, git, etc.)
-	// and for special images like "go" (needs go test, go build, etc.)
-	if dal.Role == "leader" || dal.PlayerVersion == "go" {
+	// and for special images like "go", "rust" (needs build tools).
+	if dal.Role == "leader" || dal.PlayerVersion == "go" || dal.PlayerVersion == "rust" {
 		args = append(args, "-e", "DAL_EXTRA_BASH=*")
 	}
 
