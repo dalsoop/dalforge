@@ -572,9 +572,14 @@ func runClaude(player, task string) (string, error) {
 			}
 			allowedTools = fmt.Sprintf("Bash(%s) Read Write Glob Grep Edit", bashPerms)
 		}
-		cmd = exec.Command("claude",
+		claudeArgs := []string{
 			"--allowedTools", allowedTools,
-			"--print", task)
+		}
+		if model := os.Getenv("DAL_MODEL"); model != "" {
+			claudeArgs = append(claudeArgs, "--model", model)
+		}
+		claudeArgs = append(claudeArgs, "--print", task)
+		cmd = exec.Command("claude", claudeArgs...)
 	}
 
 	// Task timeout: max 5 minutes per execution

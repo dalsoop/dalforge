@@ -325,6 +325,30 @@ role:    "member"
 	}
 }
 
+func TestReadDalCue_Model(t *testing.T) {
+	root := t.TempDir()
+	Init(root)
+	dalDir := filepath.Join(root, "test-model")
+	os.MkdirAll(dalDir, 0755)
+	os.WriteFile(filepath.Join(dalDir, "dal.cue"), []byte(`
+uuid: "test-model-001"
+name: "test-model"
+version: "1.0.0"
+player: "claude"
+model: "sonnet"
+role: "member"
+`), 0644)
+	os.WriteFile(filepath.Join(dalDir, "instructions.md"), []byte("# Test"), 0644)
+
+	p, err := ReadDalCue(filepath.Join(dalDir, "dal.cue"), "test-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Model != "sonnet" {
+		t.Errorf("model = %q, want sonnet", p.Model)
+	}
+}
+
 func TestReadDalCue_Hooks(t *testing.T) {
 	dir := t.TempDir()
 	cue := `

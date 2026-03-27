@@ -20,6 +20,7 @@ type DalProfile struct {
 	Player        string
 	PlayerVersion string // e.g. "2.1.81" for claude, empty = latest
 	Role          string // "leader" or "member"
+	Model         string // optional model override (opus, sonnet, haiku)
 	Skills     []string
 	Hooks      []string
 	FolderName string // directory name
@@ -311,6 +312,9 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	if v := val.LookupPath(cue.ParsePath("player_version")); v.Exists() {
 		p.PlayerVersion, _ = v.String()
 	}
+	if v := val.LookupPath(cue.ParsePath("model")); v.Exists() {
+		p.Model, _ = v.String()
+	}
 	if v := val.LookupPath(cue.ParsePath("role")); v.Exists() {
 		p.Role, _ = v.String()
 	}
@@ -389,12 +393,22 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 #Role:   "leader" | "member"
 
 #DalProfile: {
-	uuid!:    string & != ""
-	name!:    string & != ""
-	version!: string
-	player!:  #Player
-	role!:    #Role
-	skills?:  [...string]
-	hooks?:   [...string]
+	uuid!:           string & != ""
+	name!:           string & != ""
+	version!:        string
+	player!:         #Player
+	role!:           #Role
+	skills?:         [...string]
+	hooks?:          [...string]
+	model?:          string
+	player_version?: string
+	auto_task?:      string
+	auto_interval?:  string
+	workspace?:      string
+	git?: {
+		user?:         string
+		email?:        string
+		github_token?: string
+	}
 }
 `

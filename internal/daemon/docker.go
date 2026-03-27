@@ -127,6 +127,11 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		"-e", fmt.Sprintf("DAL_UUID=%s", dal.UUID),
 		"-e", fmt.Sprintf("DAL_ROLE=%s", dal.Role),
 		"-e", fmt.Sprintf("DAL_PLAYER=%s", dal.Player),
+	}
+	if dal.Model != "" {
+		args = append(args, "-e", fmt.Sprintf("DAL_MODEL=%s", dal.Model))
+	}
+	args = append(args,
 		"-e", fmt.Sprintf("DALCENTER_URL=http://%s%s", dockerHostAlias, daemonAddr),
 		"-e", fmt.Sprintf("MATTERMOST_URL=%s", os.Getenv("DALCENTER_MM_URL")), // set by daemon.Run()
 		// VeilKey — pass through if available
@@ -135,7 +140,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		"-v", fmt.Sprintf("%s:%s:ro", dalDir, containerDalDir),
 		// Working directory
 		"-w", containerWorkDir,
-	}
+	)
 
 	// Mount service repo as workspace (shared mode) or leave empty for clone mode
 	isCloneMode := dal.Workspace == "clone"
