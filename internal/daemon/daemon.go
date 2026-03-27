@@ -128,6 +128,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start credential watcher
 	go startCredentialWatcher(ctx)
 
+	// Start context watcher (extract host Claude session → .dal/context/)
+	go startContextWatcher(ctx, d.serviceRepo)
+
 	// Setup Mattermost channel (repo name = channel name)
 	if d.mm != nil && d.mm.URL != "" {
 		repoName := filepath.Base(d.serviceRepo)
