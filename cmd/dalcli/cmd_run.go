@@ -659,6 +659,9 @@ func providerSessionPersistenceEnabled() bool {
 func isRetryable(output string) bool {
 	lower := strings.ToLower(output)
 	return strings.Contains(lower, "rate limit") ||
+		strings.Contains(lower, "hit your limit") ||
+		strings.Contains(lower, "usage limit") ||
+		strings.Contains(lower, "quota exceeded") ||
 		strings.Contains(lower, "overloaded") ||
 		strings.Contains(lower, "429") ||
 		strings.Contains(lower, "529") ||

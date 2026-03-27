@@ -609,9 +609,11 @@ func TestIsRetryable(t *testing.T) {
 		want   bool
 	}{
 		{"Error: rate limit exceeded", true},
+		{"You've hit your limit · resets 6pm (UTC)", true},
 		{"429 Too Many Requests", true},
 		{"529 overloaded", true},
 		{"API Error: too many requests", true},
+		{"provider quota exceeded", true},
 		{"server at capacity", true},
 		{"Overloaded, please retry", true},
 		{"normal error: file not found", false},
@@ -860,6 +862,45 @@ printf '%s' "codex fallback ok"
 	out, err := executeTask("test")
 	if err != nil {
 		t.Fatalf("executeTask should fallback to codex: %v", err)
+	}
+	if out != "codex fallback ok" {
+		t.Fatalf("fallback output = %q", out)
+	}
+}
+
+func TestExecuteTask_FallbacksToCodexOnUsageLimitMessage(t *testing.T) {
+	ensureWorkspaceDir(t)
+	fakeDir := t.TempDir()
+	claudePath := filepath.Join(fakeDir, "claude")
+	codexPath := filepath.Join(fakeDir, "codex")
+
+	claudeScript := `#!/bin/sh
+echo "You've hit your limit · resets 6pm (UTC)" >&2
+exit 1
+`
+	codexScript := `#!/bin/sh
+printf '%s' "codex fallback ok"
+`
+	if err := os.WriteFile(claudePath, []byte(claudeScript), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	if err := os.WriteFile(codexPath, []byte(codexScript), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+
+	t.Setenv("PATH", fakeDir+":"+os.Getenv("PATH"))
+	t.Setenv("DAL_PLAYER", "claude")
+	t.Setenv("DAL_ROLE", "member")
+
+	oldCircuit := providerCircuit
+	providerCircuit = NewCircuitBreaker(1, time.Minute)
+	defer func() {
+		providerCircuit = oldCircuit
+	}()
+
+	out, err := executeTask("test")
+	if err != nil {
+		t.Fatalf("executeTask should fallback to codex on usage limit: %v", err)
 	}
 	if out != "codex fallback ok" {
 		t.Fatalf("fallback output = %q", out)
