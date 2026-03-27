@@ -369,3 +369,71 @@ func cleanupBotWelcomeDMs(mmURL, adminToken, botUserID string) {
 		}
 	}
 }
+
+// HideBotDMFromUsers hides the bot's DM channel from all team members' sidebars.
+// Called on sleep to keep the DM list clean.
+func HideBotDMFromUsers(mmURL, adminToken, teamID, botUsername string) {
+	mmURL = strings.TrimRight(mmURL, "/")
+	botUserID := findExistingBotUserID(mmURL, adminToken, botUsername)
+	if botUserID == "" {
+		return
+	}
+	// Get team members
+	data, _ := mmAPI("GET", mmURL+"/api/v4/teams/"+teamID+"/members?per_page=200", adminToken, "")
+	if data == nil {
+		return
+	}
+	var members []map[string]interface{}
+	if json.Unmarshal(data, &members) != nil {
+		return
+	}
+	for _, m := range members {
+		uid, _ := m["user_id"].(string)
+		if uid == "" || uid == botUserID {
+			continue
+		}
+		// Hide bot DM from this user's sidebar
+		pref := fmt.Sprintf(`[{"user_id":%q,"category":"direct_channel_show","name":%q,"value":"false"}]`, uid, botUserID)
+		mmAPI("PUT", mmURL+"/api/v4/users/"+uid+"/preferences", adminToken, pref)
+	}
+}
+
+// CleanupOrphanBotDMs hides DMs from disabled/orphan bots for all team members.
+// Called on dalcenter serve startup.
+func CleanupOrphanBotDMs(mmURL, adminToken, teamID string, activeBotUsernames []string) {
+	mmURL = strings.TrimRight(mmURL, "/")
+	// Get all bots (including disabled)
+	data, _ := mmAPI("GET", mmURL+"/api/v4/bots?per_page=200&include_deleted=true", adminToken, "")
+	if data == nil {
+		return
+	}
+	var bots []map[string]interface{}
+	if json.Unmarshal(data, &bots) != nil {
+		return
+	}
+	activeSet := make(map[string]bool)
+	for _, name := range activeBotUsernames {
+		activeSet[name] = true
+	}
+	for _, bot := range bots {
+		username, _ := bot["username"].(string)
+		if activeSet[username] {
+			continue // skip active bots
+		}
+		// Skip system bots
+		if username == "feedbackbot" || username == "playbooks" || username == "calls" || username == "system-bot" {
+			continue
+		}
+		userID, _ := bot["user_id"].(string)
+		if userID == "" {
+			continue
+		}
+		// Disable bot if not already
+		deleteAt, _ := bot["delete_at"].(float64)
+		if deleteAt == 0 {
+			mmAPI("POST", mmURL+"/api/v4/bots/"+userID+"/disable", adminToken, "")
+		}
+		// Hide DM from all team members
+		HideBotDMFromUsers(mmURL, adminToken, teamID, username)
+	}
+}

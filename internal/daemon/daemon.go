@@ -146,6 +146,27 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Reconcile existing containers from a previous daemon run
 	d.reconcile()
 
+	// Cleanup orphan bot DMs on startup
+	if d.mm != nil && d.mm.URL != "" {
+		go func() {
+			teamID, _, _ := talk.GetTeamAndChannel(d.mm.URL, d.mm.AdminToken, d.mm.TeamName, filepath.Base(d.serviceRepo))
+			if teamID != "" {
+				// Collect active bot usernames from running containers
+				d.mu.RLock()
+				var active []string
+				for _, c := range d.containers {
+					if c.BotUsername != "" {
+						active = append(active, c.BotUsername)
+					}
+				}
+				d.mu.RUnlock()
+				active = append(active, "dalcenter-admin")
+				talk.CleanupOrphanBotDMs(d.mm.URL, d.mm.AdminToken, teamID, active)
+				log.Printf("[daemon] orphan bot DM cleanup done")
+			}
+		}()
+	}
+
 	mux := http.NewServeMux()
 
 	// Read-only endpoints — no auth required
@@ -373,9 +394,13 @@ func (d *Daemon) handleSleep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove bot from channel on sleep (prevent zombie bots)
+	// Remove bot from channel + hide DM on sleep (prevent zombie bots)
 	if d.mm != nil && d.mm.URL != "" && d.channelID != "" && c.BotUsername != "" {
 		talk.RemoveBotFromChannel(d.mm.URL, d.mm.AdminToken, d.channelID, c.BotUsername)
+		teamID, _, _ := talk.GetTeamAndChannel(d.mm.URL, d.mm.AdminToken, d.mm.TeamName, filepath.Base(d.serviceRepo))
+		if teamID != "" {
+			talk.HideBotDMFromUsers(d.mm.URL, d.mm.AdminToken, teamID, c.BotUsername)
+		}
 	}
 
 	d.mu.Lock()
