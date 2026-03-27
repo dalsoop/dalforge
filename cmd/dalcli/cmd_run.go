@@ -130,8 +130,9 @@ func runAgentLoop(dalName string) error {
 
 		isDirectMention := strings.Contains(msg.Content, mention)
 		isThreadReply := msg.RootID != "" && isActiveThread(&activeThreads, msg.RootID)
+		isDM := msg.Channel != "" && msg.Channel != cfg.ChannelID // DM = different channel than main
 
-		if !isDirectMention && !isThreadReply {
+		if !isDirectMention && !isThreadReply && !isDM {
 			continue
 		}
 
@@ -167,6 +168,7 @@ func runAgentLoop(dalName string) error {
 		}
 		mm.Send(bridge.Message{
 			Content: statusMsg,
+			Channel: msg.Channel,
 			ReplyTo: threadID,
 		})
 
@@ -185,6 +187,7 @@ func runAgentLoop(dalName string) error {
 				log.Printf("[agent] self-repair applied: %s, retrying", fix)
 				mm.Send(bridge.Message{
 					Content: fmt.Sprintf("🔧 자가 수리: %s — 재시도 중...", fix),
+					Channel: msg.Channel,
 					ReplyTo: threadID,
 				})
 				output, err = executeTask(prompt)
@@ -194,6 +197,7 @@ func runAgentLoop(dalName string) error {
 				class := classifyTaskError(output)
 				mm.Send(bridge.Message{
 					Content: fmt.Sprintf("❌ 실패 (%s): %v\n```\n%s\n```", class, err, truncate(output, 500)),
+					Channel: msg.Channel,
 					ReplyTo: threadID,
 				})
 				escalateToHost(dalName, prompt, output, string(class))
