@@ -250,3 +250,65 @@ func readSource(t *testing.T, relPath string) string {
 }
 
 
+
+// ── MATTERMOST_URL 환경변수 주입 ─────────────────────────
+
+func TestMattermostURLExported(t *testing.T) {
+	src := readSource(t, "daemon.go")
+	if !strings.Contains(src, "DALCENTER_MM_URL") {
+		t.Fatal("daemon must export DALCENTER_MM_URL for containers")
+	}
+}
+
+func TestDockerRun_InjectsMattermostURL(t *testing.T) {
+	src := readSource(t, "docker.go")
+	if !strings.Contains(src, "MATTERMOST_URL") {
+		t.Fatal("dockerRun must inject MATTERMOST_URL into container")
+	}
+}
+
+// ── restart 핸들러 ───────────────────────────────────────
+
+func TestRestartHandler_Exists(t *testing.T) {
+	src := readSource(t, "daemon.go")
+	if !strings.Contains(src, "handleRestart") {
+		t.Fatal("daemon must have handleRestart handler")
+	}
+}
+
+func TestRestartHandler_Pipeline(t *testing.T) {
+	src := readSource(t, "daemon.go")
+	// handleRestart 이후 200자 내에 dockerStop과 handleWake가 있어야 함
+	idx := strings.Index(src, "func (d *Daemon) handleRestart")
+	if idx < 0 {
+		t.Fatal("handleRestart not found")
+	}
+	block := src[idx : idx+500]
+	if !strings.Contains(block, "dockerStop") {
+		t.Fatal("handleRestart must call dockerStop")
+	}
+	if !strings.Contains(block, "handleWake") {
+		t.Fatal("handleRestart must call handleWake")
+	}
+}
+
+func TestRestartRoute_Registered(t *testing.T) {
+	src := readSource(t, "daemon.go")
+	if !strings.Contains(src, "/api/restart/") {
+		t.Fatal("must register POST /api/restart/{name} route")
+	}
+}
+
+func TestClientRestart_Exists(t *testing.T) {
+	src := readSource(t, "client.go")
+	if !strings.Contains(src, "func (c *Client) Restart(") {
+		t.Fatal("Client must have Restart method")
+	}
+}
+
+func TestClientAgentConfig_Exists(t *testing.T) {
+	src := readSource(t, "client.go")
+	if !strings.Contains(src, "func (c *Client) AgentConfig(") {
+		t.Fatal("Client must have AgentConfig method")
+	}
+}

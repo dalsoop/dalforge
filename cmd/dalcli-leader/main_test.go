@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/dalsoop/dalcenter/internal/daemon"
@@ -214,4 +215,48 @@ func TestPsCmd_NoDaemon(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when daemon unreachable")
 	}
+}
+
+func TestPostCmd_Exists(t *testing.T) {
+	src := readSrc(t, "main.go")
+	if !strings.Contains(src, "postCmd()") {
+		t.Fatal("must have postCmd registered")
+	}
+}
+
+func TestPostCmd_RequiresChannel(t *testing.T) {
+	src := readSrc(t, "main.go")
+	if !strings.Contains(src, `"channel"`) {
+		t.Fatal("post cmd must have --channel flag")
+	}
+}
+
+func TestPostCmd_UsesBotToken(t *testing.T) {
+	src := readSrc(t, "main.go")
+	if !strings.Contains(src, "bot_token") {
+		t.Fatal("post cmd must get bot_token from agent config")
+	}
+}
+
+func TestPostCmd_PostsToMM(t *testing.T) {
+	src := readSrc(t, "main.go")
+	if !strings.Contains(src, "/api/v4/posts") {
+		t.Fatal("post cmd must call Mattermost /api/v4/posts")
+	}
+}
+
+func TestAgentConfigMethod(t *testing.T) {
+	src := readSrc(t, "../../internal/daemon/client.go")
+	if !strings.Contains(src, "func (c *Client) AgentConfig(") {
+		t.Fatal("Client must have AgentConfig method")
+	}
+}
+
+func readSrc(t *testing.T, file string) string {
+	t.Helper()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", file, err)
+	}
+	return string(data)
 }

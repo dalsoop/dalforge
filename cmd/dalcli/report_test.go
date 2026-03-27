@@ -97,3 +97,80 @@ func TestDM_ResponseIncludesChannel(t *testing.T) {
 		t.Fatal("response mm.Send must include Channel: msg.Channel")
 	}
 }
+
+// ── 타임아웃 테스트 ──────────────────────────────────────
+
+func TestTimeout_ContextUsed(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "context.WithTimeout") {
+		t.Fatal("runClaude must use context.WithTimeout")
+	}
+}
+
+func TestTimeout_DefaultDuration(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "5 * time.Minute") {
+		t.Fatal("default timeout must be 5 minutes")
+	}
+}
+
+func TestTimeout_EnvOverride(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "DAL_MAX_DURATION") {
+		t.Fatal("timeout must be configurable via DAL_MAX_DURATION")
+	}
+}
+
+func TestTimeout_DeadlineExceeded(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "DeadlineExceeded") {
+		t.Fatal("must check context.DeadlineExceeded for timeout detection")
+	}
+}
+
+func TestTimeout_ErrorMessage(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "TIMEOUT") {
+		t.Fatal("timeout error must contain TIMEOUT keyword")
+	}
+}
+
+func TestTimeout_CommandContext(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "exec.CommandContext") {
+		t.Fatal("must use exec.CommandContext for cancellable execution")
+	}
+}
+
+// ── 크로스 채널 폴링 테스트 ──────────────────────────────
+
+func TestBridge_PollsAllChannelTypes(t *testing.T) {
+	src := readSrc(t, "../../internal/bridge/mattermost.go")
+	// DM + 일반 채널 + 비공개 채널 모두 폴링
+	for _, chType := range []string{`"D"`, `"O"`, `"P"`} {
+		if !strings.Contains(src, chType) {
+			t.Fatalf("bridge must poll channel type %s", chType)
+		}
+	}
+}
+
+func TestBridge_SkipsMainChannel(t *testing.T) {
+	src := readSrc(t, "../../internal/bridge/mattermost.go")
+	if !strings.Contains(src, "m.ChannelID") {
+		t.Fatal("must skip main channel in extra polling (already polled)")
+	}
+}
+
+func TestBridge_PerChannelLastAt(t *testing.T) {
+	src := readSrc(t, "../../internal/bridge/mattermost.go")
+	if !strings.Contains(src, "dmLastAt") {
+		t.Fatal("must have per-channel lastAt tracking (dmLastAt)")
+	}
+}
+
+func TestBridge_FetchChannelLatestAt(t *testing.T) {
+	src := readSrc(t, "../../internal/bridge/mattermost.go")
+	if !strings.Contains(src, "fetchChannelLatestAt") {
+		t.Fatal("must have fetchChannelLatestAt for initial sinceAt")
+	}
+}
