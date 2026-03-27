@@ -113,6 +113,44 @@ func TestInit_CreatesWisdomMd(t *testing.T) {
 	}
 }
 
+func TestInit_CreatesOpsSkills(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"inbox-protocol", "history-hygiene", "escalation", "pre-flight", "git-workflow", "reviewer-protocol"}
+	for _, name := range expected {
+		path := filepath.Join(root, "skills", name, "SKILL.md")
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("skill %s not created", name)
+		}
+	}
+}
+
+func TestInit_OpsSkillsIdempotent(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+
+	Init(root)
+
+	// Modify one skill
+	path := filepath.Join(root, "skills", "escalation", "SKILL.md")
+	os.WriteFile(path, []byte("custom"), 0644)
+
+	// Re-init should not overwrite
+	Init(root)
+
+	data, _ := os.ReadFile(path)
+	if string(data) != "custom" {
+		t.Error("Init() overwrote existing skill")
+	}
+}
+
 func TestInit_DecisionsTemplate(t *testing.T) {
 	tmp := t.TempDir()
 	root := filepath.Join(tmp, ".dal")

@@ -99,6 +99,26 @@ func Init(root string) error {
 		}
 	}
 
+	// Auto-create operational skills
+	opsSkills := map[string]string{
+		"inbox-protocol":    defaultSkillInboxProtocol,
+		"history-hygiene":   defaultSkillHistoryHygiene,
+		"escalation":        defaultSkillEscalation,
+		"pre-flight":        defaultSkillPreFlight,
+		"git-workflow":      defaultSkillGitWorkflow,
+		"reviewer-protocol": defaultSkillReviewerProtocol,
+	}
+	for name, content := range opsSkills {
+		skillDir := filepath.Join(root, "skills", name)
+		skillFile := filepath.Join(skillDir, "SKILL.md")
+		if _, err := os.Stat(skillFile); err != nil {
+			os.MkdirAll(skillDir, 0755)
+			if err := os.WriteFile(skillFile, []byte(content), 0644); err != nil {
+				return fmt.Errorf("write skill %s: %w", name, err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -355,6 +375,13 @@ func generateUUID() string {
 		hex.EncodeToString(b[10:16]),
 	)
 }
+
+const defaultSkillInboxProtocol = "# Inbox Protocol\n\ndecisions.md, wisdom.md 직접 수정 금지. inbox에 드롭.\n"
+const defaultSkillHistoryHygiene = "# History Hygiene\n\n최종 결과만 기록. 중간 시도 금지. 12KB 제한.\n"
+const defaultSkillEscalation = "# Escalation\n\nreport: 완료 보고. claim: 진행 불가 에스컬레이션.\n"
+const defaultSkillPreFlight = "# Pre-Flight\n\n작업 전 필수: now.md → decisions.md → wisdom.md → ps.\n"
+const defaultSkillGitWorkflow = "# Git Workflow\n\nmain 직접 커밋 금지. 브랜치 → PR → 리뷰 → 머지.\n"
+const defaultSkillReviewerProtocol = "# Reviewer Protocol\n\n작성자 ≠ 리뷰어. 리뷰어 본인 수정 금지.\n"
 
 const defaultSpec = `// dal.spec.cue — localdal schema
 
