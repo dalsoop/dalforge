@@ -8,3 +8,4 @@ channels/mattermost/node_modules/
 channels/mattermost/bun.lock
 channels/mattermost/node_modules/
 channels/mattermost/bun.lock
+.claude/worktrees/
