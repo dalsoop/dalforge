@@ -65,8 +65,12 @@ func (m *MattermostBridge) Send(msg Message) error {
 	if rootID == "" {
 		rootID = msg.ReplyTo // reply to a root post starts a thread
 	}
+	chID := msg.Channel
+	if chID == "" {
+		chID = m.ChannelID
+	}
 	body := fmt.Sprintf(`{"channel_id":%q,"root_id":%q,"message":%q}`,
-		m.ChannelID, rootID, msg.Content)
+		chID, rootID, msg.Content)
 	_, err := m.apiPost("/api/v4/posts", body)
 	return err
 }
@@ -134,50 +138,81 @@ func (m *MattermostBridge) poll() {
 }
 
 func (m *MattermostBridge) fetchNewPosts() ([]Message, error) {
-	path := fmt.Sprintf("/api/v4/channels/%s/posts?since=%d", m.ChannelID, m.lastAt)
-	data, err := m.apiGet(path)
+	channels := []string{m.ChannelID}
+	if m.BotUserID != "" {
+		if dms, err := m.fetchDMChannelIDs(); err == nil {
+			channels = append(channels, dms...)
+		}
+	}
+
+	var allMsgs []Message
+	for _, chID := range channels {
+		path := fmt.Sprintf("/api/v4/channels/%s/posts?since=%d", chID, m.lastAt)
+		data, err := m.apiGet(path)
+		if err != nil {
+			continue
+		}
+
+		var result struct {
+			Order []string                   `json:"order"`
+			Posts map[string]json.RawMessage `json:"posts"`
+		}
+		if err := json.Unmarshal(data, &result); err != nil {
+			continue
+		}
+
+		for i := len(result.Order) - 1; i >= 0; i-- {
+			id := result.Order[i]
+			raw := result.Posts[id]
+			var post struct {
+				ID        string `json:"id"`
+				UserID    string `json:"user_id"`
+				ChannelID string `json:"channel_id"`
+				Message   string `json:"message"`
+				RootID    string `json:"root_id"`
+				CreateAt  int64  `json:"create_at"`
+			}
+			if err := json.Unmarshal(raw, &post); err != nil {
+				continue
+			}
+			if post.CreateAt <= m.lastAt {
+				continue
+			}
+			if post.CreateAt > m.lastAt {
+				m.lastAt = post.CreateAt
+			}
+			allMsgs = append(allMsgs, Message{
+				ID:        post.ID,
+				From:      post.UserID,
+				Channel:   post.ChannelID,
+				Content:   post.Message,
+				RootID:    post.RootID,
+				Timestamp: time.UnixMilli(post.CreateAt),
+			})
+		}
+	}
+	return allMsgs, nil
+}
+
+func (m *MattermostBridge) fetchDMChannelIDs() ([]string, error) {
+	data, err := m.apiGet(fmt.Sprintf("/api/v4/users/%s/channels", m.BotUserID))
 	if err != nil {
 		return nil, err
 	}
-
-	var result struct {
-		Order []string                   `json:"order"`
-		Posts map[string]json.RawMessage `json:"posts"`
+	var channels []struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
 	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("parse posts: %w", err)
+	if err := json.Unmarshal(data, &channels); err != nil {
+		return nil, err
 	}
-
-	var msgs []Message
-	for i := len(result.Order) - 1; i >= 0; i-- {
-		id := result.Order[i]
-		raw := result.Posts[id]
-		var post struct {
-			ID       string `json:"id"`
-			UserID   string `json:"user_id"`
-			Message  string `json:"message"`
-			RootID   string `json:"root_id"`
-			CreateAt int64  `json:"create_at"`
+	var dms []string
+	for _, ch := range channels {
+		if ch.Type == "D" && ch.ID != m.ChannelID {
+			dms = append(dms, ch.ID)
 		}
-		if err := json.Unmarshal(raw, &post); err != nil {
-			continue
-		}
-		if post.CreateAt <= m.lastAt {
-			continue
-		}
-		if post.CreateAt > m.lastAt {
-			m.lastAt = post.CreateAt
-		}
-		msgs = append(msgs, Message{
-			ID:        post.ID,
-			From:      post.UserID,
-			Channel:   m.ChannelID,
-			Content:   post.Message,
-			RootID:    post.RootID,
-			Timestamp: time.UnixMilli(post.CreateAt),
-		})
 	}
-	return msgs, nil
+	return dms, nil
 }
 
 func (m *MattermostBridge) apiGet(path string) ([]byte, error) {

@@ -236,6 +236,7 @@ func runAgentLoop(dalName string) error {
 
 		mm.Send(bridge.Message{
 			Content: response,
+			Channel: msg.Channel,
 			ReplyTo: threadID,
 		})
 
