@@ -213,10 +213,25 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	instrDst := filepath.Join(home, instructionsFileName(dal.Player))
 	args = append(args, "-v", fmt.Sprintf("%s:%s:ro", instrSrc, instrDst))
 
-	// Mount decisions.md as shared team memory (read-write)
+	// Mount decisions.md as shared team memory (read-only — scribe commits changes)
 	decisionsPath := filepath.Join(localdalRoot, "decisions.md")
 	if _, err := os.Stat(decisionsPath); err == nil {
-		args = append(args, "-v", fmt.Sprintf("%s:%s", decisionsPath, filepath.Join(containerWorkDir, "decisions.md")))
+		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", decisionsPath, filepath.Join(containerWorkDir, "decisions.md")))
+	}
+
+	// Mount decisions-archive.md (read-only for all)
+	archivePath := filepath.Join(localdalRoot, "decisions-archive.md")
+	if _, err := os.Stat(archivePath); err == nil {
+		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", archivePath, filepath.Join(containerWorkDir, "decisions-archive.md")))
+	}
+
+	// Mount decisions inbox — rw for member (drop proposals), ro for leader
+	inboxPath := inboxDir(serviceRepo)
+	inboxContainerPath := filepath.Join(containerWorkDir, "decisions", "inbox")
+	if dal.Role == "member" {
+		args = append(args, "-v", fmt.Sprintf("%s:%s", inboxPath, inboxContainerPath))
+	} else {
+		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", inboxPath, inboxContainerPath))
 	}
 
 	// Inject Claude Code settings.json for autoApprove (dal runs unattended)
