@@ -17,7 +17,7 @@ func main() {
 		Short: fmt.Sprintf("Dal CLI for member dal (%s)", dalName),
 	}
 
-	root.AddCommand(statusCmd(dalName), psCmd(), reportCmd(dalName), claimCmd(dalName), runCmd(dalName), proposeCmd(dalName))
+	root.AddCommand(statusCmd(dalName), psCmd(), reportCmd(dalName), claimCmd(dalName), runCmd(dalName), proposeCmd(dalName), wisdomCmd(dalName))
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
