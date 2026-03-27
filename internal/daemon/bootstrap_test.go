@@ -312,3 +312,256 @@ func TestClientAgentConfig_Exists(t *testing.T) {
 		t.Fatal("Client must have AgentConfig method")
 	}
 }
+
+// ── handleAgentConfig team_members 동작 테스트 ──────────
+
+func TestHandleAgentConfig_MultipleTeamMembers(t *testing.T) {
+	d := &Daemon{
+		containers: map[string]*Container{
+			"leader": {DalName: "leader", BotToken: "t1", BotUsername: "dal-leader-x"},
+			"dev":    {DalName: "dev", BotToken: "t2", BotUsername: "dal-dev-y"},
+			"test":   {DalName: "test", BotToken: "t3", BotUsername: "dal-test-z"},
+		},
+		channelID: "ch",
+		mm:        &MattermostConfig{URL: "http://mm"},
+	}
+	req := httptest.NewRequest("GET", "/api/agent-config/leader", nil)
+	req.SetPathValue("name", "leader")
+	w := httptest.NewRecorder()
+	d.handleAgentConfig(w, req)
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	tm := resp["team_members"]
+	if !strings.Contains(tm, "dev=dal-dev-y") {
+		t.Errorf("should include dev, got %q", tm)
+	}
+	if !strings.Contains(tm, "test=dal-test-z") {
+		t.Errorf("should include test, got %q", tm)
+	}
+	if strings.Contains(tm, "leader=") {
+		t.Error("should not include self")
+	}
+}
+
+// ── Container struct 필드 테스트 ─────────────────────────
+
+func TestContainer_AllFieldsPresent(t *testing.T) {
+	c := Container{
+		DalName:     "test",
+		UUID:        "uuid",
+		Player:      "claude",
+		Role:        "member",
+		ContainerID: "cid",
+		Status:      "running",
+		Workspace:   "shared",
+		Skills:      3,
+		BotToken:    "tok",
+		BotUsername:  "dal-test",
+	}
+	if c.BotUsername == "" {
+		t.Fatal("BotUsername must be settable")
+	}
+	if c.Workspace == "" {
+		t.Fatal("Workspace must be settable")
+	}
+}
+
+// ── handleSleep bot cleanup 테스트 ───────────────────────
+
+func TestSleep_DeletesContainerFromMap(t *testing.T) {
+	src := readSource(t, "daemon.go")
+	// handleSleep must eventually call delete(d.containers, name)
+	if !strings.Contains(src, "delete(d.containers, name)") {
+		t.Fatal("handleSleep must call delete(d.containers, name)")
+	}
+}
+
+// ── context watcher 테스트 ───────────────────────────────
+
+func TestContextWatcher_Exists(t *testing.T) {
+	src := readSource(t, "context_watcher.go")
+	if !strings.Contains(src, "startContextWatcher") {
+		t.Fatal("context_watcher.go must have startContextWatcher")
+	}
+}
+
+func TestContextWatcher_IntervalDefined(t *testing.T) {
+	src := readSource(t, "context_watcher.go")
+	if !strings.Contains(src, "contextSyncInterval") {
+		t.Fatal("must define contextSyncInterval")
+	}
+}
+
+func TestContextWatcher_ChecksScript(t *testing.T) {
+	src := readSource(t, "context_watcher.go")
+	if !strings.Contains(src, "context-sync.sh") {
+		t.Fatal("must check for context-sync.sh")
+	}
+}
+
+func TestContextWatcher_ChecksClaudeExtract(t *testing.T) {
+	src := readSource(t, "context_watcher.go")
+	if !strings.Contains(src, "claude-extract") {
+		t.Fatal("must check for claude-extract binary")
+	}
+}
+
+// ── registry 테스트 ──────────────────────────────────────
+
+func TestRegistry_SetAndGet(t *testing.T) {
+	dir := t.TempDir()
+	r := newRegistry(dir)
+	r.Set("uuid-1", RegistryEntry{Name: "dev", Repo: "/repo", ContainerID: "cid1", Status: "running"})
+
+	entry := r.Get("uuid-1")
+	if entry == nil {
+		t.Fatal("should find entry")
+	}
+	if entry.Name != "dev" {
+		t.Errorf("name = %q", entry.Name)
+	}
+}
+
+func TestRegistry_GetMissing(t *testing.T) {
+	dir := t.TempDir()
+	r := newRegistry(dir)
+	entry := r.Get("nonexistent")
+	if entry != nil {
+		t.Fatal("should not find missing entry")
+	}
+}
+
+func TestRegistry_GetByContainerID(t *testing.T) {
+	dir := t.TempDir()
+	r := newRegistry(dir)
+	r.Set("uuid-1", RegistryEntry{Name: "dev", ContainerID: "abc123"})
+
+	entry := r.GetByContainerID("abc123")
+	if entry == nil {
+		t.Fatal("should find by container ID")
+	}
+	if entry.Name != "dev" {
+		t.Errorf("name = %q", entry.Name)
+	}
+}
+
+func TestRegistry_GetByContainerID_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	r := newRegistry(dir)
+	entry := r.GetByContainerID("nonexistent")
+	if entry != nil {
+		t.Fatal("should not find missing container ID")
+	}
+}
+
+// ── task store 추가 테스트 ───────────────────────────────
+
+func TestTaskStore_Complete(t *testing.T) {
+	ts := newTaskStore()
+	result := ts.New("dev", "test task")
+	task := ts.Get(result.ID)
+	if task == nil {
+		t.Fatal("should find task")
+	}
+	if task.Status != "running" {
+		t.Errorf("status = %q, want running", task.Status)
+	}
+}
+
+func TestTaskStore_ListAll(t *testing.T) {
+	ts := newTaskStore()
+	ts.New("dev", "task1")
+	ts.New("dev", "task2")
+	ts.New("host", "task3")
+
+	all := ts.List()
+	if len(all) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(all))
+	}
+}
+
+// ── dalBotUsername 추가 테스트 ────────────────────────────
+
+func TestDalBotUsername_ShortUUID(t *testing.T) {
+	result := dalBotUsername("dev", "abc")
+	if result != "dal-dev-abc" {
+		t.Errorf("got %q", result)
+	}
+}
+
+func TestDalBotUsername_LongUUID(t *testing.T) {
+	result := dalBotUsername("leader", "very-long-uuid-string-here")
+	expected := "dal-leader-verylo"
+	if result != expected {
+		t.Errorf("got %q, want %q", result, expected)
+	}
+}
+
+// ── dalContainerName 테스트 ──────────────────────────────
+
+func TestDalContainerName_Basic(t *testing.T) {
+	result := dalContainerName("dev", "dc-dev-20260327")
+	expected := "dal-dev-dcdev2"
+	if result != expected {
+		t.Errorf("got %q, want %q", result, expected)
+	}
+}
+
+// ── handleClaimGet / handleClaimRespond 테스트 ───────────
+
+func TestHandleClaimGet_NotFound(t *testing.T) {
+	d := &Daemon{
+		claims: newClaimStore(),
+	}
+	req := httptest.NewRequest("GET", "/api/claims/nonexistent", nil)
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+	d.handleClaimGet(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleClaimRespond_NotFound(t *testing.T) {
+	d := &Daemon{
+		claims: newClaimStore(),
+	}
+	req := httptest.NewRequest("POST", "/api/claims/nonexistent/respond", strings.NewReader(`{"status":"resolved","response":"done"}`))
+	req.SetPathValue("id", "nonexistent")
+	w := httptest.NewRecorder()
+	d.handleClaimRespond(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// ── truncateStr 테스트 ───────────────────────────────────
+
+func TestTruncateStr_Short(t *testing.T) {
+	if truncateStr("hi", 10) != "hi" {
+		t.Fatal("short should not truncate")
+	}
+}
+
+func TestTruncateStr_Long(t *testing.T) {
+	result := truncateStr("abcdefghij", 5)
+	if len(result) > 8 {
+		t.Fatalf("expected max 8, got %d", len(result))
+	}
+}
+
+// ── handleEscalations 테스트 ─────────────────────────────
+
+func TestHandleEscalations_Empty(t *testing.T) {
+	d := &Daemon{
+		escalations: newEscalationStoreWithFile(""),
+	}
+	req := httptest.NewRequest("GET", "/api/escalations", nil)
+	w := httptest.NewRecorder()
+	d.handleEscalations(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}

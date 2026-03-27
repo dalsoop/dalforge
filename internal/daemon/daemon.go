@@ -131,6 +131,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start context watcher (extract host Claude session → .dal/context/)
 	go startContextWatcher(ctx, d.serviceRepo)
 
+	// Start repo watcher (git fetch/pull → sync on .dal/ changes)
+	go startRepoWatcher(ctx, d.serviceRepo, func() {
+		d.runSync()
+	})
+
 	// Export MM URL for containers to use
 	if d.mm != nil && d.mm.URL != "" {
 		os.Setenv("DALCENTER_MM_URL", d.mm.URL)
@@ -457,6 +462,25 @@ func (d *Daemon) handleRestart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
+	synced, restarted := d.runSync()
+
+	if w == nil {
+		return
+	}
+	if len(synced) == 0 && len(restarted) == 0 {
+		json.NewEncoder(w).Encode(map[string]string{"status": "no running dals"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":    "synced",
+		"dals":      synced,
+		"restarted": restarted,
+	})
+}
+
+// runSync checks running containers against their dal.cue definitions
+// and restarts containers whose configuration has changed.
+func (d *Daemon) runSync() (synced, restarted []string) {
 	d.mu.RLock()
 	running := make(map[string]*Container)
 	for k, v := range d.containers {
@@ -467,12 +491,9 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 	d.mu.RUnlock()
 
 	if len(running) == 0 {
-		json.NewEncoder(w).Encode(map[string]string{"status": "no running dals"})
-		return
+		return nil, nil
 	}
 
-	var synced []string
-	var restarted []string
 	for name, c := range running {
 		dal, err := localdal.ReadDalCue(d.dalCuePath(name), name)
 		if err != nil {
@@ -486,23 +507,19 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 		}
 		if needsRestart {
 			log.Printf("[daemon] sync restart %s: %s", name, reason)
-			// Stop old container
 			oldID := c.ContainerID
 			if err := dockerStop(oldID); err != nil {
 				log.Printf("[daemon] sync restart stop %s: %v", name, err)
 				continue
 			}
-			// Start new container
 			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, dal)
 			if err != nil {
 				log.Printf("[daemon] sync restart run %s: %v", name, err)
-				// Remove from containers map since old one is stopped
 				d.mu.Lock()
 				delete(d.containers, name)
 				d.mu.Unlock()
 				continue
 			}
-			// Update containers map
 			d.mu.Lock()
 			d.containers[name] = &Container{
 				DalName:     name,
@@ -512,7 +529,7 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 				ContainerID: newID,
 				Status:      "running",
 				Skills:      len(dal.Skills),
-				BotToken:    c.BotToken, // preserve bot token
+				BotToken:    c.BotToken,
 			}
 			d.mu.Unlock()
 			restarted = append(restarted, name)
@@ -526,11 +543,7 @@ func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[daemon] sync: synced=%v restarted=%v", synced, restarted)
-	json.NewEncoder(w).Encode(map[string]any{
-		"status":    "synced",
-		"dals":      synced,
-		"restarted": restarted,
-	})
+	return synced, restarted
 }
 
 func (d *Daemon) handleValidate(w http.ResponseWriter, r *http.Request) {
