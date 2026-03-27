@@ -60,6 +60,7 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 	if token != "" {
 		log.Println("[daemon] API token auth enabled for write endpoints")
 	}
+	inboxDir(serviceRepo)
 	return &Daemon{
 		addr:         addr,
 		localdalRoot: localdalRoot,

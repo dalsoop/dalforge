@@ -35,6 +35,29 @@ func persistJSON(path string, data any, mu *sync.RWMutex) {
 	os.Rename(tmp, path)
 }
 
+// stateDir returns the git-external state directory for a service repo.
+// Path: /var/lib/dalcenter/state/{repo-name}/
+func stateDir(serviceRepo string) string {
+	base := os.Getenv("DALCENTER_STATE_DIR")
+	if base == "" {
+		base = "/var/lib/dalcenter/state"
+	}
+	repoName := filepath.Base(serviceRepo)
+	if repoName == "" || repoName == "." {
+		repoName = "default"
+	}
+	dir := filepath.Join(base, repoName)
+	os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// inboxDir returns the decisions inbox directory (git-external).
+func inboxDir(serviceRepo string) string {
+	dir := filepath.Join(stateDir(serviceRepo), "decisions", "inbox")
+	os.MkdirAll(dir, 0o755)
+	return dir
+}
+
 // loadJSON reads data from a JSON file.
 func loadJSON(path string, target any) error {
 	b, err := os.ReadFile(path)
