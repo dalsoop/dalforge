@@ -625,16 +625,25 @@ func runClaude(player, task string) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
+	combined := strings.TrimSpace(stdout.String())
+	if stderr.Len() > 0 {
+		stderrText := strings.TrimSpace(stderr.String())
+		if combined == "" {
+			combined = stderrText
+		} else {
+			combined += "\n" + stderrText
+		}
+	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return stdout.String(), fmt.Errorf("TIMEOUT: task exceeded %s", maxDuration)
+		return combined, fmt.Errorf("TIMEOUT: task exceeded %s", maxDuration)
 	}
 
 	if stderr.Len() > 0 {
 		log.Printf("[agent] stderr: %s", truncate(stderr.String(), 200))
 	}
 
-	return stdout.String(), err
+	return combined, err
 }
 
 func providerSessionPersistenceEnabled() bool {

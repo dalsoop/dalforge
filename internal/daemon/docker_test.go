@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -202,5 +203,38 @@ func TestCredentialFormats_CodexRoundTrip(t *testing.T) {
 	}
 	if c.Tokens.ExpiresAt != "2026-03-20T12:00:00Z" {
 		t.Fatalf("got %q, want 2026-03-20T12:00:00Z", c.Tokens.ExpiresAt)
+	}
+}
+
+func TestClaudeImage_InstallsCodexFallback(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "dockerfiles", "claude.Dockerfile"))
+	if err != nil {
+		t.Fatalf("read claude dockerfile: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "@anthropic-ai/claude-code @openai/codex") {
+		t.Fatal("claude image must install codex so circuit-breaker fallback is available")
+	}
+}
+
+func TestClaudeGoImage_InstallsCodexFallback(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "dockerfiles", "claude-go.Dockerfile"))
+	if err != nil {
+		t.Fatalf("read claude-go dockerfile: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "@anthropic-ai/claude-code @openai/codex") {
+		t.Fatal("claude-go image must install codex so circuit-breaker fallback is available")
+	}
+}
+
+func TestClaudeRustImage_InstallsCodexFallback(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "dockerfiles", "claude-rust.Dockerfile"))
+	if err != nil {
+		t.Fatalf("read claude-rust dockerfile: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "@anthropic-ai/claude-code @openai/codex") {
+		t.Fatal("claude-rust image must install codex so circuit-breaker fallback is available")
 	}
 }

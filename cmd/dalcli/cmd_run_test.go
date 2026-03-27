@@ -803,3 +803,65 @@ func TestRunProvider_Codex_PersistenceOverride(t *testing.T) {
 		t.Fatalf("capture should omit ephemeral: %q", got)
 	}
 }
+
+func TestRunProvider_ReturnsStderrOnError(t *testing.T) {
+	ensureWorkspaceDir(t)
+	fakeDir := t.TempDir()
+	path := filepath.Join(fakeDir, "claude")
+	script := `#!/bin/sh
+echo "529 overloaded" >&2
+exit 1
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	t.Setenv("PATH", fakeDir+":"+os.Getenv("PATH"))
+	t.Setenv("DAL_ROLE", "member")
+
+	out, err := runClaude("claude", "test")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(out, "529 overloaded") {
+		t.Fatalf("stderr should be returned for classification, got %q", out)
+	}
+}
+
+func TestExecuteTask_FallbacksToCodexOnRetryableStderr(t *testing.T) {
+	ensureWorkspaceDir(t)
+	fakeDir := t.TempDir()
+	claudePath := filepath.Join(fakeDir, "claude")
+	codexPath := filepath.Join(fakeDir, "codex")
+
+	claudeScript := `#!/bin/sh
+echo "API Error: 529 overloaded" >&2
+exit 1
+`
+	codexScript := `#!/bin/sh
+printf '%s' "codex fallback ok"
+`
+	if err := os.WriteFile(claudePath, []byte(claudeScript), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	if err := os.WriteFile(codexPath, []byte(codexScript), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+
+	t.Setenv("PATH", fakeDir+":"+os.Getenv("PATH"))
+	t.Setenv("DAL_PLAYER", "claude")
+	t.Setenv("DAL_ROLE", "member")
+
+	oldCircuit := providerCircuit
+	providerCircuit = NewCircuitBreaker(1, time.Minute)
+	defer func() {
+		providerCircuit = oldCircuit
+	}()
+
+	out, err := executeTask("test")
+	if err != nil {
+		t.Fatalf("executeTask should fallback to codex: %v", err)
+	}
+	if out != "codex fallback ok" {
+		t.Fatalf("fallback output = %q", out)
+	}
+}
