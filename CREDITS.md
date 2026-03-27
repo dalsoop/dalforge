@@ -38,3 +38,9 @@ dalcenter containers run AI coding agents provided by:
 ## License
 
 dalcenter is licensed under [AGPL-3.0](./LICENSE).
+
+## Bundled Tools
+
+| Tool | License | Source |
+|------|---------|--------|
+| [claude-conversation-extractor](https://github.com/ZeroSumQuant/claude-conversation-extractor) | MIT | `tools/conversation-extractor/` |

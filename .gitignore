@@ -4,3 +4,5 @@
 /dalcli-leader
 dist/
 dalcenter-test/
+tools/conversation-extractor/__pycache__/
+tools/conversation-extractor/*.egg-info/
