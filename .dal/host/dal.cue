@@ -1,7 +1,7 @@
 uuid:    "dc-host-20260327"
 name:    "host"
 version: "1.0.0"
-player:  "claude"
+player:  "codex"
 role:    "leader"
 skills:  ["skills/go-security", "skills/code-review"]
 hooks:   []

@@ -1,7 +1,7 @@
 uuid:    "leader-20260326"
 name:    "leader"
 version: "1.0.0"
-player:  "claude"
+player:  "codex"
 role:    "leader"
 skills:  ["skills/go-review", "skills/docker-ops", "skills/security-audit"]
 hooks:   []
