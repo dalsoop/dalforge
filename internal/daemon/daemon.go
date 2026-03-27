@@ -146,9 +146,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Reconcile existing containers from a previous daemon run
 	d.reconcile()
 
-	// Cleanup orphan bot DMs on startup
+	// Cleanup orphan bot DMs on startup (delayed to ensure reconcile is complete)
 	if d.mm != nil && d.mm.URL != "" {
 		go func() {
+			// Wait for reconcile to finish populating containers
+			time.Sleep(30 * time.Second)
+
 			teamID, _, _ := talk.GetTeamAndChannel(d.mm.URL, d.mm.AdminToken, d.mm.TeamName, filepath.Base(d.serviceRepo))
 			if teamID != "" {
 				// Collect active bot usernames from running containers
@@ -160,9 +163,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 					}
 				}
 				d.mu.RUnlock()
+				// Always keep system bots and dalcenter-admin
 				active = append(active, "dalcenter-admin")
+				// Only run cleanup if we have at least 1 active container
+				// (prevents wiping all bots when reconcile finds nothing)
+				if len(active) <= 1 {
+					log.Printf("[daemon] orphan cleanup skipped: no active containers yet")
+					return
+				}
 				talk.CleanupOrphanBotDMs(d.mm.URL, d.mm.AdminToken, teamID, active)
-				log.Printf("[daemon] orphan bot DM cleanup done")
+				log.Printf("[daemon] orphan bot DM cleanup done (active=%d)", len(active))
 			}
 		}()
 	}
