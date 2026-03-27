@@ -413,9 +413,9 @@ func TestIsDalOnlyChanges(t *testing.T) {
 		input  string
 		want   bool
 	}{
-		{"dal only", " M .dal/context/foo.md\n M .dal/data/claims.json", true},
-		{"dal added", "?? .dal/context/new.md", true},
-		{"mixed", " M .dal/context/foo.md\n M cmd/dalcli/cmd_run.go", false},
+		{"dal only", " M .dal/data/claims.json", true},
+		{"dal added", "?? .dal/data/new.json", true},
+		{"mixed", " M .dal/data/claims.json\n M cmd/dalcli/cmd_run.go", false},
 		{"no dal", " M README.md", false},
 		{"rename into dal", " R old.txt -> .dal/data/new.txt", true},
 		{"rename out of dal", " R .dal/old.txt -> cmd/new.txt", false},
