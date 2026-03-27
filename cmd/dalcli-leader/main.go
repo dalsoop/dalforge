@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/dalsoop/dalcenter/internal/daemon"
@@ -17,7 +19,7 @@ func main() {
 		Short: fmt.Sprintf("Dal CLI for leader dal (%s)", dalName),
 	}
 
-	root.AddCommand(wakeCmd(), sleepCmd(), psCmd(), statusCmd(), logsCmd(), syncCmd(), assignCmd(dalName))
+	root.AddCommand(wakeCmd(), sleepCmd(), psCmd(), statusCmd(), logsCmd(), syncCmd(), assignCmd(dalName), postCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -162,6 +164,66 @@ func syncCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func postCmd() *cobra.Command {
+	var channelID string
+	cmd := &cobra.Command{
+		Use:   "post <message>",
+		Short: "Post message to any Mattermost channel",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mmURL := os.Getenv("MATTERMOST_URL")
+			if mmURL == "" {
+				return fmt.Errorf("MATTERMOST_URL not set")
+			}
+			// Get bot token from dalcenter
+			client, err := daemon.NewClient()
+			if err != nil {
+				return err
+			}
+			dalName := os.Getenv("DAL_NAME")
+			cfg, err := client.AgentConfig(dalName)
+			if err != nil {
+				return fmt.Errorf("get agent config: %w", err)
+			}
+			token := cfg["bot_token"]
+			if token == "" {
+				return fmt.Errorf("no bot token available")
+			}
+			// Post
+			body := fmt.Sprintf(`{"channel_id":%q,"message":%q}`, channelID, args[0])
+			req, _ := os.Executable()
+			_ = req // suppress unused
+			resp, err := postMM(mmURL, token, body)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("posted to %s: %s\n", channelID[:8], resp)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&channelID, "channel", "", "Target channel ID (required)")
+	cmd.MarkFlagRequired("channel")
+	return cmd
+}
+
+func postMM(mmURL, token, body string) (string, error) {
+	req, err := http.NewRequest("POST", mmURL+"/api/v4/posts", strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return "ok", nil
 }
 
 func assignCmd(dalName string) *cobra.Command {

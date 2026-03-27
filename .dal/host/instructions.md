@@ -23,16 +23,12 @@
 
 ### #host 채널에 메시지 보내기
 ```bash
-curl -s -X POST "$MATTERMOST_URL/api/v4/posts" \
-  -H "Authorization: Bearer $MM_BOT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"channel_id":"'"$HOST_CHANNEL_ID"'","message":"@dal-leader-v2lead 이슈 #2 진행해줘"}'
-```
+# 다른 채널의 leader에게 지시
+dalcli-leader post --channel sh85oj8um7g38y8otitaaxmgtc "@dal-leader-v2lead 이슈 #2 진행해줘"
 
-환경변수:
-- `MATTERMOST_URL`: 이미 설정됨
-- bot 토큰 가져오기: `curl -s $DALCENTER_URL/api/agent-config/host | jq -r .bot_token`
-- `HOST_CHANNEL_ID`: sh85oj8um7g38y8otitaaxmgtc
+# dalcenter leader에게 지시
+dalcli-leader post --channel sh85oj8um7g38y8otitaaxmgtc "@dal-leader-leader 이슈 현황 보고해줘"
+```
 
 ### 채널 ID 참고
 | 채널 | ID |

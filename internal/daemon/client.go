@@ -43,6 +43,18 @@ func (c *Client) Sleep(name string) (map[string]string, error) {
 	return c.postJSON(fmt.Sprintf("/api/sleep/%s", name))
 }
 
+// AgentConfig fetches the agent config for a dal.
+func (c *Client) AgentConfig(name string) (map[string]string, error) {
+	resp, err := http.Get(c.baseURL + "/api/agent-config/" + name)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var result map[string]string
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result, nil
+}
+
 // Restart sends a restart request (sleep + remove + fresh wake).
 func (c *Client) Restart(name string) (map[string]string, error) {
 	return c.postJSON(fmt.Sprintf("/api/restart/%s", name))
