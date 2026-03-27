@@ -204,6 +204,7 @@ func runAgentLoop(dalName string) error {
 					Channel: msg.Channel,
 					ReplyTo: threadID,
 				})
+				appendHistoryBuffer(dalName, prompt, err.Error(), "실패")
 				escalateToHost(dalName, prompt, output, string(class))
 				daemon.DispatchTaskFailed(dalName, truncate(prompt, 200), err.Error(), len(output))
 				// Auto-claim for environment/blocked issues
@@ -232,6 +233,9 @@ func runAgentLoop(dalName string) error {
 				}
 			}
 		}
+
+		// History buffer: record completed task
+		appendHistoryBuffer(dalName, prompt, truncate(output, 200), "완료")
 
 		// Webhook: task complete
 		daemon.DispatchTaskComplete(dalName, truncate(prompt, 200), len(output), gitChanges, prURL)
