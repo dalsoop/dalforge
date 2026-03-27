@@ -209,3 +209,125 @@ func TestSetupBot_AddsToChannel(t *testing.T) {
 		t.Fatal("SetupBot must add bot to channel")
 	}
 }
+
+// ── SetupBot HTTP mock 테스트 ────────────────────────────
+
+func TestSetupBot_CreatesNewBot(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/api/v4/bots":
+			w.Write([]byte(`{"user_id":"bot1"}`))
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/tokens"):
+			w.Write([]byte(`[]`))
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "/tokens"):
+			w.Write([]byte(`{"token":"tok1","id":"tid1"}`))
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "/teams/"):
+			w.WriteHeader(200)
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "/channels/"):
+			w.WriteHeader(200)
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/channels"):
+			w.Write([]byte(`[]`))
+		default:
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+
+	bot, err := SetupBot(srv.URL, "admin", "team1", "ch1", "dal-test", "test", "test bot")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bot.UserID != "bot1" {
+		t.Errorf("user_id = %q", bot.UserID)
+	}
+	if bot.Token != "tok1" {
+		t.Errorf("token = %q", bot.Token)
+	}
+}
+
+func TestSetupBot_ReusesExisting(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/api/v4/bots":
+			w.WriteHeader(400) // bot exists
+		case r.Method == "GET" && r.URL.Path == "/api/v4/bots":
+			w.Write([]byte(`[{"user_id":"existing1","username":"dal-test"}]`))
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "/enable"):
+			w.WriteHeader(200)
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/tokens"):
+			w.Write([]byte(`[{"id":"old1"}]`))
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "/tokens"):
+			w.Write([]byte(`{"token":"newtok","id":"newtid"}`))
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "/teams/"):
+			w.WriteHeader(200)
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "/channels/"):
+			w.WriteHeader(200)
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/channels"):
+			w.Write([]byte(`[]`))
+		default:
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+
+	bot, err := SetupBot(srv.URL, "admin", "team1", "ch1", "dal-test", "test", "test bot")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bot.UserID != "existing1" {
+		t.Errorf("should reuse existing bot, got %q", bot.UserID)
+	}
+}
+
+
+
+
+
+func TestCreateChannel_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"id":"ch123"}`))
+	}))
+	defer srv.Close()
+
+	chID, err := CreateChannel(srv.URL, "admin", "team1", "test-channel")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if chID != "ch123" {
+		t.Errorf("chID = %q", chID)
+	}
+}
+
+func TestDeleteChannel_Success(t *testing.T) {
+	deleted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "DELETE" {
+			deleted = true
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	DeleteChannel(srv.URL, "admin", "ch1")
+	if !deleted {
+		t.Fatal("should call DELETE")
+	}
+}
+
+func TestGetAdminToken_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/login") {
+			w.Header().Set("Token", "admin-tok-123")
+			w.Write([]byte(`{"id":"user1"}`))
+		}
+	}))
+	defer srv.Close()
+
+	token, err := GetAdminToken(srv.URL, "admin", "password")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token != "admin-tok-123" {
+		t.Errorf("token = %q", token)
+	}
+}
