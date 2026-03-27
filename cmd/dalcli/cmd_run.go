@@ -257,6 +257,33 @@ func runAgentLoop(dalName string) error {
 	}
 }
 
+// isDalOnlyChanges returns true if every changed file in git porcelain output
+// is under the .dal/ directory. These are internal metadata changes that don't
+// need a PR.
+func isDalOnlyChanges(porcelainOutput string) bool {
+	lines := strings.Split(porcelainOutput, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// git porcelain format: "XY filename" or "XY filename -> renamed"
+		// strip the two-char status prefix + space
+		file := line
+		if len(file) > 3 {
+			file = file[3:]
+		}
+		// handle renames: "old -> new"
+		if idx := strings.Index(file, " -> "); idx >= 0 {
+			file = file[idx+4:]
+		}
+		if !strings.HasPrefix(file, ".dal/") {
+			return false
+		}
+	}
+	return true
+}
+
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.
 func autoGitWorkflow(dalName string) string {
 	// Check if there are changes
@@ -269,6 +296,11 @@ func autoGitWorkflow(dalName string) string {
 
 	changes := strings.TrimSpace(string(statusOut))
 	log.Printf("[git] changes detected:\n%s", changes)
+
+	dalOnly := isDalOnlyChanges(changes)
+	if dalOnly {
+		log.Printf("[git] .dal/ only changes — will commit+push but skip PR")
+	}
 
 	// Create branch
 	branch := fmt.Sprintf("dal/%s/%d", dalName, time.Now().Unix())
@@ -289,8 +321,12 @@ func autoGitWorkflow(dalName string) string {
 	}
 
 	// Commit
-	commitMsg := fmt.Sprintf("feat: %s dal 자동 반영\n\n변경 파일:\n%s\n\nCo-Authored-By: dal-%s <dal-%s@dalcenter.local>",
-		dalName, changes, dalName, dalName)
+	prefix := "feat"
+	if dalOnly {
+		prefix = "auto"
+	}
+	commitMsg := fmt.Sprintf("%s: %s dal 자동 반영\n\n변경 파일:\n%s\n\nCo-Authored-By: dal-%s <dal-%s@dalcenter.local>",
+		prefix, dalName, changes, dalName, dalName)
 	if _, err := run("git", "commit", "-m", commitMsg); err != nil {
 		return fmt.Sprintf("⚠️ 커밋 실패: %v", err)
 	}
@@ -298,6 +334,12 @@ func autoGitWorkflow(dalName string) string {
 	// Push
 	if _, err := run("git", "push", "-u", "origin", branch); err != nil {
 		return fmt.Sprintf("⚠️ 푸시 실패: %v", err)
+	}
+
+	// Skip PR for .dal/-only changes (internal metadata, context sync, etc.)
+	if dalOnly {
+		run("git", "checkout", "main")
+		return fmt.Sprintf("✅ .dal/ 전용 변경 — 커밋+푸시 완료, PR 스킵\n브랜치: `%s`", branch)
 	}
 
 	// Create PR
