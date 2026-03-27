@@ -56,3 +56,44 @@ func TestAgentConfig_HasTeamMembersField(t *testing.T) {
 		t.Fatal("agentConfig must have TeamMembers field")
 	}
 }
+
+// ── DM 지원 테스트 ────────────────────────────────────────
+
+func TestDM_IsDetected(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "isDM") {
+		t.Fatal("must detect DM messages (isDM variable)")
+	}
+}
+
+func TestDM_DifferentChannelID(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "msg.Channel != cfg.ChannelID") {
+		t.Fatal("isDM must check msg.Channel != cfg.ChannelID")
+	}
+}
+
+func TestDM_BypassesMentionCheck(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "!isDM") {
+		t.Fatal("DM must bypass mention check (isDM in filter condition)")
+	}
+}
+
+func TestDM_AllSendCallsHaveChannel(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	// mm.Send에서 ReplyTo가 있는 블록은 Channel도 있어야 함
+	// 최소 3곳: 상태, 에러, 응답
+	count := strings.Count(src, "Channel: msg.Channel,")
+	if count < 3 {
+		t.Fatalf("expected at least 3 Send calls with Channel: msg.Channel, got %d", count)
+	}
+}
+
+func TestDM_ResponseIncludesChannel(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	// 최종 응답에도 Channel이 전달되어야 함
+	if !strings.Contains(src, "Channel: msg.Channel,") {
+		t.Fatal("response mm.Send must include Channel: msg.Channel")
+	}
+}
