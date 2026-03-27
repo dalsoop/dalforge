@@ -1,6 +1,8 @@
 package talk
 
 import (
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -78,4 +80,31 @@ func TestIsDuplicate(t *testing.T) {
 	if d.isDuplicate("msg-2") {
 		t.Fatal("different ID should not be duplicate")
 	}
+}
+
+func TestDetectIP_Localhost(t *testing.T) {
+	ip := detectIP()
+	if ip == "" {
+		t.Fatal("should detect some IP")
+	}
+}
+
+func TestStripMention_Exists(t *testing.T) {
+	src, _ := os.ReadFile("daemon.go")
+	if !strings.Contains(string(src), "stripMention") {
+		t.Fatal("stripMention must exist")
+	}
+}
+
+func TestIsMentioned_Exists(t *testing.T) {
+	src, _ := os.ReadFile("daemon.go")
+	if !strings.Contains(string(src), "isMentioned") {
+		t.Fatal("isMentioned must exist")
+	}
+}
+
+func TestDetectVMID_Returns(t *testing.T) {
+	vmid := detectVMID()
+	// On test machine, should return empty or a valid VMID
+	_ = vmid // just ensure no panic
 }

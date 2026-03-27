@@ -68,3 +68,27 @@ func TestSanitizerClean(t *testing.T) {
 		})
 	}
 }
+
+
+
+func TestSanitizer_PreservesNormal(t *testing.T) {
+	s := NewSanitizer()
+	result := s.Clean("hello world 123")
+	if result != "hello world 123" {
+		t.Errorf("got %q", result)
+	}
+}
+
+func TestExtractResult_Success(t *testing.T) {
+	result := extractResult("some output\nmore output\nfinal line")
+	if result == "" {
+		t.Fatal("should extract result")
+	}
+}
+
+func TestExtractResult_WithError(t *testing.T) {
+	result := extractResult("partial output")
+	if result == "" {
+		t.Fatal("should still return something on error")
+	}
+}
