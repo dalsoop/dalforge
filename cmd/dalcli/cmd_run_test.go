@@ -405,6 +405,33 @@ func TestMessageRouting_FreeFormFallback(t *testing.T) {
 	}
 }
 
+// ── isDalOnlyChanges ──
+
+func TestIsDalOnlyChanges(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		want   bool
+	}{
+		{"dal only", " M .dal/context/foo.md\n M .dal/data/claims.json", true},
+		{"dal added", "?? .dal/context/new.md", true},
+		{"mixed", " M .dal/context/foo.md\n M cmd/dalcli/cmd_run.go", false},
+		{"no dal", " M README.md", false},
+		{"rename into dal", " R old.txt -> .dal/data/new.txt", true},
+		{"rename out of dal", " R .dal/old.txt -> cmd/new.txt", false},
+		{"empty", "", true},
+		{"single dal file", "A  .dal/spec.cue", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDalOnlyChanges(tt.input)
+			if got != tt.want {
+				t.Errorf("isDalOnlyChanges(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // ── autoGitWorkflow branch naming ──
 
 func TestAutoGitWorkflow_BranchFormat(t *testing.T) {
