@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -441,5 +442,104 @@ func TestExtractErrorSummary_Long(t *testing.T) {
 	s := extractErrorSummary(long)
 	if len(s) > 500 {
 		t.Fatalf("summary should be truncated, got %d chars", len(s))
+	}
+}
+
+// ── CircuitBreaker 추가 분기 ─────────────────────────────
+
+
+
+func TestCircuitBreaker_HalfOpenFailure_Full(t *testing.T) {
+	cb := NewCircuitBreaker(2, 50*time.Millisecond)
+	cb.RecordFailure()
+	cb.RecordFailure()
+	time.Sleep(100 * time.Millisecond)
+	cb.RecordFailure() // fail in half-open
+	if !cb.ShouldFallback() {
+		t.Fatal("should re-open after failure in half-open")
+	}
+}
+
+func TestCircuitBreaker_State_Full(t *testing.T) {
+	cb := NewCircuitBreaker(2, 50*time.Millisecond)
+	if cb.State() != "closed" {
+		t.Fatalf("initial state should be closed, got %s", cb.State())
+	}
+	cb.RecordFailure()
+	cb.RecordFailure()
+	if cb.State() != "open" {
+		t.Fatalf("should be open after failures, got %s", cb.State())
+	}
+	time.Sleep(100 * time.Millisecond)
+	s := cb.State() // triggers half-open check
+	if s != "half-open" && s != "open" {
+		t.Fatalf("should be half-open or open, got %s", s)
+	}
+}
+
+// ── selfRepair 분기 테스트 ───────────────────────────────
+
+func TestSelfRepair_NoRetry_2(t *testing.T) {
+	retry, _ := selfRepair("task", "random output", fmt.Errorf("fail"))
+	if retry {
+		t.Fatal("should not retry for unknown error")
+	}
+}
+
+func TestClassifyTaskError_Deps_2(t *testing.T) {
+	c := classifyTaskError("go: module not found in go.sum")
+	if c != ErrClassDeps {
+		t.Fatalf("expected deps, got %s", c)
+	}
+}
+
+func TestClassifyTaskError_Git_2(t *testing.T) {
+	c := classifyTaskError("fatal: not a git repository")
+	if c != ErrClassGit {
+		t.Fatalf("expected git, got %s", c)
+	}
+}
+
+// ── isDalOnlyChanges 분기 테스트 ─────────────────────────
+
+func TestIsDalOnlyChanges_Empty(t *testing.T) {
+	if !isDalOnlyChanges("") {
+		t.Fatal("empty should return true")
+	}
+}
+
+func TestIsDalOnlyChanges_ShortLine(t *testing.T) {
+	// line shorter than 3 chars
+	if isDalOnlyChanges("ab") {
+		t.Fatal("short non-.dal line should return false")
+	}
+}
+
+// ── extractErrorSummary 분기 ─────────────────────────────
+
+func TestExtractErrorSummary_WithErrorPrefix(t *testing.T) {
+	s := extractErrorSummary("error: first line\nsecond line\nthird line")
+	if !strings.Contains(s, "first line") {
+		t.Fatal("should contain error line")
+	}
+}
+
+// ── detectFallback 테스트 ────────────────────────────────
+
+func TestDetectFallback_Claude_2(t *testing.T) {
+	fb := detectFallback("claude")
+	// should return codex if available, or empty
+	_ = fb // just verify no panic
+}
+
+func TestDetectFallback_Codex_2(t *testing.T) {
+	fb := detectFallback("codex")
+	_ = fb
+}
+
+func TestDetectFallback_Unknown_2(t *testing.T) {
+	fb := detectFallback("gemini")
+	if fb != "" {
+		t.Fatalf("gemini fallback should be empty, got %q", fb)
 	}
 }
