@@ -191,6 +191,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Write endpoints — require auth when DALCENTER_TOKEN is set
 	mux.HandleFunc("POST /api/wake/{name}", d.requireAuth(d.handleWake))
 	mux.HandleFunc("POST /api/sleep/{name}", d.requireAuth(d.handleSleep))
+	mux.HandleFunc("POST /api/restart/{name}", d.requireAuth(d.handleRestart))
 	mux.HandleFunc("POST /api/sync", d.requireAuth(d.handleSync))
 	mux.HandleFunc("POST /api/message", d.requireAuth(d.handleMessage))
 	mux.HandleFunc("GET /api/agent-config/{name}", d.handleAgentConfig)
@@ -426,6 +427,28 @@ func (d *Daemon) handleSleep(w http.ResponseWriter, r *http.Request) {
 		"status": "sleeping",
 		"dal":    name,
 	})
+}
+
+// handleRestart stops a dal, removes container, and wakes fresh (with new bot token).
+func (d *Daemon) handleRestart(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	d.mu.RLock()
+	c, ok := d.containers[name]
+	d.mu.RUnlock()
+
+	if ok {
+		dockerStop(c.ContainerID)
+		if d.mm != nil && d.mm.URL != "" && d.channelID != "" && c.BotUsername != "" {
+			talk.RemoveBotFromChannel(d.mm.URL, d.mm.AdminToken, d.channelID, c.BotUsername)
+		}
+		d.mu.Lock()
+		delete(d.containers, name)
+		d.mu.Unlock()
+	}
+
+	log.Printf("[daemon] restart: %s (clean wake)", name)
+	d.handleWake(w, r)
 }
 
 func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {

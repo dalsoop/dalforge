@@ -17,7 +17,7 @@ import (
 func newRestartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "restart <dal>",
-		Short: "Restart a dal (sleep + wake — applies dal.cue changes)",
+		Short: "Restart a dal (sleep + remove + fresh wake with new bot token)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := daemon.NewClient()
@@ -26,20 +26,10 @@ func newRestartCmd() *cobra.Command {
 			}
 			name := args[0]
 
-			// Sleep (ignore error if not running)
-			if _, err := client.Sleep(name); err != nil {
-				fmt.Printf("[restart] %s was not running, starting fresh\n", name)
-			} else {
-				fmt.Printf("[restart] %s stopped\n", name)
-			}
-
-			// Brief pause for container cleanup
-			time.Sleep(2 * time.Second)
-
-			// Wake
-			result, err := client.Wake(name)
+			// Server-side restart: sleep + rm + wake (gets fresh bot token)
+			result, err := client.Restart(name)
 			if err != nil {
-				return fmt.Errorf("wake failed: %w", err)
+				return fmt.Errorf("restart failed: %w", err)
 			}
 			cid := result["container_id"]
 			if len(cid) > 12 {

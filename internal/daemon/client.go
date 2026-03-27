@@ -43,6 +43,11 @@ func (c *Client) Sleep(name string) (map[string]string, error) {
 	return c.postJSON(fmt.Sprintf("/api/sleep/%s", name))
 }
 
+// Restart sends a restart request (sleep + remove + fresh wake).
+func (c *Client) Restart(name string) (map[string]string, error) {
+	return c.postJSON(fmt.Sprintf("/api/restart/%s", name))
+}
+
 // Sync sends a sync request.
 func (c *Client) Sync() (map[string]any, error) {
 	return c.postAny("/api/sync")
