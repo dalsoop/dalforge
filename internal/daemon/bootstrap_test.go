@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -563,5 +564,160 @@ func TestHandleEscalations_Empty(t *testing.T) {
 	d.handleEscalations(w, req)
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+// ── escalation store 테스트 ──────────────────────────────
+
+func TestEscalationStore_AddAndList(t *testing.T) {
+	es := newEscalationStoreWithFile("")
+	es.Add("dev", "task failed", "compile error", "unknown")
+	list := es.Unresolved()
+	if len(list) != 1 {
+		t.Fatalf("expected 1 escalation, got %d", len(list))
+	}
+	if list[0].Dal != "dev" {
+		t.Errorf("dal = %q", list[0].Dal)
+	}
+}
+
+func TestEscalationStore_Resolve(t *testing.T) {
+	es := newEscalationStoreWithFile("")
+	es.Add("dev", "task", "error", "unknown")
+	list := es.Unresolved()
+	if len(list) == 0 {
+		t.Fatal("should have unresolved")
+	}
+	es.Resolve(list[0].ID)
+	if len(es.Unresolved()) != 0 {
+		t.Fatal("should have no unresolved after resolve")
+	}
+}
+
+// ── claim store 추가 테스트 ──────────────────────────────
+
+func TestClaimStore_AddAndList_2(t *testing.T) {
+	cs := newClaimStore()
+	cs.Add("dev", ClaimBlocked, "git permission denied", "detail", "")
+	list := cs.List("open")
+	if len(list) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(list))
+	}
+	if list[0].Dal != "dev" {
+		t.Errorf("dal = %q", list[0].Dal)
+	}
+}
+
+func TestClaimStore_Respond_2(t *testing.T) {
+	cs := newClaimStore()
+	cs.Add("dev", ClaimBlocked, "issue", "detail", "")
+	list := cs.List("")
+	cs.Respond(list[0].ID, "resolved", "fixed it")
+	resolved := cs.List("resolved")
+	if len(resolved) != 1 {
+		t.Fatalf("expected 1 resolved, got %d", len(resolved))
+	}
+}
+
+func TestClaimStore_Get_ByID(t *testing.T) {
+	cs := newClaimStore()
+	cs.Add("dev", ClaimEnv, "missing tool", "detail", "")
+	list := cs.List("")
+	claim := cs.Get(list[0].ID)
+	if claim == nil {
+		t.Fatal("should find claim by ID")
+	}
+	if claim.Type != "env" {
+		t.Errorf("type = %q", claim.Type)
+	}
+}
+
+func TestClaimStore_GetMissing_2(t *testing.T) {
+	cs := newClaimStore()
+	if cs.Get("nonexistent") != nil {
+		t.Fatal("should not find missing claim")
+	}
+}
+
+// ── uuidShort 테스트 ─────────────────────────────────────
+
+func TestUuidShort_Long(t *testing.T) {
+	s := uuidShort("dc-host-20260327")
+	if len(s) > 6 {
+		t.Fatalf("expected max 6 chars, got %d: %q", len(s), s)
+	}
+}
+
+func TestUuidShort_Short(t *testing.T) {
+	s := uuidShort("abc")
+	if s != "abc" {
+		t.Errorf("short uuid should pass through, got %q", s)
+	}
+}
+
+// ── dalContainerName 추가 테스트 ─────────────────────────
+
+func TestDalContainerName_WithHyphens(t *testing.T) {
+	result := dalContainerName("codex-dev", "dc-codex-dev-20260327")
+	if !strings.HasPrefix(result, "dal-codex-dev-") {
+		t.Errorf("got %q", result)
+	}
+}
+
+// ── persistJSON 테스트 ───────────────────────────────────
+
+func TestPersistJSON_WritesFile(t *testing.T) {
+	dir := t.TempDir()
+	data := map[string]string{"key": "value"}
+	persistJSON(filepath.Join(dir, "test.json"), data, nil)
+	content, err := os.ReadFile(filepath.Join(dir, "test.json"))
+	if err != nil {
+		t.Fatalf("file should exist: %v", err)
+	}
+	if !strings.Contains(string(content), "value") {
+		t.Fatal("file should contain value")
+	}
+}
+
+// ── requireAuth 테스트 ───────────────────────────────────
+
+func TestRequireAuth_EmptyToken(t *testing.T) {
+	d := &Daemon{apiToken: ""}
+	handler := d.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatal("empty token should allow all")
+	}
+}
+
+func TestRequireAuth_WrongToken(t *testing.T) {
+	d := &Daemon{apiToken: "secret"}
+	handler := d.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer wrong")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Fatalf("wrong token should 401, got %d", w.Code)
+	}
+}
+
+func TestRequireAuth_CorrectToken(t *testing.T) {
+	d := &Daemon{apiToken: "secret"}
+	handler := d.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("correct token should 200, got %d", w.Code)
 	}
 }
