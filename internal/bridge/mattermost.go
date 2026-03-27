@@ -157,7 +157,10 @@ func (m *MattermostBridge) fetchNewPosts() ([]Message, error) {
 			if t, ok := m.dmLastAt[chID]; ok {
 				sinceAt = t
 			} else {
-				sinceAt = m.lastAt
+				// First poll: start from now so only new DMs are received
+				now := time.Now().UnixMilli()
+				m.dmLastAt[chID] = now
+				sinceAt = now
 			}
 		}
 		path := fmt.Sprintf("/api/v4/channels/%s/posts?since=%d", chID, sinceAt)
