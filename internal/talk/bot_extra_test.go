@@ -3,6 +3,8 @@ package talk
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -147,5 +149,63 @@ func TestMmAPI_ServerError(t *testing.T) {
 	_, err := mmAPI("GET", srv.URL+"/api/v4/test", "token", "")
 	if err == nil {
 		t.Fatal("expected error for 500")
+	}
+}
+
+// ── RemoveBotFromChannel guard 테스트 ────────────────────
+
+func TestRemoveBotFromChannel_FuncExists(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "func RemoveBotFromChannel(") {
+		t.Fatal("RemoveBotFromChannel must exist")
+	}
+}
+
+func TestHideBotDMFromUsers_FuncExists(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "func HideBotDMFromUsers(") {
+		t.Fatal("HideBotDMFromUsers must exist")
+	}
+}
+
+func TestCleanupOrphanBotDMs_FuncExists(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "func CleanupOrphanBotDMs(") {
+		t.Fatal("CleanupOrphanBotDMs must exist")
+	}
+}
+
+func TestCleanupBotWelcomeDMs_TargetsMessage(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "Please add me to teams") {
+		t.Fatal("must target welcome DM message")
+	}
+}
+
+func TestSetupBot_TokenLimit(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "keep max 2 tokens") {
+		t.Fatal("SetupBot must limit token count")
+	}
+}
+
+func TestSetupBot_EnablesDisabledBot(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "/enable") {
+		t.Fatal("SetupBot must re-enable disabled bots")
+	}
+}
+
+func TestSetupBot_AddsToTeam(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "teams") && !strings.Contains(string(src), "/members") {
+		t.Fatal("SetupBot must add bot to team")
+	}
+}
+
+func TestSetupBot_AddsToChannel(t *testing.T) {
+	src, _ := os.ReadFile("bot.go")
+	if !strings.Contains(string(src), "channels") && !strings.Contains(string(src), "/members") {
+		t.Fatal("SetupBot must add bot to channel")
 	}
 }

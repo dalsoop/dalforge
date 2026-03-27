@@ -46,8 +46,9 @@ dalcenter sleep --all
   skills/code-review/SKILL.md          ← shared skills
 
 dalcenter serve
-  → starts soft-serve (git server)
   → starts HTTP API
+  → starts repo-watcher (git fetch/pull every 2min)
+  → starts credential-watcher (token refresh)
 
 dalcenter wake dev
   → reads .dal/dev/dal.cue
@@ -56,14 +57,20 @@ dalcenter wake dev
   → mounts skills, credentials, service repo
   → injects dalcli binary
   → dal starts working
+
+git push (GitHub)
+  → repo-watcher detects remote changes (within 2min)
+  → git pull --ff-only
+  → if .dal/ changed → auto sync to running containers
 ```
 
 ## Architecture
 
 ```
 LXC: dalcenter
-├── dalcenter serve          HTTP API + soft-serve + Docker
-├── soft-serve               localdal git hosting + webhooks
+├── dalcenter serve          HTTP API + Docker management
+│   ├── repo-watcher         git fetch/pull → auto sync
+│   └── cred-watcher         token expiry → auto refresh
 ├── Docker: leader (claude)  dalcli-leader inside
 ├── Docker: dev (claude)     dalcli inside
 └── Docker: dev-2 (claude)   multiple instances supported
@@ -72,8 +79,8 @@ LXC: dalcenter
 ## CLI
 
 ```
-dalcenter serve                   # daemon (HTTP API + soft-serve + Docker)
-dalcenter init --repo <path>      # initialize localdal (.dal/ + soft-serve + subtree)
+dalcenter serve                   # daemon (HTTP API + repo-watcher + Docker)
+dalcenter init --repo <path>      # initialize localdal (.dal/ + subtree)
 dalcenter wake <dal> [--all]      # create Docker container
 dalcenter sleep <dal> [--all]     # stop Docker container
 dalcenter sync                    # propagate changes to running containers

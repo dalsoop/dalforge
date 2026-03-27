@@ -6,7 +6,8 @@
 LXC: dalcenter
 ├── dalcenter serve              # 데몬
 │   ├── HTTP API (:11190)        # CLI 명령 수신
-│   ├── soft-serve (:23231)      # localdal git 호스팅 + webhook
+│   ├── repo-watcher             # 2분 간격 git fetch/pull → .dal/ 변경 시 auto sync
+│   ├── cred-watcher             # 토큰 만료 감지 → 자동 갱신
 │   └── Docker 관리              # dal 컨테이너 생명주기
 │
 ├── Docker: leader (claude)      # dalcli-leader 내장
@@ -15,9 +16,9 @@ LXC: dalcenter
 └── Docker: reviewer (codex)     # player별 다른 이미지
     └── 각 Docker ←소켓→ dalcenter
 
-서비스 레포 (호스트 또는 다른 LXC)
+서비스 레포 (GitHub)
 └── your-project/
-    └── .dal/ ←subtree→ soft-serve
+    └── .dal/                    # git push → repo-watcher가 자동 pull
 ```
 
 ## 바이너리 3개
@@ -59,7 +60,7 @@ LXC: dalcenter
 
 ## localdal (.dal/)
 
-서비스 레포당 1개. git subtree로 연결. SSOT.
+서비스 레포당 1개. git으로 관리. SSOT. GitHub push → repo-watcher가 자동 pull.
 
 ```
 .dal/
@@ -94,10 +95,18 @@ dalcenter wake dev
 ## sync 흐름
 
 ```
-.dal/skills/code-review/SKILL.md 수정 → git push
-  → soft-serve post-receive hook
-  → curl POST dalcenter:11190/api/sync
-  → bind mount라 컨테이너에서 즉시 반영
+.dal/skills/code-review/SKILL.md 수정 → git push (GitHub)
+  → repo-watcher가 2분 이내에 감지
+  → git fetch origin → git pull --ff-only
+  → .dal/ 변경 diff 확인 → runSync() 호출
+  → bind mount 파일 (instructions.md, skills/) → 즉시 반영
+  → dal.cue 구조 변경 (player, skills 추가 등) → 컨테이너 자동 재시작
+```
+
+### 수동 sync
+
+```bash
+dalcenter sync   # repo-watcher 기다리지 않고 즉시 sync
 ```
 
 ## Mattermost 통신
