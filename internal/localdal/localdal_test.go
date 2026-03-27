@@ -30,7 +30,7 @@ func TestInitCreatesDecisionsMd(t *testing.T) {
 		t.Fatal("decisions.md missing after init")
 	}
 	content, _ := os.ReadFile(path)
-	if !strings.Contains(string(content), "Architectural decisions") {
+	if !strings.Contains(string(content), "직접 수정 금지") {
 		t.Error("decisions.md should contain template content")
 	}
 }

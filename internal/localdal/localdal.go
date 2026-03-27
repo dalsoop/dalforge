@@ -60,20 +60,48 @@ func Init(root string) error {
 			return fmt.Errorf("write decisions.md: %w", err)
 		}
 	}
+
+	archivePath := filepath.Join(root, "decisions-archive.md")
+	if _, err := os.Stat(archivePath); err != nil {
+		if err := os.WriteFile(archivePath, []byte(defaultDecisionsArchive), 0644); err != nil {
+			return fmt.Errorf("write decisions-archive.md: %w", err)
+		}
+	}
+
+	// .gitattributes in parent directory (service repo root)
+	parentDir := filepath.Dir(root) // root is .dal/, parent is service repo
+	gitattrsPath := filepath.Join(parentDir, ".gitattributes")
+	if _, err := os.Stat(gitattrsPath); err != nil {
+		if err := os.WriteFile(gitattrsPath, []byte(defaultGitattributes), 0644); err != nil {
+			return fmt.Errorf("write .gitattributes: %w", err)
+		}
+	}
+
 	return nil
 }
 
 const defaultDecisions = `# Decisions
 
-Architectural decisions and team agreements. All dals read this file.
-Leader appends new entries. Format:
+팀 아키텍처 결정 로그. 모든 dal은 작업 전에 이 파일을 읽는다.
+scribe dal이 inbox에서 승인된 제안을 병합한다. 직접 수정 금지.
 
-` + "```" + `
-## YYYY-MM-DD — Title
-- Decision: ...
-- Reason: ...
-- Affected: ...
-` + "```" + `
+## 포맷
+
+### {날짜}: {주제}
+**By:** {dal name}
+**What:** {결정 내용}
+**Why:** {이유}
+
+---
+`
+
+const defaultDecisionsArchive = `# Decisions Archive
+
+아카이브된 결정. 읽기 전용 참조.
+`
+
+const defaultGitattributes = `.dal/decisions.md merge=union
+.dal/decisions-archive.md merge=union
 `
 
 // CreateDal creates a new dal folder with dal.cue and instructions.md.
