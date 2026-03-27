@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
+	"time"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -719,5 +721,122 @@ func TestRequireAuth_CorrectToken(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("correct token should 200, got %d", w.Code)
+	}
+}
+
+// ── handleTask 분기 테스트 ───────────────────────────────
+
+func TestHandleTask_MissingDal(t *testing.T) {
+	d := &Daemon{
+		containers: map[string]*Container{},
+		tasks:      newTaskStore(),
+	}
+	req := httptest.NewRequest("POST", "/api/task", strings.NewReader(`{"dal":"nonexistent","task":"do something"}`))
+	w := httptest.NewRecorder()
+	d.handleTask(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// ── handlePs 추가 분기 ──────────────────────────────────
+
+func TestHandlePs_WithContainers(t *testing.T) {
+	d := &Daemon{
+		containers: map[string]*Container{
+			"dev": {DalName: "dev", Player: "claude", Role: "member", ContainerID: "abc123456789", Status: "running", Skills: 3},
+		},
+	}
+	req := httptest.NewRequest("GET", "/api/ps", nil)
+	w := httptest.NewRecorder()
+	d.handlePs(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "dev") {
+		t.Fatal("should contain dal name")
+	}
+}
+
+// ── handleStatus 분기 ────────────────────────────────────
+
+func TestHandleStatus_ShowsAllDals(t *testing.T) {
+	d := &Daemon{
+		containers:  map[string]*Container{},
+		localdalRoot: t.TempDir(),
+	}
+	req := httptest.NewRequest("GET", "/api/status", nil)
+	w := httptest.NewRecorder()
+	d.handleStatus(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+// ── handleLogs 분기 ──────────────────────────────────────
+
+func TestHandleLogs_NotRunning(t *testing.T) {
+	d := &Daemon{
+		containers: map[string]*Container{},
+	}
+	req := httptest.NewRequest("GET", "/api/logs/nonexistent", nil)
+	req.SetPathValue("name", "nonexistent")
+	w := httptest.NewRecorder()
+	d.handleLogs(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// ── discoverByLabel 테스트 ───────────────────────────────
+
+func TestDiscoverByLabel_FuncExists(t *testing.T) {
+	src := readSource(t, "docker.go")
+	if !strings.Contains(src, "func discoverByLabel") {
+		t.Fatal("discoverByLabel must exist")
+	}
+}
+
+// ── webhook dispatch guard ──────────────────────────────
+
+func TestWebhookDispatch_FuncExists(t *testing.T) {
+	src := readSource(t, "webhook.go")
+	if !strings.Contains(src, "func DispatchTaskComplete") {
+		t.Fatal("DispatchTaskComplete must exist")
+	}
+	if !strings.Contains(src, "func DispatchTaskFailed") {
+		t.Fatal("DispatchTaskFailed must exist")
+	}
+}
+
+// ── repo watcher guard ──────────────────────────────────
+
+func TestRepoWatcher_FuncExists(t *testing.T) {
+	src := readSource(t, "repo_watcher.go")
+	if !strings.Contains(src, "func startRepoWatcher") {
+		t.Fatal("startRepoWatcher must exist")
+	}
+}
+
+// ── credential watcher 분기 ─────────────────────────────
+
+func TestIsApproachingExpiry_FarFuture(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "cred.json")
+	future := time.Now().Add(24 * time.Hour).UnixMilli()
+	os.WriteFile(f, []byte(fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d}}`, future)), 0600)
+	approaching, _ := isApproachingExpiry(f, 1*time.Hour)
+	if approaching {
+		t.Fatal("far future should not be approaching")
+	}
+}
+
+func TestIsApproachingExpiry_NearExpiry(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "cred.json")
+	near := time.Now().Add(30 * time.Minute).UnixMilli()
+	os.WriteFile(f, []byte(fmt.Sprintf(`{"claudeAiOauth":{"expiresAt":%d}}`, near)), 0600)
+	approaching, _ := isApproachingExpiry(f, 1*time.Hour)
+	if !approaching {
+		t.Fatal("near expiry should be approaching")
 	}
 }
