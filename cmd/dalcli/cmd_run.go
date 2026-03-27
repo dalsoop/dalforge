@@ -263,8 +263,7 @@ func runAgentLoop(dalName string) error {
 func isDalOnlyChanges(porcelainOutput string) bool {
 	lines := strings.Split(porcelainOutput, "\n")
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		// git porcelain format: "XY filename" or "XY filename -> renamed"
@@ -336,7 +335,7 @@ func autoGitWorkflow(dalName string) string {
 		return fmt.Sprintf("⚠️ 푸시 실패: %v", err)
 	}
 
-	// Skip PR for .dal/-only changes (internal metadata, context sync, etc.)
+	// Skip PR for .dal/-only changes (internal metadata, etc.)
 	if dalOnly {
 		run("git", "checkout", "main")
 		return fmt.Sprintf("✅ .dal/ 전용 변경 — 커밋+푸시 완료, PR 스킵\n브랜치: `%s`", branch)

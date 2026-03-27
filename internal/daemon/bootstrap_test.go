@@ -381,36 +381,6 @@ func TestSleep_DeletesContainerFromMap(t *testing.T) {
 	}
 }
 
-// ── context watcher 테스트 ───────────────────────────────
-
-func TestContextWatcher_Exists(t *testing.T) {
-	src := readSource(t, "context_watcher.go")
-	if !strings.Contains(src, "startContextWatcher") {
-		t.Fatal("context_watcher.go must have startContextWatcher")
-	}
-}
-
-func TestContextWatcher_IntervalDefined(t *testing.T) {
-	src := readSource(t, "context_watcher.go")
-	if !strings.Contains(src, "contextSyncInterval") {
-		t.Fatal("must define contextSyncInterval")
-	}
-}
-
-func TestContextWatcher_ChecksScript(t *testing.T) {
-	src := readSource(t, "context_watcher.go")
-	if !strings.Contains(src, "context-sync.sh") {
-		t.Fatal("must check for context-sync.sh")
-	}
-}
-
-func TestContextWatcher_ChecksClaudeExtract(t *testing.T) {
-	src := readSource(t, "context_watcher.go")
-	if !strings.Contains(src, "claude-extract") {
-		t.Fatal("must check for claude-extract binary")
-	}
-}
-
 // ── registry 테스트 ──────────────────────────────────────
 
 func TestRegistry_SetAndGet(t *testing.T) {

@@ -128,9 +128,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start credential watcher
 	go startCredentialWatcher(ctx)
 
-	// Start context watcher (extract host Claude session → .dal/context/)
-	go startContextWatcher(ctx, d.serviceRepo)
-
 	// Start repo watcher (git fetch/pull → sync on .dal/ changes)
 	go startRepoWatcher(ctx, d.serviceRepo, func() {
 		d.runSync()
