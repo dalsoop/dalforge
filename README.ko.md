@@ -46,8 +46,9 @@ dalcenter sleep --all
   skills/code-review/SKILL.md          ← 공유 스킬
 
 dalcenter serve
-  → soft-serve (git 서버) 시작
   → HTTP API 시작
+  → repo-watcher 시작 (2분 간격 git fetch/pull)
+  → cred-watcher 시작 (토큰 만료 자동 갱신)
 
 dalcenter wake dev
   → .dal/dev/dal.cue 읽기
@@ -56,14 +57,20 @@ dalcenter wake dev
   → 스킬, 인증, 서비스 레포 마운트
   → dalcli 바이너리 주입
   → dal이 작업 시작
+
+git push (GitHub)
+  → repo-watcher가 원격 변경 감지 (2분 이내)
+  → git pull --ff-only
+  → .dal/ 변경 시 → 실행 중인 컨테이너에 자동 sync
 ```
 
 ## 구조
 
 ```
 LXC: dalcenter
-├── dalcenter serve          HTTP API + soft-serve + Docker 관리
-├── soft-serve               localdal git 호스팅 + webhook
+├── dalcenter serve          HTTP API + Docker 관리
+│   ├── repo-watcher         git fetch/pull → 자동 sync
+│   └── cred-watcher         토큰 만료 → 자동 갱신
 ├── Docker: leader (claude)  dalcli-leader 내장
 ├── Docker: dev (claude)     dalcli 내장
 └── Docker: dev-2 (claude)   복수 소환 가능
@@ -72,8 +79,8 @@ LXC: dalcenter
 ## CLI
 
 ```
-dalcenter serve                   # 데몬 (HTTP API + soft-serve + Docker)
-dalcenter init --repo <path>      # localdal 초기화 (.dal/ + soft-serve + subtree)
+dalcenter serve                   # 데몬 (HTTP API + repo-watcher + Docker)
+dalcenter init --repo <path>      # localdal 초기화 (.dal/ + subtree)
 dalcenter wake <dal> [--all]      # Docker 컨테이너 생성
 dalcenter sleep <dal> [--all]     # Docker 컨테이너 정지
 dalcenter sync                    # 변경사항 → 실행중인 dal에 반영
