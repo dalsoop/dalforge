@@ -249,7 +249,11 @@ func (m *MattermostBridge) fetchDMChannelIDs() ([]string, error) {
 	}
 	var dms []string
 	for _, ch := range channels {
-		if ch.Type == "D" && ch.ID != m.ChannelID {
+		if ch.ID == m.ChannelID {
+			continue // skip main channel (already polled)
+		}
+		// Include DMs and any other channels this bot is a member of
+		if ch.Type == "D" || ch.Type == "O" || ch.Type == "P" {
 			dms = append(dms, ch.ID)
 		}
 	}
