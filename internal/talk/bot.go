@@ -41,21 +41,16 @@ func SetupBot(mmURL, adminToken, teamID, channelID, username, displayName, descr
 		}
 	}
 
-	// Reuse existing token if available, otherwise create new one
-	var token, tokenID string
+	// Revoke all existing tokens, then create exactly one new token
 	existingTokens, _ := mmAPI("GET", mmURL+"/api/v4/users/"+userID+"/tokens", adminToken, "")
 	if existingTokens != nil {
-		var tokens []map[string]interface{}
-		if json.Unmarshal(existingTokens, &tokens) == nil && len(tokens) > 0 {
-			// Reuse first active token's ID (can't read the token value, need new one)
-			// But if we already have too many tokens, revoke old ones first
-			for i, t := range tokens {
-				if i >= 2 { // keep max 2 tokens, revoke older ones
-					if tid, ok := t["id"].(string); ok {
-						mmAPI("POST", mmURL+"/api/v4/users/"+userID+"/tokens/revoke", adminToken,
-							fmt.Sprintf(`{"token_id":%q}`, tid))
-					}
-				}
+		var tokens []struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(existingTokens, &tokens) == nil {
+			for _, t := range tokens {
+				mmAPI("POST", mmURL+"/api/v4/users/"+userID+"/tokens/revoke", adminToken,
+					fmt.Sprintf(`{"token_id":%q}`, t.ID))
 			}
 		}
 	}
@@ -64,8 +59,8 @@ func SetupBot(mmURL, adminToken, teamID, channelID, username, displayName, descr
 	if err != nil {
 		return nil, fmt.Errorf("create token: %w", err)
 	}
-	token = jsonStr(tokenResp, "token")
-	tokenID = jsonStr(tokenResp, "id")
+	token := jsonStr(tokenResp, "token")
+	tokenID := jsonStr(tokenResp, "id")
 
 	// Add to team
 	_, err = mmAPI("POST", mmURL+"/api/v4/teams/"+teamID+"/members", adminToken,
