@@ -243,6 +243,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/escalations", d.handleEscalations)
 	mux.HandleFunc("POST /api/escalations/{id}/resolve", d.requireAuth(d.handleResolveEscalation))
 	// A2A protocol endpoints
+	mux.HandleFunc("GET /api/provider-status", d.handleProviderStatus)
+	mux.HandleFunc("POST /api/provider-trip", d.handleProviderTrip)
+
 	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
 	mux.HandleFunc("POST /rpc", d.requireAuth(d.handleA2ARPC))
 

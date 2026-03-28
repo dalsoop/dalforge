@@ -568,6 +568,46 @@ func notifyCredentialRefresh(dalName string) {
 	log.Printf("[agent] credential refresh requested for %s", dalName)
 }
 
+// fetchCentralProvider checks the dalcenter daemon's centralized provider circuit.
+// Returns the active provider (e.g. "codex") or empty string if unavailable.
+func fetchCentralProvider() string {
+	dcURL := os.Getenv("DALCENTER_URL")
+	if dcURL == "" {
+		return ""
+	}
+	resp, err := http.Get(dcURL + "/api/provider-status")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	var result struct {
+		ActiveProvider string `json:"active_provider"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+	return result.ActiveProvider
+}
+
+// reportCentralTrip reports a rate limit to the dalcenter daemon's centralized circuit.
+func reportCentralTrip(dalName, reason string) {
+	dcURL := os.Getenv("DALCENTER_URL")
+	if dcURL == "" {
+		return
+	}
+	body := fmt.Sprintf(`{"dal_name":%q,"reason":%q}`, dalName, reason)
+	resp, err := http.Post(dcURL+"/api/provider-trip", "application/json", strings.NewReader(body))
+	if err != nil {
+		log.Printf("[central-circuit] trip report failed: %v", err)
+		return
+	}
+	resp.Body.Close()
+	log.Printf("[central-circuit] reported trip to daemon (by %s)", dalName)
+}
+
 func fetchAgentConfig(dalName string) (*agentConfig, error) {
 	dcURL := os.Getenv("DALCENTER_URL")
 	if dcURL == "" {
@@ -598,7 +638,17 @@ func executeTask(task string) (string, error) {
 	player := os.Getenv("DAL_PLAYER")
 	fallbackPlayer := detectFallback(player)
 
-	// If circuit is open, try fallback provider first
+	// Check centralized provider circuit first (dalcenter daemon level)
+	if centralPlayer := fetchCentralProvider(); centralPlayer != "" && centralPlayer != player {
+		log.Printf("[central-circuit] using %s (central override)", centralPlayer)
+		out, err := runProvider(centralPlayer, task)
+		if err == nil {
+			return out, nil
+		}
+		log.Printf("[central-circuit] %s failed: %v, falling through to local circuit", centralPlayer, err)
+	}
+
+	// Local circuit breaker fallback
 	if providerCircuit.ShouldFallback() && fallbackPlayer != "" {
 		log.Printf("[circuit] primary %s is open, trying fallback %s", player, fallbackPlayer)
 		out, err := runProvider(fallbackPlayer, task)
@@ -606,7 +656,6 @@ func executeTask(task string) (string, error) {
 			return out, nil
 		}
 		log.Printf("[circuit] fallback %s also failed: %v", fallbackPlayer, err)
-		// Fall through to retry primary
 	}
 
 	var lastOut string
@@ -634,6 +683,11 @@ func executeTask(task string) (string, error) {
 
 		// 모든 provider 에러 → circuit breaker에 기록
 		providerCircuit.RecordFailure()
+
+		// Rate limit → 중앙 서킷브레이커에 보고
+		if isRetryable(out) && providerCircuit.ShouldFallback() {
+			reportCentralTrip(os.Getenv("DAL_NAME"), truncate(out, 200))
+		}
 
 		// circuit open → fallback 시도
 		if providerCircuit.ShouldFallback() && fallbackPlayer != "" {
