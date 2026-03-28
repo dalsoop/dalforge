@@ -66,20 +66,37 @@ func newTellCmd() *cobra.Command {
 }
 
 // resolveRepoURL looks up the dalcenter URL for a given repo name.
-// Uses DALCENTER_URLS env var with format: "repo1=http://host1:port1,repo2=http://host2:port2"
+// Priority: 1) DALCENTER_URLS env  2) auto-detect from /etc/dalcenter/<repo>.env
 func resolveRepoURL(repo string) (string, error) {
-	urls := os.Getenv("DALCENTER_URLS")
-	if urls == "" {
-		return "", fmt.Errorf("DALCENTER_URLS is not set")
-	}
-	for _, entry := range strings.Split(urls, ",") {
-		entry = strings.TrimSpace(entry)
-		parts := strings.SplitN(entry, "=", 2)
-		if len(parts) == 2 && parts[0] == repo {
-			return strings.TrimRight(parts[1], "/"), nil
+	// 1. Explicit env var
+	if urls := os.Getenv("DALCENTER_URLS"); urls != "" {
+		for _, entry := range strings.Split(urls, ",") {
+			entry = strings.TrimSpace(entry)
+			parts := strings.SplitN(entry, "=", 2)
+			if len(parts) == 2 && parts[0] == repo {
+				return strings.TrimRight(parts[1], "/"), nil
+			}
 		}
 	}
-	return "", fmt.Errorf("repo %q not found in DALCENTER_URLS", repo)
+
+	// 2. Auto-detect from /etc/dalcenter/<repo>.env
+	envFile := filepath.Join("/etc/dalcenter", repo+".env")
+	data, err := os.ReadFile(envFile)
+	if err == nil {
+		var port string
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "DALCENTER_PORT=") {
+				port = strings.TrimPrefix(line, "DALCENTER_PORT=")
+				break
+			}
+		}
+		if port != "" {
+			return "http://localhost:" + port, nil
+		}
+	}
+
+	return "", fmt.Errorf("repo %q not found (no DALCENTER_URLS, no /etc/dalcenter/%s.env)", repo, repo)
 }
 
 // currentRepoName returns the current repository name from the working directory.
