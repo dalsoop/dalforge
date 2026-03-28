@@ -630,15 +630,11 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the bot token for the sender
-	d.mu.RLock()
-	c, ok := d.containers[req.From]
-	d.mu.RUnlock()
-
-	token := d.mm.AdminToken // fallback to admin token
-	if ok && c.BotToken != "" {
-		token = c.BotToken
-	}
+	// Use admin token when posting TO a dal (so the dal sees it as external message).
+	// Bot token would make the dal's bridge skip the message as "self".
+	// Bot token is only for the dal's OWN responses — if we use the dal's bot token here,
+	// the dal's bridge will skip the message as "self".
+	token := d.mm.AdminToken
 
 	// Post message (with optional thread)
 	var body string
