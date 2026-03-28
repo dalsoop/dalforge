@@ -43,6 +43,25 @@ func runAgentLoop(dalName string) error {
 	cfg, err := fetchAgentConfig(dalName)
 	mmAvailable := err == nil && cfg != nil && cfg.BotToken != "" && cfg.MMURL != "" && cfg.ChannelID != ""
 
+	// Fallback: 환경변수에서 MM 정보 직접 읽기 (호스트 모드 — Docker 없이 실행 시)
+	if !mmAvailable {
+		if envURL := os.Getenv("DAL_MM_URL"); envURL != "" {
+			if envToken := os.Getenv("DAL_BOT_TOKEN"); envToken != "" {
+				if envCh := os.Getenv("DAL_CHANNEL_ID"); envCh != "" {
+					cfg = &agentConfig{
+						DalName:     dalName,
+						MMURL:       envURL,
+						BotToken:    envToken,
+						ChannelID:   envCh,
+						TeamMembers: os.Getenv("DAL_TEAM_MEMBERS"),
+					}
+					mmAvailable = true
+					log.Printf("[agent] using env-based MM config (host mode)")
+				}
+			}
+		}
+	}
+
 	// Auto-task-only mode: MM 없어도 auto_task만 돌릴 수 있음 (scribe 등 백그라운드 dal)
 	autoTask := os.Getenv("DAL_AUTO_TASK")
 	if !mmAvailable && autoTask != "" {
