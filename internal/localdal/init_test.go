@@ -84,9 +84,9 @@ func TestInit_CreatesScribeDal(t *testing.T) {
 		t.Fatal("scribe/dal.cue not created")
 	}
 
-	instr := filepath.Join(root, "scribe", "instructions.md")
+	instr := filepath.Join(root, "scribe", "charter.md")
 	if _, err := os.Stat(instr); err != nil {
-		t.Fatal("scribe/instructions.md not created")
+		t.Fatal("scribe/charter.md not created")
 	}
 
 	data, _ := os.ReadFile(cue)
@@ -189,7 +189,7 @@ func TestInit_FullStructure(t *testing.T) {
 		"decisions-archive.md",
 		"wisdom.md",
 		"scribe/dal.cue",
-		"scribe/instructions.md",
+		"scribe/charter.md",
 		"skills/inbox-protocol/SKILL.md",
 		"skills/history-hygiene/SKILL.md",
 		"skills/escalation/SKILL.md",

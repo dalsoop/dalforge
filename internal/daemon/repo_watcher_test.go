@@ -28,7 +28,7 @@ func initBareAndClone(t *testing.T) (string, string) {
 	// Initial commit with .dal/
 	dalDir := filepath.Join(cloneDir, ".dal", "leader")
 	os.MkdirAll(dalDir, 0755)
-	os.WriteFile(filepath.Join(dalDir, "instructions.md"), []byte("# Leader v1\n"), 0644)
+	os.WriteFile(filepath.Join(dalDir, "charter.md"), []byte("# Leader v1\n"), 0644)
 	run(t, cloneDir, "git", "add", ".")
 	run(t, cloneDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "init")
 	run(t, cloneDir, "git", "push")
@@ -140,7 +140,7 @@ func TestFetchAndPull_DalChanged(t *testing.T) {
 	bareDir, cloneDir := initBareAndClone(t)
 
 	// Push a .dal/ change via another clone
-	pushToBare(t, bareDir, ".dal/leader/instructions.md", "# Leader v2 — updated\n")
+	pushToBare(t, bareDir, ".dal/leader/charter.md", "# Leader v2 — updated\n")
 
 	changed := fetchAndPull(cloneDir)
 	if !changed {
@@ -148,7 +148,7 @@ func TestFetchAndPull_DalChanged(t *testing.T) {
 	}
 
 	// Verify file was pulled
-	content, _ := os.ReadFile(filepath.Join(cloneDir, ".dal", "leader", "instructions.md"))
+	content, _ := os.ReadFile(filepath.Join(cloneDir, ".dal", "leader", "charter.md"))
 	if string(content) != "# Leader v2 — updated\n" {
 		t.Errorf("file not updated after pull: %q", string(content))
 	}
@@ -193,7 +193,7 @@ func TestFetchAndPull_MultipleCommits(t *testing.T) {
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "readme")
 
 	os.MkdirAll(filepath.Join(pushDir, ".dal", "dev"), 0755)
-	os.WriteFile(filepath.Join(pushDir, ".dal", "dev", "instructions.md"), []byte("# Dev\n"), 0644)
+	os.WriteFile(filepath.Join(pushDir, ".dal", "dev", "charter.md"), []byte("# Dev\n"), 0644)
 	run(t, pushDir, "git", "add", ".")
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "add dev dal")
 	run(t, pushDir, "git", "push")
@@ -207,7 +207,7 @@ func TestFetchAndPull_MultipleCommits(t *testing.T) {
 func TestFetchAndPull_Idempotent(t *testing.T) {
 	bareDir, cloneDir := initBareAndClone(t)
 
-	pushToBare(t, bareDir, ".dal/leader/instructions.md", "# Leader v2\n")
+	pushToBare(t, bareDir, ".dal/leader/charter.md", "# Leader v2\n")
 
 	// First call: should detect change
 	if !fetchAndPull(cloneDir) {
@@ -223,11 +223,11 @@ func TestFetchAndPull_Idempotent(t *testing.T) {
 func TestFetchAndPull_DalFileDeleted(t *testing.T) {
 	bareDir, cloneDir := initBareAndClone(t)
 
-	// Delete .dal/leader/instructions.md via another clone
+	// Delete .dal/leader/charter.md via another clone
 	tmp := t.TempDir()
 	run(t, tmp, "git", "clone", bareDir, tmp+"/push")
 	pushDir := tmp + "/push"
-	os.Remove(filepath.Join(pushDir, ".dal", "leader", "instructions.md"))
+	os.Remove(filepath.Join(pushDir, ".dal", "leader", "charter.md"))
 	run(t, pushDir, "git", "add", "-A")
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "delete instructions")
 	run(t, pushDir, "git", "push")
@@ -238,7 +238,7 @@ func TestFetchAndPull_DalFileDeleted(t *testing.T) {
 	}
 
 	// Verify file is gone
-	if _, err := os.Stat(filepath.Join(cloneDir, ".dal", "leader", "instructions.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cloneDir, ".dal", "leader", "charter.md")); !os.IsNotExist(err) {
 		t.Error("file should be deleted after pull")
 	}
 }
@@ -298,7 +298,7 @@ func TestFetchAndPull_MixedDalAndNonDal(t *testing.T) {
 
 	os.WriteFile(filepath.Join(pushDir, "README.md"), []byte("updated\n"), 0644)
 	os.MkdirAll(filepath.Join(pushDir, ".dal", "dev"), 0755)
-	os.WriteFile(filepath.Join(pushDir, ".dal", "dev", "instructions.md"), []byte("# Dev\n"), 0644)
+	os.WriteFile(filepath.Join(pushDir, ".dal", "dev", "charter.md"), []byte("# Dev\n"), 0644)
 	run(t, pushDir, "git", "add", ".")
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "mixed")
 	run(t, pushDir, "git", "push")

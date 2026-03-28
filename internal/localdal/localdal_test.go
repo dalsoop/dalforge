@@ -338,7 +338,7 @@ player: "claude"
 model: "sonnet"
 role: "member"
 `), 0644)
-	os.WriteFile(filepath.Join(dalDir, "instructions.md"), []byte("# Test"), 0644)
+	os.WriteFile(filepath.Join(dalDir, "charter.md"), []byte("# Test"), 0644)
 
 	p, err := ReadDalCue(filepath.Join(dalDir, "dal.cue"), "test-model")
 	if err != nil {

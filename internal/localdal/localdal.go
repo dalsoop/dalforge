@@ -87,8 +87,8 @@ func Init(root string) error {
 		if err := os.WriteFile(filepath.Join(scribeDir, "dal.cue"), []byte(defaultScribeCue), 0644); err != nil {
 			return fmt.Errorf("write scribe dal.cue: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(scribeDir, "instructions.md"), []byte(defaultScribeInstructions), 0644); err != nil {
-			return fmt.Errorf("write scribe instructions.md: %w", err)
+		if err := os.WriteFile(filepath.Join(scribeDir, "charter.md"), []byte(defaultScribeInstructions), 0644); err != nil {
+			return fmt.Errorf("write scribe charter.md: %w", err)
 		}
 	}
 
@@ -203,7 +203,7 @@ const defaultWisdom = `# Wisdom
 피해야 할 것.
 `
 
-// CreateDal creates a new dal folder with dal.cue and instructions.md.
+// CreateDal creates a new dal folder with dal.cue and charter.md.
 func CreateDal(root, name, player string) (*DalProfile, error) {
 	dalDir := filepath.Join(root, name)
 	if _, err := os.Stat(dalDir); err == nil {
@@ -228,7 +228,7 @@ hooks:   []
 		return nil, err
 	}
 
-	if err := os.WriteFile(filepath.Join(dalDir, "instructions.md"), []byte("# "+name+"\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dalDir, "charter.md"), []byte("# "+name+"\n"), 0644); err != nil {
 		return nil, err
 	}
 

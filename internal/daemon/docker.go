@@ -215,8 +215,8 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", skillPath, targetPath))
 	}
 
-	// Mount instructions.md as the right filename
-	instrSrc := filepath.Join(dalDir, "instructions.md")
+	// Mount charter.md as the right filename
+	instrSrc := filepath.Join(dalDir, "charter.md")
 	instrDst := filepath.Join(home, instructionsFileName(dal.Player))
 	args = append(args, "-v", fmt.Sprintf("%s:%s:ro", instrSrc, instrDst))
 

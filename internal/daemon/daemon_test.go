@@ -27,7 +27,7 @@ role:    "leader"
 skills:  []
 hooks:   []
 `), 0644)
-	os.WriteFile(filepath.Join(leaderDir, "instructions.md"), []byte("# Leader\n"), 0644)
+	os.WriteFile(filepath.Join(leaderDir, "charter.md"), []byte("# Leader\n"), 0644)
 
 	// Create dev dal
 	devDir := filepath.Join(root, "dev")
@@ -41,7 +41,7 @@ role:    "member"
 skills:  []
 hooks:   []
 `), 0644)
-	os.WriteFile(filepath.Join(devDir, "instructions.md"), []byte("# Dev\n"), 0644)
+	os.WriteFile(filepath.Join(devDir, "charter.md"), []byte("# Dev\n"), 0644)
 
 	d := New(":0", root, "", nil)
 	return d, root
