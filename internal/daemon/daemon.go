@@ -139,6 +139,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.runSync()
 	})
 
+	// Start peer health watcher (dalcenter HA)
+	go d.startPeerWatcher(ctx)
+
 	// Export MM URL for containers to use
 	if d.mm != nil && d.mm.URL != "" {
 		os.Setenv("DALCENTER_MM_URL", d.mm.URL)
