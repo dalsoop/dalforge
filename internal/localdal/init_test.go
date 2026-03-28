@@ -172,3 +172,92 @@ func TestInit_DecisionsTemplate(t *testing.T) {
 		t.Error("template should contain format guide")
 	}
 }
+
+func TestInit_FullStructure(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+
+	// All expected files
+	expected := []string{
+		"dal.spec.cue",
+		"decisions.md",
+		"decisions-archive.md",
+		"wisdom.md",
+		"scribe/dal.cue",
+		"scribe/instructions.md",
+		"skills/inbox-protocol/SKILL.md",
+		"skills/history-hygiene/SKILL.md",
+		"skills/escalation/SKILL.md",
+		"skills/pre-flight/SKILL.md",
+		"skills/git-workflow/SKILL.md",
+		"skills/reviewer-protocol/SKILL.md",
+	}
+	for _, f := range expected {
+		path := filepath.Join(root, f)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("missing: %s", f)
+		}
+	}
+
+	// .gitattributes in parent (service repo root)
+	gitattrs := filepath.Join(tmp, ".gitattributes")
+	if _, err := os.Stat(gitattrs); err != nil {
+		t.Error("missing .gitattributes in parent dir")
+	}
+}
+
+func TestInit_ScribeDalCueContent(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+	Init(root)
+
+	data, _ := os.ReadFile(filepath.Join(root, "scribe", "dal.cue"))
+	content := string(data)
+
+	checks := []string{"scribe", "haiku", "auto_task", "30m", "dal-scribe", "GITHUB_TOKEN"}
+	for _, check := range checks {
+		if !strings.Contains(content, check) {
+			t.Errorf("scribe dal.cue missing: %q", check)
+		}
+	}
+}
+
+func TestInit_WisdomTemplate(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+	Init(root)
+
+	data, _ := os.ReadFile(filepath.Join(root, "wisdom.md"))
+	content := string(data)
+
+	if !strings.Contains(content, "Patterns") {
+		t.Error("wisdom.md missing Patterns section")
+	}
+	if !strings.Contains(content, "Anti-Patterns") {
+		t.Error("wisdom.md missing Anti-Patterns section")
+	}
+}
+
+func TestInit_GitattributesContent(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+	Init(root)
+
+	data, _ := os.ReadFile(filepath.Join(tmp, ".gitattributes"))
+	content := string(data)
+
+	checks := []string{"decisions.md merge=union", "history.md merge=union", "wisdom.md merge=union"}
+	for _, check := range checks {
+		if !strings.Contains(content, check) {
+			t.Errorf(".gitattributes missing: %q", check)
+		}
+	}
+}
