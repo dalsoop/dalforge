@@ -691,12 +691,30 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 	// the dal's bridge will skip the message as "self".
 	token := d.mm.AdminToken
 
+	// Auto-prefix leader mention so the leader's dalcli picks up the message
+	// dalcli uses: mention=@dal-{name}-{uuidShort} or altMention=@{name}
+	msg := req.Message
+	d.mu.RLock()
+	for _, c := range d.containers {
+		if c.Role == "leader" {
+			// Construct exact mention: @dal-{name}-{uuidShort}
+			short := uuidShort(c.UUID)
+			mention := fmt.Sprintf("@dal-%s-%s", c.DalName, short)
+			altMention := "@" + c.DalName
+			if !strings.Contains(msg, mention) && !strings.Contains(msg, altMention) {
+				msg = mention + " " + msg
+			}
+			break
+		}
+	}
+	d.mu.RUnlock()
+
 	// Post message (with optional thread)
 	var body string
 	if req.ThreadID != "" {
-		body = fmt.Sprintf(`{"channel_id":%q,"message":%q,"root_id":%q}`, d.channelID, req.Message, req.ThreadID)
+		body = fmt.Sprintf(`{"channel_id":%q,"message":%q,"root_id":%q}`, d.channelID, msg, req.ThreadID)
 	} else {
-		body = fmt.Sprintf(`{"channel_id":%q,"message":%q}`, d.channelID, req.Message)
+		body = fmt.Sprintf(`{"channel_id":%q,"message":%q}`, d.channelID, msg)
 	}
 	respBody, err := mmPost(d.mm.URL, token, "/api/v4/posts", body)
 	if err != nil {

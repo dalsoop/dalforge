@@ -177,12 +177,16 @@ func runAgentLoop(dalName string) error {
 
 		// --- MM message handling (existing logic) ---
 		if msg.From == mm.BotUserID {
+			log.Printf("[agent] skipped own message: %s", truncate(msg.Content, 40))
 			continue
 		}
 
 		isDirectMention := strings.Contains(msg.Content, mention) || strings.Contains(msg.Content, altMention)
 		isThreadReply := msg.RootID != "" && isActiveThread(&activeThreads, msg.RootID)
 		isDM := msg.Channel != "" && msg.Channel != cfg.ChannelID // DM = different channel than main
+
+		log.Printf("[agent] msg from=%s mention=%v(m=%q alt=%q) thread=%v dm=%v content=%s",
+			msg.From[:8], isDirectMention, mention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
 
 		if !isDirectMention && !isThreadReply && !isDM {
 			continue

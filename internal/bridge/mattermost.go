@@ -54,7 +54,8 @@ func (m *MattermostBridge) Connect() error {
 	if m.BotUserID == "" {
 		return fmt.Errorf("could not determine bot user ID")
 	}
-	m.lastAt = time.Now().UnixMilli()
+	// Use channel's latest message timestamp to avoid fetching old messages
+	m.lastAt = m.fetchChannelLatestAt(m.ChannelID)
 	go m.poll()
 	return nil
 }
@@ -131,6 +132,13 @@ func (m *MattermostBridge) poll() {
 			case m.messages <- p:
 			case <-m.done:
 				return
+			default:
+				// Buffer full — drop oldest to prevent blocking
+				select {
+				case <-m.messages:
+				default:
+				}
+				m.messages <- p
 			}
 		}
 
@@ -167,7 +175,7 @@ func (m *MattermostBridge) fetchNewPosts() ([]Message, error) {
 				m.dmLastAt[chID] = sinceAt
 			}
 		}
-		path := fmt.Sprintf("/api/v4/channels/%s/posts?since=%d", chID, sinceAt)
+		path := fmt.Sprintf("/api/v4/channels/%s/posts?since=%d&per_page=50", chID, sinceAt)
 		data, err := m.apiGet(path)
 		if err != nil {
 			continue
