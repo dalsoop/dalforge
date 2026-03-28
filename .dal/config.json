@@ -1,0 +1,6 @@
+{
+  "max_duration": "10m",
+  "auto_task_interval": "30m",
+  "context_budget_kb": 50,
+  "peer_url": "http://10.50.0.125:11192"
+}
