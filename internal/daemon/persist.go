@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"os"
@@ -42,10 +44,14 @@ func stateDir(serviceRepo string) string {
 	if base == "" {
 		base = "/var/lib/dalcenter/state"
 	}
-	repoName := filepath.Base(serviceRepo)
-	if repoName == "" || repoName == "." {
-		repoName = "default"
+	// Use basename + short hash to avoid collisions between same-named repos
+	baseName := filepath.Base(serviceRepo)
+	if baseName == "" || baseName == "." {
+		baseName = "default"
 	}
+	absPath, _ := filepath.Abs(serviceRepo)
+	h := sha256.Sum256([]byte(absPath))
+	repoName := baseName + "-" + hex.EncodeToString(h[:])[:6]
 	dir := filepath.Join(base, repoName)
 	os.MkdirAll(dir, 0o755)
 	return dir

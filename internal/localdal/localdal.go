@@ -153,10 +153,11 @@ const defaultScribeCue = `uuid:           "scribe-auto"
 name:           "scribe"
 version:        "1.0.0"
 player:         "claude"
+model:          "haiku"
 role:           "member"
 skills:         []
 hooks:          []
-auto_task:      "1. /workspace/decisions/inbox/ 파일 → decisions.md 병합 (중복 제거 후 삭제). 2. 각 dal history-buffer → .dal/{name}/history.md 병합. 3. wisdom/inbox → wisdom.md 병합. 4. history.md 12KB 초과 시 Core Context 압축. 5. decisions.md 50KB 초과 시 30일+ 항목 archive. 6. 변경 시 git add + commit + push."
+auto_task:      "1. /workspace/decisions/inbox/ 파일 → decisions.md 병합 (중복 제거 후 삭제). 2. 각 dal /workspace/history-buffer/ → .dal/{name}/history.md 병합. 3. /workspace/wisdom-inbox/ → wisdom.md 병합. 4. history.md 12KB 초과 시 Core Context 압축. 5. decisions.md 50KB 초과 시 30일+ 항목 archive. 6. 변경 시 git add + commit + push."
 auto_interval:  "30m"
 git: {
 	user:         "dal-scribe"
@@ -171,9 +172,9 @@ const defaultScribeInstructions = `# Scribe — 문서 관리자
 팀 공유 기억의 유일한 file writer + committer. 사용자에게 보이지 않는 백그라운드 dal.
 
 ## Responsibilities
-1. decisions/inbox/ → decisions.md 병합 (중복 제거: By + What 조합 기준)
-2. wisdom/inbox/ → wisdom.md 병합
-3. history-buffer/{name}.md → .dal/{name}/history.md 병합
+1. /workspace/decisions/inbox/ → decisions.md 병합 (중복 제거: By + What 조합 기준)
+2. /workspace/wisdom-inbox/ → wisdom.md 병합
+3. /workspace/history-buffer/{name}.md → .dal/{name}/history.md 병합
 4. history.md 12KB 초과 시 Core Context로 압축
 5. decisions.md 50KB 초과 시 30일+ 항목 → decisions-archive.md
 6. 변경 시 git add + commit + push

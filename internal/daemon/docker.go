@@ -146,6 +146,8 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	isCloneMode := dal.Workspace == "clone"
 	if serviceRepo != "" && !isCloneMode {
 		args = append(args, "-v", fmt.Sprintf("%s:%s", serviceRepo, containerWorkDir))
+		// .dal/ ro overlay — member가 .dal/ 우회 수정 방지 (Docker 후순위 mount가 이김)
+		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", localdalRoot, filepath.Join(containerWorkDir, ".dal")))
 	}
 
 	// Mount credentials (player-specific)

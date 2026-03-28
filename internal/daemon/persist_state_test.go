@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -11,8 +12,9 @@ func TestStateDir_CreatesDirectory(t *testing.T) {
 	t.Setenv("DALCENTER_STATE_DIR", tmp)
 
 	dir := stateDir("/path/to/myrepo")
-	if filepath.Base(dir) != "myrepo" {
-		t.Errorf("got %s, want myrepo suffix", dir)
+	base := filepath.Base(dir)
+	if !strings.HasPrefix(base, "myrepo-") {
+		t.Errorf("got %s, want myrepo-{hash} prefix", base)
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("directory not created: %v", err)
@@ -24,8 +26,9 @@ func TestStateDir_DefaultName(t *testing.T) {
 	t.Setenv("DALCENTER_STATE_DIR", tmp)
 
 	dir := stateDir("")
-	if filepath.Base(dir) != "default" {
-		t.Errorf("got %s, want default", filepath.Base(dir))
+	base := filepath.Base(dir)
+	if !strings.HasPrefix(base, "default-") {
+		t.Errorf("got %s, want default-{hash} prefix", base)
 	}
 }
 
