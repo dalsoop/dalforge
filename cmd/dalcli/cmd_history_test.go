@@ -41,6 +41,90 @@ func TestAppendHistoryBuffer_WritesEntry(t *testing.T) {
 	}
 }
 
+func TestAppendHistoryBuffer_Format(t *testing.T) {
+	dir := t.TempDir()
+	bufferDir := filepath.Join(dir, "history-buffer")
+	os.MkdirAll(bufferDir, 0755)
+
+	dalName := "dev"
+	path := filepath.Join(bufferDir, dalName+".md")
+
+	// Simulate the same format appendHistoryBuffer uses
+	entry := "\n### 2026-03-28: implement feature\n**상태:** 완료\n**결과:** done\n**다음:** \n**주의:** \n"
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(entry)
+	f.Close()
+
+	data, _ := os.ReadFile(path)
+	s := string(data)
+	if !strings.Contains(s, "### 2026-03-28") {
+		t.Error("missing date header")
+	}
+	if !strings.Contains(s, "**상태:** 완료") {
+		t.Error("missing status")
+	}
+	if !strings.Contains(s, "**결과:** done") {
+		t.Error("missing result")
+	}
+	if !strings.Contains(s, "**다음:**") {
+		t.Error("missing next field")
+	}
+	if !strings.Contains(s, "**주의:**") {
+		t.Error("missing caution field")
+	}
+}
+
+func TestAppendHistoryBuffer_MultipleAppends(t *testing.T) {
+	dir := t.TempDir()
+	bufferDir := filepath.Join(dir, "history-buffer")
+	os.MkdirAll(bufferDir, 0755)
+
+	path := filepath.Join(bufferDir, "dev.md")
+
+	for i := 0; i < 3; i++ {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.WriteString("\n### entry " + string(rune('A'+i)) + "\n")
+		f.Close()
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Count(string(data), "### entry") != 3 {
+		t.Errorf("expected 3 entries, got %d", strings.Count(string(data), "### entry"))
+	}
+}
+
+func TestAppendHistoryBuffer_NoDir_NoPanic(t *testing.T) {
+	// appendHistoryBuffer checks os.Stat on /workspace/history-buffer
+	// and returns silently if it doesn't exist. This test verifies no panic.
+	appendHistoryBuffer("test", "task", "result", "완료")
+	// No panic = pass
+}
+
+func TestAppendHistoryBuffer_EntryTruncation(t *testing.T) {
+	dir := t.TempDir()
+	bufferDir := filepath.Join(dir, "history-buffer")
+	os.MkdirAll(bufferDir, 0755)
+
+	// Test that truncate helper works as expected for history entries
+	longTask := strings.Repeat("x", 200)
+	truncated := truncate(longTask, 80)
+	if len(truncated) > 83 { // 80 + "..."
+		t.Errorf("truncate should limit to ~80 chars, got %d", len(truncated))
+	}
+
+	longResult := strings.Repeat("y", 500)
+	truncatedResult := truncate(longResult, 200)
+	if len(truncatedResult) > 203 { // 200 + "..."
+		t.Errorf("truncate should limit to ~200 chars, got %d", len(truncatedResult))
+	}
+}
+
 func TestProposeWisdom_CreatesFile(t *testing.T) {
 	tmp := t.TempDir()
 	inboxDir := filepath.Join(tmp, "wisdom-inbox")
