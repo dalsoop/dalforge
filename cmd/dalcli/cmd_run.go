@@ -636,10 +636,16 @@ func executeTask(task string) (string, error) {
 }
 
 // detectFallback returns the fallback player for the given primary.
+// Priority: DAL_FALLBACK_PLAYER env (from dal.cue) → auto-detect by availability.
 func detectFallback(primary string) string {
+	if fp := os.Getenv("DAL_FALLBACK_PLAYER"); fp != "" {
+		if fp != primary {
+			return fp
+		}
+		// fallback_player == primary makes no sense; fall through to auto-detect
+	}
 	switch primary {
 	case "claude":
-		// Check if codex is available
 		if _, err := exec.LookPath("codex"); err == nil {
 			return "codex"
 		}

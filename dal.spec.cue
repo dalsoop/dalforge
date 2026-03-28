@@ -170,7 +170,8 @@ builtin_categories: {
 	uuid!:        string & != ""
 	name!:        string & != ""
 	version!:     #SemVer
-	player!:      "claude" | "codex" | "gemini"
+	player!:           "claude" | "codex" | "gemini"
+	fallback_player?:  "claude" | "codex" | "gemini"
 	description?: string
 	container?: #ContainerSpec
 	skills?: [...string]

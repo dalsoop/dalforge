@@ -17,8 +17,9 @@ type DalProfile struct {
 	UUID       string
 	Name       string
 	Version    string
-	Player        string
-	PlayerVersion string // e.g. "2.1.81" for claude, empty = latest
+	Player         string
+	FallbackPlayer string // fallback player when primary fails (empty = auto-detect)
+	PlayerVersion  string // e.g. "2.1.81" for claude, empty = latest
 	Role          string // "leader" or "member"
 	Model         string // optional model override (opus, sonnet, haiku)
 	Skills     []string
@@ -311,6 +312,9 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	if v := val.LookupPath(cue.ParsePath("player")); v.Exists() {
 		p.Player, _ = v.String()
 	}
+	if v := val.LookupPath(cue.ParsePath("fallback_player")); v.Exists() {
+		p.FallbackPlayer, _ = v.String()
+	}
 	if v := val.LookupPath(cue.ParsePath("player_version")); v.Exists() {
 		p.PlayerVersion, _ = v.String()
 	}
@@ -399,8 +403,9 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 	uuid!:           string & != ""
 	name!:           string & != ""
 	version!:        string
-	player!:         #Player
-	role!:           #Role
+	player!:           #Player
+	fallback_player?:  #Player
+	role!:             #Role
 	skills?:         [...string]
 	hooks?:          [...string]
 	model?:          string
