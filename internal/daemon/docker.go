@@ -328,6 +328,11 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	}
 
 	// Auto task: periodic self-execution
+	// DAL_MAX_DURATION — 호스트 환경변수에서 전달
+	if maxDur := os.Getenv("DAL_MAX_DURATION"); maxDur != "" {
+		args = append(args, "-e", fmt.Sprintf("DAL_MAX_DURATION=%s", maxDur))
+	}
+
 	if dal.AutoTask != "" {
 		args = append(args, "-e", fmt.Sprintf("DAL_AUTO_TASK=%s", dal.AutoTask))
 		if dal.AutoInterval != "" {
