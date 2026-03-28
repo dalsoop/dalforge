@@ -693,9 +693,10 @@ func runClaude(player, task string) (string, error) {
 	var cmd *exec.Cmd
 	switch player {
 	case "codex":
+		workDir, _ := os.Getwd()
 		cmd = exec.Command("codex", "exec",
 			"--dangerously-bypass-approvals-and-sandbox",
-			"-C", "/workspace",
+			"-C", workDir,
 			task)
 	default: // claude
 		// Build allowed tools based on role and extra permissions
