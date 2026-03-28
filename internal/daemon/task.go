@@ -25,6 +25,8 @@ type taskResult struct {
 	GitDiff    string `json:"git_diff,omitempty"`    // workspace git diff after task
 	GitChanges int    `json:"git_changes,omitempty"` // number of files changed
 	Verified   string `json:"verified,omitempty"`    // "yes", "no_changes", "skipped"
+	// Post-task build/test verification
+	Completion *CompletionResult `json:"completion,omitempty"`
 }
 
 // taskStore manages running and completed direct tasks.
@@ -230,6 +232,9 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 
 		// Post-task verification: check git diff in workspace
 		verifyTaskChanges(c.ContainerID, tr)
+
+		// Post-task completion: run go build + go test
+		runCompletion(c.ContainerID, tr)
 
 		log.Printf("[task] %s done (%d bytes, verified=%s, changes=%d)", tr.ID, len(tr.Output), tr.Verified, tr.GitChanges)
 
