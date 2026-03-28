@@ -20,21 +20,20 @@ type BotInfo struct {
 func SetupBot(mmURL, adminToken, teamID, channelID, username, displayName, description string) (*BotInfo, error) {
 	mmURL = strings.TrimRight(mmURL, "/")
 
-	// Try to create bot
-	botBody := fmt.Sprintf(`{"username":%q,"display_name":%q,"description":%q}`,
-		username, displayName, description)
-	botResp, err := mmAPI("POST", mmURL+"/api/v4/bots", adminToken, botBody)
-
+	// Reuse existing bot if found
 	var userID string
-	if err != nil {
-		// Bot may already exist — try to find it
-		userID = findExistingBotUserID(mmURL, adminToken, username)
-		if userID == "" {
-			return nil, fmt.Errorf("create bot: %w (and existing bot not found)", err)
-		}
+	userID = findExistingBotUserID(mmURL, adminToken, username)
+	if userID != "" {
 		// Re-enable if disabled
 		mmAPI("POST", mmURL+"/api/v4/bots/"+userID+"/enable", adminToken, "")
 	} else {
+		// No existing bot — create new one
+		botBody := fmt.Sprintf(`{"username":%q,"display_name":%q,"description":%q}`,
+			username, displayName, description)
+		botResp, err := mmAPI("POST", mmURL+"/api/v4/bots", adminToken, botBody)
+		if err != nil {
+			return nil, fmt.Errorf("create bot: %w", err)
+		}
 		userID = jsonStr(botResp, "user_id")
 		if userID == "" {
 			return nil, fmt.Errorf("create bot: no user_id in response: %s", string(botResp))
