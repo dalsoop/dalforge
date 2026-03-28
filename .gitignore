@@ -15,3 +15,8 @@ now.md
 decisions/inbox/
 history-buffer/
 wisdom-inbox/
+
+# dal 런타임 부산물 (컨테이너에서 생성되는 파일)
+.dal/data/
+/wisdom.md
+/decisions.md

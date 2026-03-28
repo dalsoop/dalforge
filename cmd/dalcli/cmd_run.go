@@ -299,6 +299,40 @@ func isDalOnlyChanges(porcelainOutput string) bool {
 	return true
 }
 
+// isOnlyArtifacts returns true if all changes are runtime artifacts (not real code changes).
+func isOnlyArtifacts(porcelainOutput string) bool {
+	artifacts := []string{
+		"wisdom.md",           // root-level copy (not .dal/wisdom.md)
+		"decisions.md",        // root-level copy
+		".dal/data/",          // runtime data
+		"now.md",              // state mount leak
+		"decisions/inbox/",    // state mount leak
+		"history-buffer/",     // state mount leak
+		"wisdom-inbox/",       // state mount leak
+	}
+	lines := strings.Split(porcelainOutput, "\n")
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		file := line
+		if len(file) > 3 {
+			file = file[3:]
+		}
+		isArtifact := false
+		for _, a := range artifacts {
+			if file == a || strings.HasPrefix(file, a) {
+				isArtifact = true
+				break
+			}
+		}
+		if !isArtifact {
+			return false
+		}
+	}
+	return len(lines) > 0
+}
+
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.
 func autoGitWorkflow(dalName string) string {
 	// Check if there are changes
@@ -315,6 +349,12 @@ func autoGitWorkflow(dalName string) string {
 	dalOnly := isDalOnlyChanges(changes)
 	if dalOnly {
 		log.Printf("[git] .dal/ only changes — skipping entirely (no branch, no commit, no push)")
+		return ""
+	}
+
+	// 부산물만 있으면 스킵 (mount로 인한 파일 누출)
+	if isOnlyArtifacts(changes) {
+		log.Printf("[git] artifacts only — skipping (no branch, no commit, no push)")
 		return ""
 	}
 
