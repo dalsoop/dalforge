@@ -37,6 +37,7 @@ type Daemon struct {
 	escalations  *escalationStore
 	claims       *claimStore
 	tasks        *taskStore
+	costTracker  *CostTracker
 	registry     *Registry
 	startTime    time.Time
 }
@@ -74,6 +75,7 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 		escalations:  newEscalationStoreWithFile(filepath.Join(dataDir(serviceRepo), "escalations.json")),
 		claims:       newClaimStoreWithFile(filepath.Join(dataDir(serviceRepo), "claims.json")),
 		tasks:        newTaskStore(),
+		costTracker:  NewCostTracker(serviceRepo),
 		registry:     newRegistry(serviceRepo),
 		startTime:    time.Now(),
 	}
@@ -230,6 +232,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/escalate", d.requireAuth(d.handleEscalate))
 	mux.HandleFunc("GET /api/escalations", d.handleEscalations)
 	mux.HandleFunc("POST /api/escalations/{id}/resolve", d.requireAuth(d.handleResolveEscalation))
+	// Cost tracking endpoints
+	mux.HandleFunc("GET /api/cost/summary", d.handleCostSummary)
+	mux.HandleFunc("GET /api/cost/alerts", d.handleCostAlerts)
+	mux.HandleFunc("POST /api/cost/record", d.requireAuth(d.handleCostRecord))
 	// A2A protocol endpoints
 	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
 	mux.HandleFunc("POST /rpc", d.requireAuth(d.handleA2ARPC))
