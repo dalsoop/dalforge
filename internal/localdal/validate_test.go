@@ -88,7 +88,7 @@ role:    "member"
 skills:  []
 hooks:   []
 `), 0644)
-	os.WriteFile(filepath.Join(dalDir, "instructions.md"), []byte("# bad\n"), 0644)
+	os.WriteFile(filepath.Join(dalDir, "charter.md"), []byte("# bad\n"), 0644)
 
 	// Also need a leader
 	CreateDal(root, "leader", "claude")

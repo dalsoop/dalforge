@@ -70,10 +70,10 @@ func Validate(root string) []string {
 			}
 		}
 
-		// Check instructions.md exists
-		instrPath := filepath.Join(root, d.FolderName, "instructions.md")
+		// Check charter.md exists
+		instrPath := filepath.Join(root, d.FolderName, "charter.md")
 		if _, err := os.Stat(instrPath); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: instructions.md not found", d.FolderName))
+			errors = append(errors, fmt.Sprintf("%s: charter.md not found", d.FolderName))
 		}
 	}
 
