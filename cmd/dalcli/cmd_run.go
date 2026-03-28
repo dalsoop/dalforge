@@ -226,8 +226,11 @@ func runAgentLoop(dalName string) error {
 
 		log.Printf("[agent] done (%d bytes)", len(output))
 
-		// Check if files were modified → auto git workflow
-		gitResult := autoGitWorkflow(dalName)
+		// Check if files were modified → auto git workflow (member only — leader는 라우터, 직접 커밋 안 함)
+		var gitResult string
+		if os.Getenv("DAL_ROLE") != "leader" {
+			gitResult = autoGitWorkflow(dalName)
+		}
 
 		// Extract git changes and PR URL for webhook
 		var gitChanges []string
