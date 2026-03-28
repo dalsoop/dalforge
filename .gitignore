@@ -9,3 +9,9 @@ channels/mattermost/bun.lock
 channels/mattermost/node_modules/
 channels/mattermost/bun.lock
 .claude/worktrees/
+
+# State files mounted from /var/lib/dalcenter/state/ (git 밖)
+now.md
+decisions/inbox/
+history-buffer/
+wisdom-inbox/
