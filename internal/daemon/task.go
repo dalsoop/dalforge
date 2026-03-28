@@ -182,7 +182,7 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 		// Use a shell snippet that reads the container's env at runtime.
 		claudeCmd := fmt.Sprintf(
 			`cd %s && if [ "$DAL_ROLE" = "leader" ]; then `+
-				`TOOLS="Bash(dalcli-leader:*,git:*,gh:*) Read Glob Grep"; `+
+				`TOOLS="Bash Read Glob Grep"; `+
 				`elif [ "$DAL_EXTRA_BASH" = "*" ]; then `+
 				`TOOLS="Bash Read Write Glob Grep Edit"; `+
 				`else TOOLS="Bash(git:*,gh:*) Read Write Glob Grep Edit"; fi && `+
