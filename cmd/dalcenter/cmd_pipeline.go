@@ -49,11 +49,18 @@ func newRestartCmd() *cobra.Command {
 func newTaskCmd() *cobra.Command {
 	var async bool
 	var poll bool
+	var reason string
 	cmd := &cobra.Command{
 		Use:   "task <dal> <prompt>",
 		Short: "Execute a task directly in a dal container",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if reason == "" {
+				fmt.Fprintf(os.Stderr, "⚠️  member 직접 작업 투입: --reason 플래그 권장 (leader 경유 권장)\n")
+			}
+			if reason != "" {
+				appendAuditLog("task", args[0], reason)
+			}
 			client, err := daemon.NewClient()
 			if err != nil {
 				return err
@@ -95,6 +102,7 @@ func newTaskCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&async, "async", false, "Run task asynchronously")
 	cmd.Flags().BoolVar(&poll, "poll", false, "Wait for async task to complete (implies --async)")
+	cmd.Flags().StringVar(&reason, "reason", "", "사유 (audit trail)")
 	return cmd
 }
 

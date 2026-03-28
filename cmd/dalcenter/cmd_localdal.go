@@ -308,11 +308,18 @@ func newStatusCmd() *cobra.Command {
 // --- logs ---
 
 func newLogsCmd() *cobra.Command {
-	return &cobra.Command{
+	var reason string
+	cmd := &cobra.Command{
 		Use:   "logs <dal>",
 		Short: "Show dal container logs",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if reason == "" {
+				fmt.Fprintf(os.Stderr, "⚠️  member 로그 직접 조회: --reason 플래그 권장\n")
+			}
+			if reason != "" {
+				appendAuditLog("logs", args[0], reason)
+			}
 			client, err := daemon.NewClient()
 			if err != nil {
 				return err
@@ -325,16 +332,25 @@ func newLogsCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&reason, "reason", "", "사유 (audit trail)")
+	return cmd
 }
 
 // --- attach ---
 
 func newAttachCmd() *cobra.Command {
-	return &cobra.Command{
+	var reason string
+	cmd := &cobra.Command{
 		Use:   "attach <dal>",
-		Short: "Attach to dal container",
+		Short: "Attach to a running dal container",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if reason == "" {
+				fmt.Fprintf(os.Stderr, "⚠️  member 직접 접근: --reason 플래그 권장\n")
+			}
+			if reason != "" {
+				appendAuditLog("attach", args[0], reason)
+			}
 			containerName := fmt.Sprintf("dal-%s", args[0])
 			c := exec.Command("docker", "exec", "-it", containerName, "/bin/bash")
 			c.Stdin = os.Stdin
@@ -343,4 +359,6 @@ func newAttachCmd() *cobra.Command {
 			return c.Run()
 		},
 	}
+	cmd.Flags().StringVar(&reason, "reason", "", "사유 (audit trail)")
+	return cmd
 }
