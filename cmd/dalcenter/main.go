@@ -29,6 +29,7 @@ func main() {
 		newTaskListCmd(),
 		newClaimsCmd(),
 		newImageCmd(),
+		newRegisterCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
