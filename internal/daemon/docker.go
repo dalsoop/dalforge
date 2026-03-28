@@ -131,6 +131,9 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	if dal.Model != "" {
 		args = append(args, "-e", fmt.Sprintf("DAL_MODEL=%s", dal.Model))
 	}
+	if dal.FallbackPlayer != "" {
+		args = append(args, "-e", fmt.Sprintf("DAL_FALLBACK_PLAYER=%s", dal.FallbackPlayer))
+	}
 	args = append(args,
 		"-e", fmt.Sprintf("DALCENTER_URL=http://%s%s", dockerHostAlias, daemonAddr),
 		"-e", fmt.Sprintf("MATTERMOST_URL=%s", os.Getenv("DALCENTER_MM_URL")), // set by daemon.Run()
