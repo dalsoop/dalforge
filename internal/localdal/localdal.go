@@ -108,6 +108,7 @@ func Init(root string) error {
 		"pre-flight":        defaultSkillPreFlight,
 		"git-workflow":      defaultSkillGitWorkflow,
 		"reviewer-protocol": defaultSkillReviewerProtocol,
+		"leader-protocol":   defaultSkillLeaderProtocol,
 	}
 	for name, content := range opsSkills {
 		skillDir := filepath.Join(root, "skills", name)
@@ -387,6 +388,7 @@ const defaultSkillEscalation = "# Escalation\n\nreport: 완료 보고. claim: �
 const defaultSkillPreFlight = "# Pre-Flight\n\n작업 전 필수: now.md → decisions.md → wisdom.md → ps.\n"
 const defaultSkillGitWorkflow = "# Git Workflow\n\nmain 직접 커밋 금지. 브랜치 → PR → 리뷰 → 머지.\n"
 const defaultSkillReviewerProtocol = "# Reviewer Protocol\n\n작성자 ≠ 리뷰어. 리뷰어 본인 수정 금지.\n"
+const defaultSkillLeaderProtocol = "# Leader Protocol\n\n나는 중개자. 직접 수정 안 함. 소환+읽기+판단+라우팅만.\nWrite/Edit/commit 금지. dalcli-leader assign으로 멤버에게 위임.\n"
 
 const defaultSpec = `// dal.spec.cue — localdal schema
 
