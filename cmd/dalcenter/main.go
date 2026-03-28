@@ -30,6 +30,7 @@ func main() {
 		newClaimsCmd(),
 		newImageCmd(),
 		newRegisterCmd(),
+		newTellCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
