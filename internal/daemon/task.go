@@ -212,11 +212,16 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 	now := time.Now().UTC()
 	tr.DoneAt = &now
 
+	durationMs := now.Sub(tr.StartedAt).Milliseconds()
+
 	if err != nil {
 		tr.Status = "failed"
 		tr.Output = stdout.String()
 		tr.Error = fmt.Sprintf("%v: %s", err, stderr.String())
 		log.Printf("[task] %s failed: %v", tr.ID, err)
+
+		// Record feedback
+		d.feedback.Add(c.DalName, tr.ID, tr.Task, "failure", tr.Error, 0, durationMs)
 
 		// Dispatch webhook
 		dispatchWebhook(WebhookEvent{
@@ -235,6 +240,9 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 
 		// Post-task completion: run go build + go test
 		runCompletion(c.ContainerID, tr)
+
+		// Record feedback
+		d.feedback.Add(c.DalName, tr.ID, tr.Task, "success", "", tr.GitChanges, durationMs)
 
 		log.Printf("[task] %s done (%d bytes, verified=%s, changes=%d)", tr.ID, len(tr.Output), tr.Verified, tr.GitChanges)
 

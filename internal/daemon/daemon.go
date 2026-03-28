@@ -37,6 +37,7 @@ type Daemon struct {
 	escalations  *escalationStore
 	claims       *claimStore
 	tasks        *taskStore
+	feedback     *feedbackStore
 	registry     *Registry
 	startTime    time.Time
 }
@@ -74,6 +75,7 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 		escalations:  newEscalationStoreWithFile(filepath.Join(dataDir(serviceRepo), "escalations.json")),
 		claims:       newClaimStoreWithFile(filepath.Join(dataDir(serviceRepo), "claims.json")),
 		tasks:        newTaskStore(),
+		feedback:     newFeedbackStoreWithFile(filepath.Join(dataDir(serviceRepo), "feedback.json")),
 		registry:     newRegistry(serviceRepo),
 		startTime:    time.Now(),
 	}
@@ -226,6 +228,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/claims", d.handleClaims)
 	mux.HandleFunc("GET /api/claims/{id}", d.handleClaimGet)
 	mux.HandleFunc("POST /api/claims/{id}/respond", d.requireAuth(d.handleClaimRespond))
+	// Feedback — persistent task result tracking
+	mux.HandleFunc("POST /api/feedback", d.handleFeedback)
+	mux.HandleFunc("GET /api/feedback", d.handleFeedbackList)
+	mux.HandleFunc("GET /api/feedback/stats", d.handleFeedbackStats)
 	// Escalation endpoints
 	mux.HandleFunc("POST /api/escalate", d.requireAuth(d.handleEscalate))
 	mux.HandleFunc("GET /api/escalations", d.handleEscalations)

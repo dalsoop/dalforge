@@ -326,6 +326,61 @@ func (c *Client) TaskStatus(id string) (*TaskResult, error) {
 	return &result, nil
 }
 
+// Feedback submits a task result for persistent tracking.
+func (c *Client) Feedback(dal, taskID, task, result, errMsg string, gitChanges int, durationMs int64) (*Feedback, error) {
+	body := fmt.Sprintf(`{"dal":%q,"task_id":%q,"task":%q,"result":%q,"error":%q,"git_changes":%d,"duration_ms":%d}`,
+		dal, taskID, task, result, errMsg, gitChanges, durationMs)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/feedback", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("feedback failed: %s", strings.TrimSpace(string(b)))
+	}
+	var fb Feedback
+	json.Unmarshal(b, &fb)
+	return &fb, nil
+}
+
+// FeedbackList returns feedback entries, optionally filtered by dal name.
+func (c *Client) FeedbackList(dal string) ([]Feedback, error) {
+	url := c.baseURL + "/api/feedback"
+	if dal != "" {
+		url += "?dal=" + dal
+	}
+	resp, err := c.http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Feedback []Feedback `json:"feedback"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Feedback, nil
+}
+
+// FeedbackStats returns per-dal success rate aggregation.
+func (c *Client) FeedbackStats() ([]DalStats, error) {
+	resp, err := c.http.Get(c.baseURL + "/api/feedback/stats")
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Stats []DalStats `json:"stats"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Stats, nil
+}
+
 // TaskList returns all tracked tasks.
 func (c *Client) TaskList() ([]TaskResult, error) {
 	resp, err := c.http.Get(c.baseURL + "/api/tasks")
