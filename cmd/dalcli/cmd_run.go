@@ -64,6 +64,17 @@ func runAgentLoop(dalName string) error {
 		os.Setenv("DAL_TEAM_MEMBERS", cfg.TeamMembers)
 	}
 
+	// Periodic team member refresh (leader needs updated member list)
+	go func() {
+		refreshTicker := time.NewTicker(30 * time.Second)
+		defer refreshTicker.Stop()
+		for range refreshTicker.C {
+			if updated, err := fetchAgentConfig(dalName); err == nil && updated.TeamMembers != "" {
+				os.Setenv("DAL_TEAM_MEMBERS", updated.TeamMembers)
+			}
+		}
+	}()
+
 	mm := bridge.NewMattermostBridge(cfg.MMURL, cfg.BotToken, cfg.ChannelID, 5*time.Second)
 	if err := mm.Connect(); err != nil {
 		return fmt.Errorf("mattermost connect: %w", err)
@@ -334,32 +345,11 @@ func isOnlyArtifacts(porcelainOutput string) bool {
 }
 
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.
+// Gate 1: .dal/ only → skip
+// Gate 2: artifacts only → skip
+// Gate 3: no real code files (*.go, *.rs, *.md in .dal/) → skip
+// Gate 4: PR 생성 전 diff 재확인 — 빈 PR 방지
 func autoGitWorkflow(dalName string) string {
-	// Check if there are changes
-	statusCmd := exec.Command("git", "status", "--porcelain")
-	statusCmd.Dir = "/workspace"
-	statusOut, err := statusCmd.Output()
-	if err != nil || len(strings.TrimSpace(string(statusOut))) == 0 {
-		return "" // no changes
-	}
-
-	changes := strings.TrimSpace(string(statusOut))
-	log.Printf("[git] changes detected:\n%s", changes)
-
-	dalOnly := isDalOnlyChanges(changes)
-	if dalOnly {
-		log.Printf("[git] .dal/ only changes — skipping entirely (no branch, no commit, no push)")
-		return ""
-	}
-
-	// 부산물만 있으면 스킵 (mount로 인한 파일 누출)
-	if isOnlyArtifacts(changes) {
-		log.Printf("[git] artifacts only — skipping (no branch, no commit, no push)")
-		return ""
-	}
-
-	// Create branch
-	branch := fmt.Sprintf("dal/%s/%d", dalName, time.Now().Unix())
 	run := func(args ...string) (string, error) {
 		cmd := exec.Command(args[0], args[1:]...)
 		cmd.Dir = "/workspace"
@@ -367,39 +357,108 @@ func autoGitWorkflow(dalName string) string {
 		return strings.TrimSpace(string(out)), err
 	}
 
+	// 먼저 main으로 복귀 (이전 실행에서 다른 브랜치에 남아있을 수 있음)
+	run("git", "checkout", "main")
+
+	// Check changes
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = "/workspace"
+	statusOut, err := statusCmd.Output()
+	if err != nil || len(strings.TrimSpace(string(statusOut))) == 0 {
+		return ""
+	}
+
+	changes := strings.TrimSpace(string(statusOut))
+	log.Printf("[git] changes detected:\n%s", changes)
+
+	// Gate 1: .dal/ only
+	if isDalOnlyChanges(changes) {
+		log.Printf("[git] gate1: .dal/ only — skip")
+		return ""
+	}
+
+	// Gate 2: artifacts only
+	if isOnlyArtifacts(changes) {
+		log.Printf("[git] gate2: artifacts only — skip")
+		return ""
+	}
+
+	// Gate 3: 실제 코드 파일이 있는지 확인
+	hasCodeChange := false
+	for _, line := range strings.Split(changes, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		file := line
+		if len(file) > 3 {
+			file = file[3:]
+		}
+		// 코드 파일: .go, .rs, .py, .ts, .js, .cue 또는 docs/
+		if strings.HasSuffix(file, ".go") || strings.HasSuffix(file, ".rs") ||
+			strings.HasSuffix(file, ".py") || strings.HasSuffix(file, ".ts") ||
+			strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".cue") ||
+			strings.HasPrefix(file, "docs/") {
+			hasCodeChange = true
+			break
+		}
+	}
+	if !hasCodeChange {
+		log.Printf("[git] gate3: no code files changed — skip")
+		// 부산물 정리 (git checkout으로 되돌리기)
+		run("git", "checkout", "--", ".")
+		return ""
+	}
+
+	// Create branch
+	branch := fmt.Sprintf("dal/%s/%d", dalName, time.Now().Unix())
 	if _, err := run("git", "checkout", "-b", branch); err != nil {
 		return fmt.Sprintf("⚠️ 브랜치 생성 실패: %v", err)
 	}
 
-	// Stage all changes
-	if _, err := run("git", "add", "-A"); err != nil {
-		return fmt.Sprintf("⚠️ git add 실패: %v", err)
+	// Stage only code files (not artifacts)
+	// git add specific patterns instead of -A
+	codePatterns := []string{"*.go", "*.rs", "*.py", "*.ts", "*.js", "*.cue", "docs/"}
+	for _, pattern := range codePatterns {
+		run("git", "add", pattern)
+	}
+	// .dal/ charter/skill 변경도 포함 (코드 변경과 함께인 경우)
+	run("git", "add", ".dal/")
+
+	// Gate 4: staged 파일 확인 — 빈 커밋 방지
+	diffOut, _ := run("git", "diff", "--cached", "--stat")
+	if strings.TrimSpace(diffOut) == "" {
+		log.Printf("[git] gate4: nothing staged — skip")
+		run("git", "checkout", "main")
+		run("git", "branch", "-D", branch)
+		return ""
 	}
 
+	log.Printf("[git] staged:\n%s", diffOut)
+
 	// Commit
-	prefix := "feat"
-	commitMsg := fmt.Sprintf("%s: %s dal 자동 반영\n\n변경 파일:\n%s\n\nCo-Authored-By: dal-%s <dal-%s@dalcenter.local>",
-		prefix, dalName, changes, dalName, dalName)
+	commitMsg := fmt.Sprintf("feat: %s dal 자동 반영\n\n%s\n\nCo-Authored-By: dal-%s <dal-%s@dalcenter.local>",
+		dalName, diffOut, dalName, dalName)
 	if _, err := run("git", "commit", "-m", commitMsg); err != nil {
+		run("git", "checkout", "main")
 		return fmt.Sprintf("⚠️ 커밋 실패: %v", err)
 	}
 
 	// Push
 	if _, err := run("git", "push", "-u", "origin", branch); err != nil {
+		run("git", "checkout", "main")
 		return fmt.Sprintf("⚠️ 푸시 실패: %v", err)
 	}
 
 	// Create PR
-	prTitle := fmt.Sprintf("dal/%s: 자동 반영", dalName)
-	prBody := fmt.Sprintf("dal-%s가 자동으로 생성한 PR.\n\n변경 파일:\n```\n%s\n```", dalName, changes)
+	prTitle := fmt.Sprintf("feat(%s): %s", dalName, branch)
+	prBody := fmt.Sprintf("dal-%s 작업 결과.\n\n```\n%s\n```", dalName, diffOut)
 	prOut, err := run("gh", "pr", "create", "--title", prTitle, "--body", prBody)
 	if err != nil {
-		return fmt.Sprintf("✅ 커밋+푸시 완료 (브랜치: `%s`)\n⚠️ PR 생성 실패: %v", branch, err)
+		run("git", "checkout", "main")
+		return fmt.Sprintf("✅ 커밋+푸시 완료 (`%s`)\n⚠️ PR 생성 실패: %v", branch, err)
 	}
 
-	// Go back to main
 	run("git", "checkout", "main")
-
 	return fmt.Sprintf("🔀 PR 생성 완료\n브랜치: `%s`\n%s", branch, prOut)
 }
 
