@@ -32,6 +32,7 @@ func main() {
 		newRegisterCmd(),
 		newUnregisterCmd(),
 		newTellCmd(),
+		newUpdateCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
