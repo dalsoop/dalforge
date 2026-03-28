@@ -571,14 +571,14 @@ func runClaude(player, task string) (string, error) {
 	default: // claude
 		// Build allowed tools based on role and extra permissions
 		var allowedTools string
-		if extra := os.Getenv("DAL_EXTRA_BASH"); extra == "*" {
+		if role == "leader" {
+			// Leader = 라우터 + 중개자. 코드 읽기 + dalcli-leader + git/gh만. Write/Edit 금지.
+			allowedTools = "Bash(dalcli-leader:*,git:*,gh:*) Read Glob Grep"
+		} else if extra := os.Getenv("DAL_EXTRA_BASH"); extra == "*" {
 			// Unrestricted bash (e.g., verifier running go test)
 			allowedTools = "Bash Read Write Glob Grep Edit"
 		} else {
 			bashPerms := "git:*,gh:*"
-			if role == "leader" {
-				bashPerms = "dalcli-leader:*,git:*,gh:*"
-			}
 			if extra != "" {
 				bashPerms += "," + extra + ":*"
 			}
