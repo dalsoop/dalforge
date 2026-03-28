@@ -1,0 +1,11 @@
+[
+  {
+    "id": "esc-0001",
+    "dal": "leader",
+    "task": "이슈 #361 작업해. gh issue view 361 --repo dalsoop/dalcenter 확인하고 dev에게 assign. decisions.md에 결정 6건 시딩. PR 만들면 리뷰+머지.",
+    "error_class": "unknown",
+    "output": "",
+    "timestamp": "2026-03-28T08:26:28.571582674Z",
+    "resolved": false
+  }
+]
