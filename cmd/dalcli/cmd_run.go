@@ -314,7 +314,8 @@ func autoGitWorkflow(dalName string) string {
 
 	dalOnly := isDalOnlyChanges(changes)
 	if dalOnly {
-		log.Printf("[git] .dal/ only changes — will commit+push but skip PR")
+		log.Printf("[git] .dal/ only changes — skipping entirely (no branch, no commit, no push)")
+		return ""
 	}
 
 	// Create branch
@@ -337,9 +338,6 @@ func autoGitWorkflow(dalName string) string {
 
 	// Commit
 	prefix := "feat"
-	if dalOnly {
-		prefix = "auto"
-	}
 	commitMsg := fmt.Sprintf("%s: %s dal 자동 반영\n\n변경 파일:\n%s\n\nCo-Authored-By: dal-%s <dal-%s@dalcenter.local>",
 		prefix, dalName, changes, dalName, dalName)
 	if _, err := run("git", "commit", "-m", commitMsg); err != nil {
@@ -349,12 +347,6 @@ func autoGitWorkflow(dalName string) string {
 	// Push
 	if _, err := run("git", "push", "-u", "origin", branch); err != nil {
 		return fmt.Sprintf("⚠️ 푸시 실패: %v", err)
-	}
-
-	// Skip PR for .dal/-only changes (internal metadata, etc.)
-	if dalOnly {
-		run("git", "checkout", "main")
-		return fmt.Sprintf("✅ .dal/ 전용 변경 — 커밋+푸시 완료, PR 스킵\n브랜치: `%s`", branch)
 	}
 
 	// Create PR
