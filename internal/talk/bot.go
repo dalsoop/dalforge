@@ -67,17 +67,17 @@ func SetupBot(mmURL, adminToken, teamID, channelID, username, displayName, descr
 	token = jsonStr(tokenResp, "token")
 	tokenID = jsonStr(tokenResp, "id")
 
-	// Add to team
+	// Add to team (ignore "already a member" errors for reused bots)
 	_, err = mmAPI("POST", mmURL+"/api/v4/teams/"+teamID+"/members", adminToken,
 		fmt.Sprintf(`{"team_id":%q,"user_id":%q}`, teamID, userID))
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "already") {
 		return nil, fmt.Errorf("add to team: %w", err)
 	}
 
-	// Add to channel
+	// Add to channel (ignore "already a member" errors for reused bots)
 	_, err = mmAPI("POST", mmURL+"/api/v4/channels/"+channelID+"/members", adminToken,
 		fmt.Sprintf(`{"user_id":%q}`, userID))
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "already") {
 		return nil, fmt.Errorf("add to channel: %w", err)
 	}
 

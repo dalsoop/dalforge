@@ -126,9 +126,9 @@ func TestDalBotUsername_Format(t *testing.T) {
 	cases := []struct {
 		name, uuid, want string
 	}{
-		{"leader", "v2-leader-20260327", "dal-leader-v2lead"},
-		{"dev", "dc-codex-dev-20260327", "dal-dev-dccode"},
-		{"verifier", "vk-verifier-20260326", "dal-verifier-vkveri"},
+		{"leader", "v2-leader-20260327", "dal-leader"},
+		{"dev", "dc-codex-dev-20260327", "dal-dev"},
+		{"verifier", "vk-verifier-20260326", "dal-verifier"},
 	}
 	for _, tc := range cases {
 		got := dalBotUsername(tc.name, tc.uuid)
@@ -459,14 +459,14 @@ func TestTaskStore_ListAll(t *testing.T) {
 
 func TestDalBotUsername_ShortUUID(t *testing.T) {
 	result := dalBotUsername("dev", "abc")
-	if result != "dal-dev-abc" {
+	if result != "dal-dev" {
 		t.Errorf("got %q", result)
 	}
 }
 
 func TestDalBotUsername_LongUUID(t *testing.T) {
 	result := dalBotUsername("leader", "very-long-uuid-string-here")
-	expected := "dal-leader-verylo"
+	expected := "dal-leader"
 	if result != expected {
 		t.Errorf("got %q, want %q", result, expected)
 	}

@@ -92,9 +92,10 @@ func dalContainerName(name, uuid string) string {
 	return containerBasePrefix + name + "-" + uuidShort(uuid)
 }
 
-// dalBotUsername returns the MM bot username: dal-{name}-{uuid[:6]}
-func dalBotUsername(name, uuid string) string {
-	return containerBasePrefix + name + "-" + uuidShort(uuid)
+// dalBotUsername returns the MM bot username: dal-{name}
+// Uses a stable name (no UUID) so the bot is reused across wake cycles.
+func dalBotUsername(name, _ string) string {
+	return containerBasePrefix + name
 }
 
 // requireAuth is middleware that checks Bearer token for write endpoints.
