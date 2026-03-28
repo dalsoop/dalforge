@@ -230,6 +230,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/escalate", d.requireAuth(d.handleEscalate))
 	mux.HandleFunc("GET /api/escalations", d.handleEscalations)
 	mux.HandleFunc("POST /api/escalations/{id}/resolve", d.requireAuth(d.handleResolveEscalation))
+	// A2A protocol endpoints (Agent-to-Agent)
+	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
+	mux.HandleFunc("POST /rpc", d.requireAuth(d.handleRPC))
 
 	srv := &http.Server{Addr: d.addr, Handler: mux}
 	log.Printf("[daemon] listening on %s", d.addr)
