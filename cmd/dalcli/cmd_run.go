@@ -95,6 +95,9 @@ func runAgentLoop(dalName string) error {
 	}()
 
 	mm := bridge.NewMattermostBridge(cfg.MMURL, cfg.BotToken, cfg.ChannelID, 5*time.Second)
+	if os.Getenv("DAL_NO_DM") == "1" {
+		mm.NoDM = true
+	}
 	if err := mm.Connect(); err != nil {
 		return fmt.Errorf("mattermost connect: %w", err)
 	}
@@ -109,6 +112,8 @@ func runAgentLoop(dalName string) error {
 	} else {
 		mention = fmt.Sprintf("@dal-%s", dalName)
 	}
+	// Also respond to @{dalName} directly (e.g. @dalroot without dal- prefix)
+	altMention := fmt.Sprintf("@%s", dalName)
 	var activeThreads sync.Map
 
 	// Periodic auto-task support: DAL_AUTO_TASK + DAL_AUTO_INTERVAL
@@ -175,7 +180,7 @@ func runAgentLoop(dalName string) error {
 			continue
 		}
 
-		isDirectMention := strings.Contains(msg.Content, mention)
+		isDirectMention := strings.Contains(msg.Content, mention) || strings.Contains(msg.Content, altMention)
 		isThreadReply := msg.RootID != "" && isActiveThread(&activeThreads, msg.RootID)
 		isDM := msg.Channel != "" && msg.Channel != cfg.ChannelID // DM = different channel than main
 
@@ -195,6 +200,7 @@ func runAgentLoop(dalName string) error {
 		if task == "" && isDirectMention {
 			// Free-form: strip mention, use entire message
 			task = strings.TrimSpace(strings.ReplaceAll(msg.Content, mention, ""))
+			task = strings.TrimSpace(strings.ReplaceAll(task, altMention, ""))
 		}
 		if task == "" && isThreadReply {
 			task = msg.Content

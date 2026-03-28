@@ -22,6 +22,7 @@ type MattermostBridge struct {
 	Token        string
 	ChannelID    string
 	BotUserID    string
+	NoDM         bool             // disable DM channel polling
 	dmLastAt     map[string]int64 // per-DM-channel lastAt
 	PollInterval time.Duration
 
@@ -91,6 +92,9 @@ func (m *MattermostBridge) poll() {
 		}
 
 		posts, err := m.fetchNewPosts()
+		if len(posts) > 0 {
+			log.Printf("[bridge] fetched %d posts", len(posts))
+		}
 		if err != nil {
 			// Non-retryable: auth failure → stop polling
 			if errors.Is(err, ErrAuthFailed) {
@@ -140,7 +144,7 @@ func (m *MattermostBridge) poll() {
 
 func (m *MattermostBridge) fetchNewPosts() ([]Message, error) {
 	channels := []string{m.ChannelID}
-	if m.BotUserID != "" {
+	if m.BotUserID != "" && !m.NoDM {
 		if dms, err := m.fetchDMChannelIDs(); err == nil {
 			channels = append(channels, dms...)
 		}
@@ -200,7 +204,11 @@ func (m *MattermostBridge) fetchNewPosts() ([]Message, error) {
 			if post.CreateAt > m.lastAt {
 				m.lastAt = post.CreateAt
 			}
-			allMsgs = append(allMsgs, Message{
+			// Skip own messages at bridge level to prevent self-response loops
+		if post.UserID == m.BotUserID {
+			continue
+		}
+		allMsgs = append(allMsgs, Message{
 				ID:        post.ID,
 				From:      post.UserID,
 				Channel:   post.ChannelID,
