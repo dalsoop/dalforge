@@ -191,6 +191,9 @@ func runAgentLoop(dalName string) error {
 			prompt = buildThreadContext(mm, msg, dalName)
 		}
 
+		// Snapshot git status before task execution to detect only new changes
+		preStatus := gitStatusSnapshot()
+
 		output, err := executeTask(prompt)
 		if err != nil {
 			log.Printf("[agent] failed: %v", err)
@@ -229,7 +232,7 @@ func runAgentLoop(dalName string) error {
 		// Check if files were modified → auto git workflow (member only — leader는 라우터, 직접 커밋 안 함)
 		var gitResult string
 		if os.Getenv("DAL_ROLE") != "leader" {
-			gitResult = autoGitWorkflow(dalName)
+			gitResult = autoGitWorkflow(dalName, preStatus)
 		}
 
 		// Extract git changes and PR URL for webhook
@@ -299,8 +302,27 @@ func isDalOnlyChanges(porcelainOutput string) bool {
 	return true
 }
 
+// gitStatusSnapshot captures the current git porcelain output as a set of lines.
+func gitStatusSnapshot() map[string]struct{} {
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = "/workspace"
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	snap := make(map[string]struct{})
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			snap[line] = struct{}{}
+		}
+	}
+	return snap
+}
+
 // autoGitWorkflow checks for file changes and creates a branch + commit + PR.
-func autoGitWorkflow(dalName string) string {
+// preStatus is the git status snapshot taken before task execution; only newly
+// appeared lines are considered real changes produced by the task.
+func autoGitWorkflow(dalName string, preStatus map[string]struct{}) string {
 	// Check if there are changes
 	statusCmd := exec.Command("git", "status", "--porcelain")
 	statusCmd.Dir = "/workspace"
@@ -309,8 +331,23 @@ func autoGitWorkflow(dalName string) string {
 		return "" // no changes
 	}
 
-	changes := strings.TrimSpace(string(statusOut))
-	log.Printf("[git] changes detected:\n%s", changes)
+	// Compute only new changes (lines not present in pre-task snapshot)
+	var newLines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(statusOut)), "\n") {
+		if line == "" {
+			continue
+		}
+		if _, existed := preStatus[line]; !existed {
+			newLines = append(newLines, line)
+		}
+	}
+	if len(newLines) == 0 {
+		log.Printf("[git] no new changes since pre-task snapshot — skipping")
+		return ""
+	}
+
+	changes := strings.Join(newLines, "\n")
+	log.Printf("[git] new changes detected:\n%s", changes)
 
 	dalOnly := isDalOnlyChanges(changes)
 	if dalOnly {
@@ -331,9 +368,18 @@ func autoGitWorkflow(dalName string) string {
 		return fmt.Sprintf("⚠️ 브랜치 생성 실패: %v", err)
 	}
 
-	// Stage all changes
-	if _, err := run("git", "add", "-A"); err != nil {
-		return fmt.Sprintf("⚠️ git add 실패: %v", err)
+	// Stage only newly changed files (not pre-existing untracked files)
+	for _, line := range newLines {
+		file := line
+		if len(file) > 3 {
+			file = file[3:]
+		}
+		if idx := strings.Index(file, " -> "); idx >= 0 {
+			file = file[idx+4:]
+		}
+		if _, err := run("git", "add", file); err != nil {
+			log.Printf("[git] git add %s failed: %v", file, err)
+		}
 	}
 
 	// Commit
