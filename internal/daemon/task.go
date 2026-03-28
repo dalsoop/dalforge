@@ -117,6 +117,11 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Role-aware warning: member dals should receive tasks via leader routing
+	if c.Role == "member" {
+		log.Printf("[scope] ⚠️ direct task to member %q — prefer leader routing via dalcli-leader assign", req.Dal)
+	}
+
 	tr := d.tasks.New(req.Dal, req.Task)
 
 	if req.Async {

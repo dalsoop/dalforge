@@ -571,6 +571,11 @@ func (d *Daemon) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Role-aware warning: member dals should be accessed via leader routing
+	if c.Role == "member" {
+		log.Printf("[scope] ⚠️ direct logs access to member %q — prefer leader routing", name)
+	}
+
 	logs, err := dockerLogs(c.ContainerID)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -610,6 +615,7 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 			c, ok := d.containers[req.From]
 			d.mu.RUnlock()
 			if ok {
+				log.Printf("[scope] ⚠️ message fallback to direct task — Mattermost not configured, bypassing leader routing")
 				tr := d.tasks.New(c.DalName, req.Message)
 				go d.execTaskInContainer(c, tr)
 				respondJSON(w, http.StatusAccepted, map[string]string{
