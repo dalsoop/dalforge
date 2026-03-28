@@ -202,6 +202,89 @@ WantedBy=multi-user.target
 	return nil
 }
 
+func newUnregisterCmd() *cobra.Command {
+	var (
+		mmURL   string
+		mmToken string
+	)
+	cmd := &cobra.Command{
+		Use:   "unregister <repo-path>",
+		Short: "Unregister a repository: sleep all dals, remove systemd service, disable MM bot",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoPath, err := filepath.Abs(args[0])
+			if err != nil {
+				return fmt.Errorf("resolve path: %w", err)
+			}
+			if _, err := os.Stat(repoPath); err != nil {
+				return fmt.Errorf("repo path not found: %w", err)
+			}
+
+			repoName := filepath.Base(repoPath)
+
+			// Step 1: sleep all dals
+			fmt.Println("[1/3] sleeping all dals...")
+			var dalNames []string
+			client, err := daemon.NewClient()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[1/3] warning: cannot connect to daemon: %v\n", err)
+			} else {
+				containers, err := client.Ps()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "[1/3] warning: list containers: %v\n", err)
+				} else {
+					for _, c := range containers {
+						dalNames = append(dalNames, c.DalName)
+						if _, err := client.Sleep(c.DalName); err != nil {
+							fmt.Fprintf(os.Stderr, "  sleep %s: %v\n", c.DalName, err)
+							continue
+						}
+						fmt.Printf("  sleep: %s\n", c.DalName)
+					}
+				}
+			}
+			fmt.Println("[1/3] done")
+
+			// Step 2: remove systemd service
+			fmt.Println("[2/3] removing systemd service...")
+			serviceName := systemdServiceName(repoName)
+			exec.Command("systemctl", "stop", serviceName).Run()
+			exec.Command("systemctl", "disable", serviceName).Run()
+
+			unitPath := filepath.Join("/etc/systemd/system", serviceName+".service")
+			os.Remove(unitPath)
+
+			dropInDir := filepath.Join("/etc/systemd/system", serviceName+".service.d")
+			os.RemoveAll(dropInDir)
+
+			exec.Command("systemctl", "daemon-reload").Run()
+			fmt.Printf("[2/3] removed: %s\n", serviceName)
+
+			// Step 3: disable MM bots
+			if mmURL != "" && mmToken != "" {
+				fmt.Println("[3/3] disabling MM bots...")
+				for _, name := range dalNames {
+					botUsername := "dal-" + name
+					if err := talk.TeardownBot(mmURL, mmToken, botUsername); err != nil {
+						fmt.Fprintf(os.Stderr, "  teardown %s: %v\n", botUsername, err)
+						continue
+					}
+					fmt.Printf("  teardown: %s\n", botUsername)
+				}
+				fmt.Println("[3/3] done")
+			} else {
+				fmt.Println("[3/3] MM bot: skipped (no MM config)")
+			}
+
+			fmt.Printf("\nunregistered: %s\n", repoName)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&mmURL, "mm-url", os.Getenv("DALCENTER_MM_URL"), "Mattermost URL")
+	cmd.Flags().StringVar(&mmToken, "mm-token", os.Getenv("DALCENTER_MM_TOKEN"), "Mattermost admin token")
+	return cmd
+}
+
 // injectTokensToService writes token environment overrides for the systemd service.
 // Uses systemd drop-in to avoid modifying the main unit file.
 func injectTokensToService(serviceName, repoPath string) error {
