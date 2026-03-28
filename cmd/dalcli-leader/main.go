@@ -241,8 +241,14 @@ func assignCmd(dalName string) *cobra.Command {
 			var targetMention string
 			if containers, err := client.Ps(); err == nil {
 				for _, c := range containers {
-					if c.DalName == targetName && c.UUID != "" && len(c.UUID) > 6 {
-						targetMention = fmt.Sprintf("@dal-%s-%s", targetName, c.UUID[:6])
+					if c.DalName == targetName && c.UUID != "" {
+						// uuidShort: 하이픈 제거 후 첫 6글자 (daemon.go와 동일)
+						clean := strings.ReplaceAll(c.UUID, "-", "")
+						short := clean
+						if len(clean) > 6 {
+							short = clean[:6]
+						}
+						targetMention = fmt.Sprintf("@dal-%s-%s", targetName, short)
 						break
 					}
 				}
