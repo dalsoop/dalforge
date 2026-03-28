@@ -259,6 +259,26 @@ func DeleteChannel(mmURL, token, channelID string) error {
 	return err
 }
 
+// FindOrCreateChannel finds an existing channel by name, or creates it.
+func FindOrCreateChannel(mmURL, adminToken, teamID, channelName string) (string, error) {
+	mmURL = strings.TrimRight(mmURL, "/")
+	resp, err := mmAPI("GET", mmURL+"/api/v4/teams/"+teamID+"/channels/name/"+channelName, adminToken, "")
+	if err == nil {
+		if id := jsonStr(resp, "id"); id != "" {
+			return id, nil
+		}
+	}
+	return CreateChannel(mmURL, adminToken, teamID, channelName)
+}
+
+// AddUserToChannel adds a user to a Mattermost channel.
+func AddUserToChannel(mmURL, adminToken, channelID, userID string) error {
+	mmURL = strings.TrimRight(mmURL, "/")
+	body := fmt.Sprintf(`{"user_id":%q}`, userID)
+	_, err := mmAPI("POST", mmURL+"/api/v4/channels/"+channelID+"/members", adminToken, body)
+	return err
+}
+
 func mmAPI(method, url, token, body string) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != "" {

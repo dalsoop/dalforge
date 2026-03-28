@@ -153,6 +153,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		} else {
 			d.channelID = channelID
 			log.Printf("[daemon] mattermost: team=%s channel=%s (%s)", teamID, channelID[:8], repoName)
+
+			// dal-leaders 공유 채널 자동 생성 (cross-project leader 소통)
+			if leadersChID, err := talk.FindOrCreateChannel(d.mm.URL, d.mm.AdminToken, teamID, "dal-leaders"); err == nil {
+				log.Printf("[daemon] dal-leaders channel ready: %s", leadersChID[:8])
+			}
 		}
 	}
 
@@ -349,6 +354,16 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		} else {
 			botToken = bot.Token
 			log.Printf("[daemon] mattermost bot: %s (user=%s)", botUsername, bot.UserID[:8])
+
+			// Leader → dal-leaders 공유 채널에도 자동 참여 (cross-project 소통)
+			if dal.Role == "leader" {
+				leadersChName := "dal-leaders"
+				if leadersChID, err := talk.FindOrCreateChannel(d.mm.URL, d.mm.AdminToken, teamID, leadersChName); err == nil {
+					if err := talk.AddUserToChannel(d.mm.URL, d.mm.AdminToken, leadersChID, bot.UserID); err == nil {
+						log.Printf("[daemon] leader %s joined dal-leaders channel", botUsername)
+					}
+				}
+			}
 		}
 	}
 
