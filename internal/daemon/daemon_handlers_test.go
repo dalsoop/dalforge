@@ -6,7 +6,58 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestHandleActivityUpdatesLastSeen(t *testing.T) {
+	before := time.Now().Add(-2 * time.Minute).UTC()
+	d := &Daemon{
+		containers: map[string]*Container{
+			"dev": {DalName: "dev", Status: "running", LastSeenAt: before},
+		},
+	}
+	req := httptest.NewRequest("POST", "/api/activity/dev", nil)
+	req.SetPathValue("name", "dev")
+	w := httptest.NewRecorder()
+
+	d.handleActivity(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if !d.containers["dev"].LastSeenAt.After(before) {
+		t.Fatalf("last_seen_at not updated: before=%s after=%s", before, d.containers["dev"].LastSeenAt)
+	}
+}
+
+func TestHandlePs_IncludesIdleMetadata(t *testing.T) {
+	d := &Daemon{
+		containers: map[string]*Container{
+			"dev": {DalName: "dev", Player: "claude", Role: "member", Status: "running", LastSeenAt: time.Now().Add(-90 * time.Second).UTC()},
+		},
+	}
+	req := httptest.NewRequest("GET", "/api/ps", nil)
+	w := httptest.NewRecorder()
+
+	d.handlePs(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var containers []Container
+	if err := json.NewDecoder(w.Body).Decode(&containers); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("got %d containers, want 1", len(containers))
+	}
+	if containers[0].IdleFor == "" {
+		t.Fatal("idle_for should be present")
+	}
+	if containers[0].LastSeenAt.IsZero() {
+		t.Fatal("last_seen_at should be present")
+	}
+}
 
 func TestHandleLogs_DalNotFound(t *testing.T) {
 	d := &Daemon{

@@ -103,6 +103,11 @@ func (c *Client) MessageThread(from, message, threadID string) (*MessageResult, 
 	return &result, nil
 }
 
+// Activity records a dal's latest task activity time.
+func (c *Client) Activity(name string) (map[string]string, error) {
+	return c.postJSON(fmt.Sprintf("/api/activity/%s", name))
+}
+
 // Ps returns running containers.
 func (c *Client) Ps() ([]*Container, error) {
 	resp, err := c.http.Get(c.baseURL + "/api/ps")

@@ -451,6 +451,16 @@ func dalcenterClientOrFallback() (*daemon.Client, error) {
 	return nil, fmt.Errorf("DALCENTER_URL not set")
 }
 
+func recordDalActivity(dalName string) {
+	client, err := dalcenterClientOrFallback()
+	if err != nil {
+		return
+	}
+	if _, err := client.Activity(dalName); err != nil {
+		log.Printf("[agent] activity update failed: %v", err)
+	}
+}
+
 func refreshAgentConfig(dalName string) (*agentConfig, error) {
 	client, err := dalcenterClientOrFallback()
 	if err != nil {
@@ -622,6 +632,7 @@ func runAgentLoop(dalName string) error {
 				continue
 			}
 			log.Printf("[agent] auto-task triggered")
+			recordDalActivity(dalName)
 			output, err := executeTask(autoTask)
 			if err != nil {
 				log.Printf("[agent] auto-task failed: %v", err)
@@ -705,6 +716,7 @@ func runAgentLoop(dalName string) error {
 
 		spec := buildTaskSpec(dalName, mm, msg, task, isDirectMention, isThreadReply, isDM)
 		log.Printf("[agent] message: %s (intent=%s source=%s)", truncate(spec.UserTask, 80), spec.Intent, spec.Source)
+		recordDalActivity(dalName)
 
 		if handled, err := handleCredentialStatusQuery(dalName, credentialStatusQueryInput(spec.UserTask, spec.Prompt), spec.ThreadID, spec.Channel, mm); err != nil {
 			log.Printf("[agent] credential status reply failed: %v", err)
@@ -1533,6 +1545,7 @@ func runAutoTaskOnly(dalName, autoTask string) error {
 		log.Printf("[agent] auto-task initial run skipped: no git changes")
 	} else {
 		log.Printf("[agent] auto-task initial run")
+		recordDalActivity(dalName)
 		output, err := executeTask(autoTask)
 		if err != nil {
 			log.Printf("[agent] auto-task failed: %v", err)
@@ -1549,6 +1562,7 @@ func runAutoTaskOnly(dalName, autoTask string) error {
 			continue
 		}
 		log.Printf("[agent] auto-task triggered")
+		recordDalActivity(dalName)
 		output, err := executeTask(autoTask)
 		if err != nil {
 			log.Printf("[agent] auto-task failed: %v", err)

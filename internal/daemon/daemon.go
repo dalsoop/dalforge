@@ -51,16 +51,18 @@ type Daemon struct {
 
 // Container tracks a running dal Docker container.
 type Container struct {
-	DalName     string `json:"dal_name"`
-	UUID        string `json:"uuid"`
-	Player      string `json:"player"`
-	Role        string `json:"role"`
-	ContainerID string `json:"container_id"`
-	Status      string `json:"status"`    // "running", "stopped"
-	Workspace   string `json:"workspace"` // "shared" or "clone"
-	Skills      int    `json:"skills"`
-	BotToken    string `json:"-"` // Mattermost bot token
-	BotUsername string `json:"-"` // Mattermost bot @username
+	DalName     string    `json:"dal_name"`
+	UUID        string    `json:"uuid"`
+	Player      string    `json:"player"`
+	Role        string    `json:"role"`
+	ContainerID string    `json:"container_id"`
+	Status      string    `json:"status"`    // "running", "stopped"
+	Workspace   string    `json:"workspace"` // "shared" or "clone"
+	Skills      int       `json:"skills"`
+	LastSeenAt  time.Time `json:"last_seen_at,omitempty"`
+	IdleFor     string    `json:"idle_for,omitempty"`
+	BotToken    string    `json:"-"` // Mattermost bot token
+	BotUsername string    `json:"-"` // Mattermost bot @username
 }
 
 // New creates a daemon.
@@ -291,6 +293,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/restart/{name}", d.requireAuth(d.handleRestart))
 	mux.HandleFunc("POST /api/sync", d.requireAuth(d.handleSync))
 	mux.HandleFunc("POST /api/message", d.requireAuth(d.handleMessage))
+	mux.HandleFunc("POST /api/activity/{name}", d.requireAuth(d.handleActivity))
 	mux.HandleFunc("GET /api/agent-config/{name}", d.handleAgentConfig)
 	mux.HandleFunc("POST /api/agent-config/{name}/refresh-token", d.handleAgentTokenRefresh)
 	// Direct task execution (works without Mattermost)
@@ -362,11 +365,41 @@ func (d *Daemon) handlePs(w http.ResponseWriter, r *http.Request) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
+	now := time.Now()
 	containers := make([]*Container, 0, len(d.containers))
 	for _, c := range d.containers {
-		containers = append(containers, c)
+		snapshot := *c
+		if !snapshot.LastSeenAt.IsZero() {
+			snapshot.IdleFor = now.Sub(snapshot.LastSeenAt).Truncate(time.Second).String()
+		}
+		containers = append(containers, &snapshot)
 	}
 	json.NewEncoder(w).Encode(containers)
+}
+
+func (d *Daemon) markActivity(name string, seenAt time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c, ok := d.containers[name]
+	if !ok {
+		return false
+	}
+	c.LastSeenAt = seenAt
+	return true
+}
+
+func (d *Daemon) handleActivity(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	seenAt := time.Now().UTC()
+	if !d.markActivity(name, seenAt) {
+		http.Error(w, fmt.Sprintf("dal %q is not awake", name), http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":       "ok",
+		"dal":          name,
+		"last_seen_at": seenAt,
+	})
 }
 
 func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -498,6 +531,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		Status:      "running",
 		Workspace:   ws,
 		Skills:      len(dal.Skills),
+		LastSeenAt:  time.Now().UTC(),
 		BotToken:    botToken,
 		BotUsername: botUser,
 	}
@@ -660,6 +694,7 @@ func (d *Daemon) runSync() (synced, restarted []string) {
 				ContainerID: newID,
 				Status:      "running",
 				Skills:      len(dal.Skills),
+				LastSeenAt:  time.Now().UTC(),
 				BotToken:    c.BotToken,
 			}
 			d.mu.Unlock()
@@ -1078,6 +1113,7 @@ func (d *Daemon) reconcile() {
 				ContainerID: c.ID,
 				Status:      "running",
 				Skills:      len(dal.Skills),
+				LastSeenAt:  time.Now().UTC(),
 				BotToken:    botToken,
 			}
 			d.mu.Unlock()

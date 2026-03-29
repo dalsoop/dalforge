@@ -61,6 +61,27 @@ func TestClient_Ps(t *testing.T) {
 	}
 }
 
+func TestClient_Activity(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/activity/dev" {
+			t.Errorf("path = %s, want /api/activity/dev", r.URL.Path)
+		}
+		w.Write([]byte(`{"status":"ok","dal":"dev"}`))
+	}))
+	defer srv.Close()
+
+	os.Setenv("DALCENTER_URL", srv.URL)
+	defer os.Unsetenv("DALCENTER_URL")
+
+	c, _ := NewClient()
+	if _, err := c.Activity("dev"); err != nil {
+		t.Fatalf("Activity: %v", err)
+	}
+}
+
 func TestClient_Ps_Error(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
