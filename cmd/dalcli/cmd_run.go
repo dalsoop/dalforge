@@ -28,6 +28,17 @@ type agentConfig struct {
 	TeamMembers string `json:"team_members"`
 }
 
+func dalcenterClientOrFallback() (*daemon.Client, error) {
+	if client, err := daemon.NewClient(); err == nil {
+		return client, nil
+	}
+	if os.Getenv("DALCENTER_URL") == "" {
+		_ = os.Setenv("DALCENTER_URL", "http://host.docker.internal:11190")
+		return daemon.NewClient()
+	}
+	return nil, fmt.Errorf("DALCENTER_URL not set")
+}
+
 func runCmd(dalName string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
