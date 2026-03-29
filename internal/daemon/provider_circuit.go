@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +32,8 @@ var globalCircuit = &ProviderCircuit{
 	activePlayer: "claude",
 	cooldown:     4 * time.Hour,
 }
+
+const providerPeerHeader = "X-Dalcenter-Propagated"
 
 func (pc *ProviderCircuit) refreshLocked(now time.Time) {
 	if pc.activePlayer == pc.fallback && !pc.trippedAt.IsZero() && now.Sub(pc.trippedAt) > pc.cooldown {
@@ -118,6 +123,9 @@ func (d *Daemon) handleProviderTrip(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tripped := globalCircuit.Trip(req.DalName, req.Reason)
+	if r.Header.Get(providerPeerHeader) != "1" {
+		d.propagateProviderTrip(req.DalName, req.Reason)
+	}
 
 	// Notify via Mattermost if available
 	if tripped && d.mm != nil && d.channelID != "" {
@@ -132,4 +140,127 @@ func (d *Daemon) handleProviderTrip(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(globalCircuit.Status())
+}
+
+func (d *Daemon) propagateProviderTrip(dalName, reason string) {
+	peers := providerPeerURLs(d.addr)
+	if len(peers) == 0 {
+		return
+	}
+
+	body, _ := json.Marshal(map[string]string{
+		"dal_name": dalName,
+		"reason":   reason,
+	})
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, peer := range peers {
+		req, err := http.NewRequest(http.MethodPost, peer+"/api/provider-trip", bytes.NewReader(body))
+		if err != nil {
+			log.Printf("[provider-circuit] peer trip request build failed for %s: %v", peer, err)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(providerPeerHeader, "1")
+		if d.apiToken != "" {
+			req.Header.Set("Authorization", "Bearer "+d.apiToken)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[provider-circuit] peer trip failed for %s: %v", peer, err)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			log.Printf("[provider-circuit] peer trip failed for %s: status=%d", peer, resp.StatusCode)
+			continue
+		}
+		log.Printf("[provider-circuit] propagated trip to %s", peer)
+	}
+}
+
+func providerPeerURLs(selfAddr string) []string {
+	if raw := strings.TrimSpace(os.Getenv("DALCENTER_PROVIDER_PEERS")); raw != "" {
+		return parseProviderPeers(raw, selfAddr)
+	}
+
+	selfPort := addrPort(selfAddr)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	var peers []string
+	for port := 11190; port <= 11250; port++ {
+		if port == selfPort {
+			continue
+		}
+		base := fmt.Sprintf("http://127.0.0.1:%d", port)
+		resp, err := client.Get(base + "/api/health")
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			peers = append(peers, base)
+		}
+	}
+	return peers
+}
+
+func parseProviderPeers(raw, selfAddr string) []string {
+	selfPort := addrPort(selfAddr)
+	seen := make(map[string]bool)
+	var peers []string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		base := normalizeProviderPeer(part)
+		if base == "" {
+			continue
+		}
+		if port := addrPort(base); port != 0 && port == selfPort {
+			continue
+		}
+		if seen[base] {
+			continue
+		}
+		seen[base] = true
+		peers = append(peers, base)
+	}
+	return peers
+}
+
+func normalizeProviderPeer(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if _, err := strconv.Atoi(s); err == nil {
+		return "http://127.0.0.1:" + s
+	}
+	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
+		return strings.TrimRight(s, "/")
+	}
+	if strings.HasPrefix(s, ":") {
+		return "http://127.0.0.1" + s
+	}
+	return ""
+}
+
+func addrPort(addr string) int {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return 0
+	}
+	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+		if idx := strings.LastIndex(addr, ":"); idx >= 0 && idx+1 < len(addr) {
+			if port, err := strconv.Atoi(addr[idx+1:]); err == nil {
+				return port
+			}
+		}
+		return 0
+	}
+	addr = strings.TrimPrefix(addr, ":")
+	if port, err := strconv.Atoi(addr); err == nil {
+		return port
+	}
+	return 0
 }
