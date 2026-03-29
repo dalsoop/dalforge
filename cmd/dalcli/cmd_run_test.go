@@ -218,7 +218,7 @@ func TestAutoGitWorkflow_NoWorkspace(t *testing.T) {
 	}
 }
 
-// ── buildThreadContext with mock MM API ──
+// ── buildThreadContext with selective thread context ──
 
 func TestBuildThreadContext_WithAPI(t *testing.T) {
 	// Mock MM server that returns thread posts
@@ -261,19 +261,16 @@ func TestBuildThreadContext_WithAPI(t *testing.T) {
 		Content: "머지해봐",
 	}
 
-	ctx := buildThreadContext(mm, msg, "writer")
+	ctx := buildThreadContext(mm, msg, "writer", "머지해봐")
 
-	if !strings.Contains(ctx, "ep04 수정해") {
-		t.Error("should contain first message")
+	if !strings.Contains(ctx, "원래 요청: @dal-writer ep04 수정해") {
+		t.Error("should contain normalized root task")
 	}
-	if !strings.Contains(ctx, "머지해봐") {
-		t.Error("should contain last message")
+	if !strings.Contains(ctx, "이번 요청: 머지해봐") {
+		t.Error("should contain latest task")
 	}
-	if !strings.Contains(ctx, "나(writer)") {
-		t.Error("should identify self")
-	}
-	if !strings.Contains(ctx, "상대방") {
-		t.Error("should identify others")
+	if strings.Contains(ctx, "💬 작업 중...") {
+		t.Error("should not replay status-only messages into worker prompt")
 	}
 }
 
@@ -382,9 +379,81 @@ func TestBuildThreadContext_Fallback(t *testing.T) {
 		RootID:  "root-1",
 	}
 
-	ctx := buildThreadContext(mm, msg, "test-dal")
-	if !strings.Contains(ctx, "테스트 메시지") {
-		t.Error("fallback should contain message content")
+	ctx := buildThreadContext(mm, msg, "test-dal", "테스트 메시지")
+	if !strings.Contains(ctx, "이번 요청: 테스트 메시지") {
+		t.Error("fallback should contain latest task")
+	}
+}
+
+func TestBuildTaskSpec_ThreadReplyUsesSelectiveContext(t *testing.T) {
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/thread"):
+			resp := map[string]interface{}{
+				"order": []string{"p1", "p2", "p3"},
+				"posts": map[string]interface{}{
+					"p1": map[string]interface{}{"user_id": "user-devops", "message": "@dal-writer ep04 수정해"},
+					"p2": map[string]interface{}{"user_id": "bot-writer", "message": "💬 작업 중..."},
+					"p3": map[string]interface{}{"user_id": "user-devops", "message": "머지해봐"},
+				},
+			}
+			json.NewEncoder(w).Encode(resp)
+		case r.URL.Path == "/api/agent-config/writer":
+			json.NewEncoder(w).Encode(agentConfig{
+				DalName:   "writer",
+				BotToken:  "tok",
+				ChannelID: "ch1",
+				MMURL:     srvURL,
+			})
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	t.Setenv("DALCENTER_URL", srv.URL)
+
+	mm := &bridge.MattermostBridge{BotUserID: "bot-writer"}
+	msg := bridge.Message{
+		ID:      "p3",
+		RootID:  "p1",
+		From:    "user-devops",
+		Content: "머지해봐",
+		Channel: "ch1",
+	}
+
+	spec := buildTaskSpec("writer", mm, msg, "머지해봐", false, true, false)
+	if spec.Intent != TaskIntentExecute {
+		t.Fatalf("intent = %s, want %s", spec.Intent, TaskIntentExecute)
+	}
+	if spec.Source != "thread" {
+		t.Fatalf("source = %s, want thread", spec.Source)
+	}
+	if !strings.Contains(spec.Prompt, "원래 요청: @dal-writer ep04 수정해") {
+		t.Fatalf("prompt missing root task: %s", spec.Prompt)
+	}
+	if !strings.Contains(spec.Prompt, "이번 요청: 머지해봐") {
+		t.Fatalf("prompt missing latest task: %s", spec.Prompt)
+	}
+	if strings.Contains(spec.Prompt, "💬 작업 중...") {
+		t.Fatalf("prompt should exclude status-only messages: %s", spec.Prompt)
+	}
+}
+
+func TestBuildTaskSpec_CredentialStatusIntent(t *testing.T) {
+	mm := &bridge.MattermostBridge{BotUserID: "bot-leader"}
+	msg := bridge.Message{
+		ID:      "root-1",
+		From:    "user-devops",
+		Content: "sync-dal-creds.sh 왜 뜨지",
+		Channel: "ch1",
+	}
+
+	spec := buildTaskSpec("leader", mm, msg, "sync-dal-creds.sh 왜 뜨지", true, false, false)
+	if spec.Intent != TaskIntentCredentialStatus {
+		t.Fatalf("intent = %s, want %s", spec.Intent, TaskIntentCredentialStatus)
 	}
 }
 

@@ -278,17 +278,13 @@ func runAgentLoop(dalName string) error {
 			continue
 		}
 
-		log.Printf("[agent] message: %s", truncate(task, 80))
+		spec := buildTaskSpec(dalName, mm, msg, task, isDirectMention, isThreadReply, isDM)
+		log.Printf("[agent] message: %s (intent=%s source=%s)", truncate(spec.UserTask, 80), spec.Intent, spec.Source)
 
-		// Build context for thread replies
-		prompt := task
-		if isThreadReply && !isDirectMention {
-			prompt = buildThreadContext(mm, msg, dalName)
-		}
-		if handled, err := handleCredentialStatusQuery(dalName, credentialStatusQueryInput(task, prompt), threadID, msg.Channel, mm); err != nil {
+		if handled, err := handleCredentialStatusQuery(dalName, credentialStatusQueryInput(spec.UserTask, spec.Prompt), spec.ThreadID, spec.Channel, mm); err != nil {
 			log.Printf("[agent] credential status reply failed: %v", err)
 		} else if handled {
-			appendHistoryBuffer(dalName, prompt, "credential status reply", "완료")
+			appendHistoryBuffer(dalName, spec.Prompt, "credential status reply", "완료")
 			continue
 		}
 
@@ -302,38 +298,44 @@ func runAgentLoop(dalName string) error {
 		}
 		mm.Send(bridge.Message{
 			Content: statusMsg,
-			Channel: msg.Channel,
-			ReplyTo: threadID,
+			Channel: spec.Channel,
+			ReplyTo: spec.ThreadID,
 		})
 
-		output, err := executeTask(prompt)
+		result := runTaskSpec(spec)
+		output, err := result.Output, result.Err
 		if err != nil {
 			log.Printf("[agent] failed: %v", err)
 
 			// Self-repair: try to fix and retry once
-			if shouldRetry, fix := selfRepair(prompt, output, err); shouldRetry {
+			if shouldRetry, fix := selfRepair(spec.Prompt, output, err); shouldRetry {
 				log.Printf("[agent] self-repair applied: %s, retrying", fix)
 				mm.Send(bridge.Message{
 					Content: fmt.Sprintf("🔧 자가 수리: %s — 재시도 중...", fix),
-					Channel: msg.Channel,
-					ReplyTo: threadID,
+					Channel: spec.Channel,
+					ReplyTo: spec.ThreadID,
 				})
-				output, err = executeTask(prompt)
+				result = runTaskSpec(spec)
+				output, err = result.Output, result.Err
 			}
 
 			if err != nil {
 				class := classifyTaskError(output)
+				result.State = TaskStateFailed
+				if class == ErrClassEnv || class == ErrClassDeps {
+					result.State = TaskStateBlocked
+				}
 				mm.Send(bridge.Message{
 					Content: fmt.Sprintf("❌ 실패 (%s): %v\n```\n%s\n```", class, err, truncate(output, 500)),
-					Channel: msg.Channel,
-					ReplyTo: threadID,
+					Channel: spec.Channel,
+					ReplyTo: spec.ThreadID,
 				})
-				appendHistoryBuffer(dalName, prompt, err.Error(), "실패")
-				escalateToHost(dalName, prompt, output, string(class))
-				daemon.DispatchTaskFailed(dalName, truncate(prompt, 200), err.Error(), len(output))
+				appendHistoryBuffer(dalName, spec.Prompt, err.Error(), string(result.State))
+				escalateToHost(dalName, spec.Prompt, output, string(class))
+				daemon.DispatchTaskFailed(dalName, truncate(spec.Prompt, 200), err.Error(), len(output))
 				// Auto-claim for environment/blocked issues
 				if class == ErrClassEnv || class == ErrClassDeps {
-					autoFileClaim(dalName, class, prompt, output)
+					autoFileClaim(dalName, class, spec.Prompt, output)
 				}
 				continue
 			}
@@ -362,10 +364,10 @@ func runAgentLoop(dalName string) error {
 		}
 
 		// History buffer: record completed task
-		appendHistoryBuffer(dalName, prompt, truncate(output, 200), "완료")
+		appendHistoryBuffer(dalName, spec.Prompt, truncate(output, 200), string(result.State))
 
 		// Webhook: task complete
-		daemon.DispatchTaskComplete(dalName, truncate(prompt, 200), len(output), gitChanges, prURL)
+		daemon.DispatchTaskComplete(dalName, truncate(spec.Prompt, 200), len(output), gitChanges, prURL)
 
 		// Format response
 		response := truncate(strings.TrimSpace(output), 3000)
@@ -375,15 +377,15 @@ func runAgentLoop(dalName string) error {
 
 		mm.Send(bridge.Message{
 			Content: response,
-			Channel: msg.Channel,
-			ReplyTo: threadID,
+			Channel: spec.Channel,
+			ReplyTo: spec.ThreadID,
 		})
 
 		// Report to leader: when a member dal receives a direct task from user (not from leader),
 		// notify the leader so they stay in the loop
 		role := os.Getenv("DAL_ROLE")
 		if role == "member" && isDirectMention && !isFromLeader(msg.From, mm) {
-			reportToLeader(mm, dalName, task, response, threadID)
+			reportToLeader(mm, dalName, spec.UserTask, response, spec.ThreadID)
 		}
 	}
 }
@@ -569,58 +571,6 @@ func autoGitWorkflow(dalName string) string {
 func isActiveThread(threads *sync.Map, threadID string) bool {
 	_, ok := threads.Load(threadID)
 	return ok
-}
-
-func buildThreadContext(mm *bridge.MattermostBridge, newMsg bridge.Message, dalName string) string {
-	var sb strings.Builder
-	sb.WriteString("너는 Mattermost 스레드에서 대화 중이다. ")
-	sb.WriteString("아래는 스레드 전체 대화 내역이다. 마지막 메시지에 대해 응답하라.\n\n")
-
-	// Fetch full thread from MM API
-	threadID := newMsg.RootID
-	if threadID == "" {
-		threadID = newMsg.ID
-	}
-
-	dcURL := os.Getenv("DALCENTER_URL")
-	agentCfg, _ := fetchAgentConfig(dalName)
-	if agentCfg != nil && agentCfg.MMURL != "" && agentCfg.BotToken != "" {
-		url := fmt.Sprintf("%s/api/v4/posts/%s/thread", agentCfg.MMURL, threadID)
-		req, _ := http.NewRequest("GET", url, nil)
-		req.Header.Set("Authorization", "Bearer "+agentCfg.BotToken)
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			var thread struct {
-				Order []string                   `json:"order"`
-				Posts map[string]json.RawMessage `json:"posts"`
-			}
-			if json.Unmarshal(body, &thread) == nil {
-				for _, pid := range thread.Order {
-					var post struct {
-						UserID  string `json:"user_id"`
-						Message string `json:"message"`
-					}
-					if json.Unmarshal(thread.Posts[pid], &post) == nil {
-						role := "상대방"
-						if post.UserID == mm.BotUserID {
-							role = "나(" + dalName + ")"
-						}
-						sb.WriteString(fmt.Sprintf("[%s]: %s\n\n", role, post.Message))
-					}
-				}
-				sb.WriteString(fmt.Sprintf("---\n너의 이름: %s. 위 대화 맥락을 보고 마지막 메시지에 응답하라. 간결하게.", dalName))
-				return sb.String()
-			}
-		}
-	}
-
-	// Fallback: just use the new message
-	_ = dcURL
-	sb.WriteString(fmt.Sprintf("[상대방]: %s\n\n", newMsg.Content))
-	sb.WriteString(fmt.Sprintf("너의 이름: %s. 간결하게 응답.", dalName))
-	return sb.String()
 }
 
 // notifyCredentialRefresh tells dalcenter daemon that credentials need refresh.
