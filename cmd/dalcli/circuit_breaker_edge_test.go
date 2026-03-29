@@ -6,11 +6,27 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func installFailingProviders(t *testing.T) {
+	t.Helper()
+
+	dir := t.TempDir()
+	script := []byte("#!/bin/sh\nexit 1\n")
+	for _, name := range []string{"claude", "codex"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, script, 0o755); err != nil {
+			t.Fatalf("write fake %s: %v", name, err)
+		}
+	}
+
+	t.Setenv("PATH", dir)
+}
 
 // ══════════════════════════════════════════════════════════════
 // Circuit Breaker: timing & boundary edge cases
@@ -363,6 +379,7 @@ func TestDetectFallback_AllPlayers(t *testing.T) {
 func TestExecuteTask_AnyErrorRecordsFailure(t *testing.T) {
 	providerCircuit = NewCircuitBreaker(3, 2*time.Minute)
 	defer func() { providerCircuit = NewCircuitBreaker(3, 2*time.Minute) }()
+	installFailingProviders(t)
 
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
@@ -395,6 +412,7 @@ func TestExecuteTask_AnyErrorRecordsFailure(t *testing.T) {
 func TestExecuteTask_RepeatedFailuresOpenCircuit(t *testing.T) {
 	providerCircuit = NewCircuitBreaker(3, 2*time.Minute)
 	defer func() { providerCircuit = NewCircuitBreaker(3, 2*time.Minute) }()
+	installFailingProviders(t)
 
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")

@@ -859,6 +859,7 @@ func TestRefreshAgentConfig_Success(t *testing.T) {
 // ── executeTask role branching (verify command construction) ──
 
 func TestExecuteTask_RoleBranching(t *testing.T) {
+	installFailingProviders(t)
 	// We can't actually run claude in tests, but we verify the function
 	// handles missing binary gracefully
 	os.Setenv("DAL_ROLE", "member")
@@ -980,6 +981,7 @@ func TestIsRetryable(t *testing.T) {
 // ── executeTask retry (no claude binary → fails fast, not retryable) ──
 
 func TestExecuteTask_NonRetryable_NoLoop(t *testing.T) {
+	installFailingProviders(t)
 	os.Setenv("DAL_ROLE", "member")
 	os.Setenv("DAL_PLAYER", "claude")
 	defer os.Unsetenv("DAL_ROLE")
