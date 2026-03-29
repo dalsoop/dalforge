@@ -111,6 +111,13 @@ func TestRunStatus_UsesRunPageLink(t *testing.T) {
 	}
 }
 
+func TestRunStatus_FinalResponsesKeepRunLink(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if strings.Count(src, "[실행 보기]") < 2 {
+		t.Fatal("final success/failure replies should also include the run link")
+	}
+}
+
 // ── 타임아웃 테스트 ──────────────────────────────────────
 
 func TestTimeout_ContextUsed(t *testing.T) {

@@ -50,6 +50,13 @@ func TestHandleRunPage_TaskFound(t *testing.T) {
 	}
 	tr := d.tasks.New("leader", "triage issue")
 	tr.Output = "still running"
+	tr.GitDiff = "M  README.md"
+	tr.Completion = &CompletionResult{
+		BuildOK:    true,
+		TestOK:     false,
+		Duration:   "2.3s",
+		TestOutput: "FAIL test",
+	}
 
 	req := httptest.NewRequest("GET", "/runs/"+tr.ID, nil)
 	req.SetPathValue("id", tr.ID)
@@ -66,6 +73,12 @@ func TestHandleRunPage_TaskFound(t *testing.T) {
 	}
 	if !strings.Contains(body, `fetch("/api/task/" + taskId`) {
 		t.Fatalf("expected polling endpoint in body: %s", body)
+	}
+	if !strings.Contains(body, "Verification") || !strings.Contains(body, "Git Diff") {
+		t.Fatalf("expected verification sections in body: %s", body)
+	}
+	if !strings.Contains(body, tr.GitDiff) || !strings.Contains(body, tr.Completion.TestOutput) {
+		t.Fatalf("expected task detail content in body: %s", body)
 	}
 }
 

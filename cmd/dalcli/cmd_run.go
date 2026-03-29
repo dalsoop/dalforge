@@ -90,6 +90,17 @@ func finishTrackedRun(taskID, status, output, errMsg string) {
 	}
 }
 
+func trackedRunURL(taskID string) string {
+	if taskID == "" {
+		return ""
+	}
+	externalURL := strings.TrimRight(os.Getenv("DALCENTER_EXTERNAL_URL"), "/")
+	if externalURL == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/runs/%s", externalURL, taskID)
+}
+
 func dalcenterClientOrFallback() (*daemon.Client, error) {
 	if client, err := daemon.NewClient(); err == nil {
 		return client, nil
@@ -315,14 +326,13 @@ func runAgentLoop(dalName string) error {
 			continue
 		}
 
-		externalURL := os.Getenv("DALCENTER_EXTERNAL_URL")
 		taskRunID := startTrackedRun(dalName, spec.UserTask)
 		var statusMsg string
-		if externalURL != "" && taskRunID != "" {
-			runURL := fmt.Sprintf("%s/runs/%s", strings.TrimRight(externalURL, "/"), taskRunID)
+		runURL := trackedRunURL(taskRunID)
+		if runURL != "" {
 			statusMsg = fmt.Sprintf("💬 작업 중... ([실행 보기](%s))", runURL)
-		} else if externalURL != "" {
-			logsURL := fmt.Sprintf("%s/api/logs/%s", strings.TrimRight(externalURL, "/"), dalName)
+		} else if externalURL := strings.TrimRight(os.Getenv("DALCENTER_EXTERNAL_URL"), "/"); externalURL != "" {
+			logsURL := fmt.Sprintf("%s/api/logs/%s", externalURL, dalName)
 			statusMsg = fmt.Sprintf("💬 작업 중... ([로그](%s))", logsURL)
 		} else {
 			statusMsg = "💬 작업 중..."
@@ -357,8 +367,12 @@ func runAgentLoop(dalName string) error {
 					result.State = TaskStateBlocked
 				}
 				finishTrackedRun(taskRunID, string(result.State), truncate(output, 12000), err.Error())
+				failureMsg := fmt.Sprintf("❌ 실패 (%s): %v\n```\n%s\n```", class, err, truncate(output, 500))
+				if runURL != "" {
+					failureMsg += fmt.Sprintf("\n\n[실행 보기](%s)", runURL)
+				}
 				mm.Send(bridge.Message{
-					Content: fmt.Sprintf("❌ 실패 (%s): %v\n```\n%s\n```", class, err, truncate(output, 500)),
+					Content: failureMsg,
 					Channel: spec.Channel,
 					ReplyTo: spec.ThreadID,
 				})
@@ -407,6 +421,9 @@ func runAgentLoop(dalName string) error {
 			response += "\n\n" + gitResult
 		}
 		finishTrackedRun(taskRunID, string(result.State), truncate(response, 12000), "")
+		if runURL != "" {
+			response += fmt.Sprintf("\n\n[실행 보기](%s)", runURL)
+		}
 
 		mm.Send(bridge.Message{
 			Content: response,

@@ -718,6 +718,26 @@ func (d *Daemon) handleRunPage(w http.ResponseWriter, r *http.Request) {
       <div class="label">Links</div>
       <a id="logsLink" href="/api/logs/{{.Dal}}" target="_blank" rel="noreferrer">dal logs</a>
     </div>
+
+    <div class="card">
+      <div class="label">Verification</div>
+      <pre id="verification">{{if .Completion}}{{if .Completion.Skipped}}skipped: {{.Completion.SkipReason}}{{else}}build={{.Completion.BuildOK}} test={{.Completion.TestOK}} duration={{.Completion.Duration}}{{end}}{{else}}pending{{end}}</pre>
+    </div>
+
+    <div class="card">
+      <div class="label">Git Diff</div>
+      <pre id="gitdiff">{{if .GitDiff}}{{.GitDiff}}{{else}}(none){{end}}</pre>
+    </div>
+
+    <div class="card">
+      <div class="label">Build Output</div>
+      <pre id="buildOutput">{{if and .Completion .Completion.BuildOutput}}{{.Completion.BuildOutput}}{{else}}(none){{end}}</pre>
+    </div>
+
+    <div class="card">
+      <div class="label">Test Output</div>
+      <pre id="testOutput">{{if and .Completion .Completion.TestOutput}}{{.Completion.TestOutput}}{{else}}(none){{end}}</pre>
+    </div>
   </div>
 
   <script>
@@ -732,6 +752,23 @@ func (d *Daemon) handleRunPage(w http.ResponseWriter, r *http.Request) {
       document.getElementById("task").textContent = data.task || "";
       document.getElementById("output").textContent = data.output || "";
       document.getElementById("error").textContent = data.error || "";
+      document.getElementById("gitdiff").textContent = data.git_diff || "(none)";
+      const completion = data.completion || null;
+      let verification = "pending";
+      let buildOutput = "(none)";
+      let testOutput = "(none)";
+      if (completion) {
+        if (completion.skipped) {
+          verification = "skipped: " + (completion.skip_reason || "");
+        } else {
+          verification = "build=" + Boolean(completion.build_ok) + " test=" + Boolean(completion.test_ok) + " duration=" + (completion.duration || "");
+        }
+        if (completion.build_output) buildOutput = completion.build_output;
+        if (completion.test_output) testOutput = completion.test_output;
+      }
+      document.getElementById("verification").textContent = verification;
+      document.getElementById("buildOutput").textContent = buildOutput;
+      document.getElementById("testOutput").textContent = testOutput;
       if (data.started_at) document.getElementById("startedAt").textContent = data.started_at;
       if (!terminal.has(data.status)) window.setTimeout(refresh, 2000);
     }
