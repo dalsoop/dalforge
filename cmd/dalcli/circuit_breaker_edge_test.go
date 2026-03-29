@@ -283,7 +283,7 @@ func TestNotifyCredentialRefresh_WithServer(t *testing.T) {
 	if !strings.Contains(claimBody, "test-dal") {
 		t.Errorf("claim body should contain dal name, got: %s", claimBody)
 	}
-	if !strings.Contains(claimBody, "sync-dal-creds.sh") || !strings.Contains(claimBody, "blocked") {
+	if !strings.Contains(claimBody, "pve-sync-creds") || !strings.Contains(claimBody, "blocked") {
 		t.Errorf("claim body should request host sync, got: %s", claimBody)
 	}
 	if !strings.Contains(messageBody, "claim-0001") || !strings.Contains(messageBody, "credential") {

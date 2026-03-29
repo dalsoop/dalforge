@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -76,7 +77,9 @@ func (r *Registry) GetByContainerID(containerID string) *RegistryEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, e := range r.entries {
-		if e.ContainerID == containerID {
+		if e.ContainerID == containerID ||
+			strings.HasPrefix(e.ContainerID, containerID) ||
+			strings.HasPrefix(containerID, e.ContainerID) {
 			return e
 		}
 	}

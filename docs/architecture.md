@@ -133,17 +133,26 @@ dalcenter/gemini:latest    ubuntu + python3 + gemini-cli
   DALCENTER_MM_URL            Mattermost URL
   DALCENTER_MM_TOKEN          Mattermost admin token
   DALCENTER_MM_TEAM           Mattermost team name
+  DALCENTER_CRED_OPS_ENABLED  1이면 credential sync ops 자동 실행
+  DALCENTER_CRED_OPS_HTTP_URL 호스트 credential bridge URL
+  DALCENTER_CRED_OPS_HTTP_TOKEN host bridge bearer token
 
 컨테이너 내 (wake 시 자동):
   DAL_NAME                    dal 이름
   DAL_UUID                    dal UUID
   DAL_ROLE                    leader / member
   DAL_PLAYER                  claude / codex / gemini
+  DAL_NO_DM                   1이면 DM polling 비활성화 (channel_only 팀)
   DALCENTER_URL               데몬 주소
   GH_TOKEN / GITHUB_TOKEN     GitHub 인증
   GIT_AUTHOR_NAME/EMAIL       git 커밋 정보
   VEILKEY_LOCALVAULT_URL      VeilKey localvault (있으면 전달)
 ```
+
+credential sync bridge:
+- `scripts/dalcenter-cred-ops-httpd.py`
+- `POST /sync` with `{player, vmid}`
+- host에서 `proxmox-host-setup ai sync --agent <player>` 후 `pve-sync-creds <vmid>` 실행
 
 ## 시크릿 흐름
 

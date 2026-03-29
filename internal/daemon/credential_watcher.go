@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,7 +19,7 @@ const (
 
 // startCredentialWatcher periodically checks credential expiry
 // and refreshes tokens before they expire.
-func startCredentialWatcher(ctx context.Context) {
+func startCredentialWatcher(ctx context.Context, d *Daemon) {
 	home, _ := os.UserHomeDir()
 	credPaths := map[string]string{
 		"claude": filepath.Join(home, ".claude", ".credentials.json"),
@@ -32,7 +31,7 @@ func startCredentialWatcher(ctx context.Context) {
 	ticker := time.NewTicker(credCheckInterval)
 	defer ticker.Stop()
 
-	checkAndRefresh(credPaths)
+	checkAndRefresh(d, credPaths)
 
 	for {
 		select {
@@ -40,12 +39,12 @@ func startCredentialWatcher(ctx context.Context) {
 			log.Printf("[cred-watcher] stopped")
 			return
 		case <-ticker.C:
-			checkAndRefresh(credPaths)
+			checkAndRefresh(d, credPaths)
 		}
 	}
 }
 
-func checkAndRefresh(credPaths map[string]string) {
+func checkAndRefresh(d *Daemon, credPaths map[string]string) {
 	for player, path := range credPaths {
 		if _, err := os.Stat(path); err != nil {
 			continue
@@ -56,8 +55,8 @@ func checkAndRefresh(credPaths map[string]string) {
 			continue
 		}
 		if expired {
-			log.Printf("[cred-watcher] %s credential expired — refreshing", player)
-			refreshCredential(player)
+			log.Printf("[cred-watcher] %s credential expired — requesting sync", player)
+			requestCredentialSyncFromWatcher(d, player)
 			continue
 		}
 
@@ -66,8 +65,8 @@ func checkAndRefresh(credPaths map[string]string) {
 			continue
 		}
 		if approaching {
-			log.Printf("[cred-watcher] %s credential expiring within %s — refreshing", player, credRefreshThreshold)
-			refreshCredential(player)
+			log.Printf("[cred-watcher] %s credential expiring within %s — requesting sync", player, credRefreshThreshold)
+			requestCredentialSyncFromWatcher(d, player)
 		}
 	}
 }
@@ -108,38 +107,21 @@ func isApproachingExpiry(path string, threshold time.Duration) (bool, error) {
 	return false, nil
 }
 
-// refreshCredential triggers a token refresh by running the CLI briefly.
+// refreshCredential requests the documented host sync flow instead of invoking provider CLIs directly.
 func refreshCredential(player string) {
-	var cmd *exec.Cmd
-	switch player {
-	case "claude":
-		cmd = exec.Command("claude", "-p", "ok")
-	case "codex":
-		cmd = exec.Command("codex", "exec", "--ephemeral", "echo ok")
-	default:
+	requestCredentialSyncFromWatcher(nil, player)
+}
+
+func requestCredentialSyncFromWatcher(d *Daemon, player string) {
+	if d == nil {
+		log.Printf("[cred-watcher] %s sync skipped: daemon unavailable", player)
 		return
 	}
-
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
-	if err := cmd.Start(); err != nil {
-		log.Printf("[cred-watcher] %s refresh failed to start: %v", player, err)
-		return
-	}
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			log.Printf("[cred-watcher] %s refresh failed: %v", player, err)
-		} else {
-			log.Printf("[cred-watcher] %s refreshed OK", player)
-		}
-	case <-time.After(30 * time.Second):
-		cmd.Process.Kill()
-		log.Printf("[cred-watcher] %s refresh timed out (30s)", player)
+	if !d.requestCredentialSync(credentialSyncRequest{
+		Player: player,
+		Source: "watcher",
+		Repo:   filepath.Base(d.serviceRepo),
+	}) {
+		log.Printf("[cred-watcher] %s sync already requested recently", player)
 	}
 }

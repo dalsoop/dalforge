@@ -3,13 +3,13 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ── #121: Claude Code autoApprove injection ──────────────────
@@ -115,7 +115,7 @@ func TestHandleAgentConfig_SkipsEmptyBotUsername(t *testing.T) {
 func TestContainerHasBotUsername(t *testing.T) {
 	c := &Container{
 		DalName:     "dev",
-		BotUsername:  "dal-dev-abc123",
+		BotUsername: "dal-dev-abc123",
 	}
 	if c.BotUsername == "" {
 		t.Fatal("Container must have BotUsername field")
@@ -226,14 +226,7 @@ func TestCleanupOrphanBotDMs_Exists(t *testing.T) {
 
 // ── Member → Leader reporting ────────────────────────────────
 
-
-
-
-
-
-
 // ── Bridge: GetUsername ──────────────────────────────────────
-
 
 // ── helper ───────────────────────────────────────────────────
 
@@ -251,8 +244,6 @@ func readSource(t *testing.T, relPath string) string {
 	}
 	return string(data)
 }
-
-
 
 // ── MATTERMOST_URL 환경변수 주입 ─────────────────────────
 
@@ -361,7 +352,7 @@ func TestContainer_AllFieldsPresent(t *testing.T) {
 		Workspace:   "shared",
 		Skills:      3,
 		BotToken:    "tok",
-		BotUsername:  "dal-test",
+		BotUsername: "dal-test",
 	}
 	if c.BotUsername == "" {
 		t.Fatal("BotUsername must be settable")
@@ -417,6 +408,25 @@ func TestRegistry_GetByContainerID(t *testing.T) {
 	}
 	if entry.Name != "dev" {
 		t.Errorf("name = %q", entry.Name)
+	}
+}
+
+func TestRegistry_GetByContainerID_PrefixMatch(t *testing.T) {
+	dir := t.TempDir()
+	r := newRegistry(dir)
+	r.Set("uuid-1", RegistryEntry{Name: "dev", ContainerID: "abc123def456"})
+
+	entry := r.GetByContainerID("abc123def456")
+	if entry == nil {
+		t.Fatal("should find exact full container ID")
+	}
+	entry = r.GetByContainerID("abc123def4567890")
+	if entry == nil {
+		t.Fatal("should find when lookup contains stored full container ID as prefix")
+	}
+	entry = r.GetByContainerID("abc123def456"[:12])
+	if entry == nil {
+		t.Fatal("should find when docker ps returns short container ID")
 	}
 }
 
@@ -733,7 +743,7 @@ func TestHandlePs_WithContainers(t *testing.T) {
 
 func TestHandleStatus_ShowsAllDals(t *testing.T) {
 	d := &Daemon{
-		containers:  map[string]*Container{},
+		containers:   map[string]*Container{},
 		localdalRoot: t.TempDir(),
 	}
 	req := httptest.NewRequest("GET", "/api/status", nil)

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/dalsoop/dalcenter/internal/localdal"
 )
 
 // ── isCredentialExpired ─────────────────────────────────────────
@@ -167,6 +169,15 @@ func TestPlayerHome(t *testing.T) {
 		if got := playerHome(tt.player); got != tt.want {
 			t.Errorf("playerHome(%q) = %q, want %q", tt.player, got, tt.want)
 		}
+	}
+}
+
+func TestShouldDisableContainerDM(t *testing.T) {
+	if shouldDisableContainerDM(&localdal.DalProfile{ChannelOnly: true}) != true {
+		t.Fatal("channel_only dal should disable DM")
+	}
+	if shouldDisableContainerDM(&localdal.DalProfile{ChannelOnly: false}) != false {
+		t.Fatal("default dal should keep DM enabled")
 	}
 }
 

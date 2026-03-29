@@ -79,12 +79,12 @@ func TestRefreshCredential_UnknownPlayer(t *testing.T) {
 
 func TestCheckAndRefresh_EmptyPaths(t *testing.T) {
 	// Should not panic
-	checkAndRefresh(map[string]string{})
+	checkAndRefresh(&Daemon{credSyncLast: newCredentialSyncMap()}, map[string]string{})
 }
 
 func TestCheckAndRefresh_MissingFiles(t *testing.T) {
 	// Should not panic
-	checkAndRefresh(map[string]string{
+	checkAndRefresh(&Daemon{credSyncLast: newCredentialSyncMap()}, map[string]string{
 		"claude": "/nonexistent/cred.json",
 		"codex":  "/nonexistent/auth.json",
 	})

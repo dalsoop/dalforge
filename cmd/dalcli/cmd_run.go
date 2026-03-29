@@ -52,6 +52,16 @@ func shouldNotifyCredentialRefresh(dalName string) bool {
 	return true
 }
 
+func shouldDisableDM(raw string) bool {
+	if raw == "1" {
+		return true
+	}
+	if raw == "0" {
+		return false
+	}
+	return false
+}
+
 func dalcenterClientOrFallback() (*daemon.Client, error) {
 	if client, err := daemon.NewClient(); err == nil {
 		return client, nil
@@ -131,7 +141,7 @@ func runAgentLoop(dalName string) error {
 	}()
 
 	mm := bridge.NewMattermostBridge(cfg.MMURL, cfg.BotToken, cfg.ChannelID, 5*time.Second)
-	if os.Getenv("DAL_NO_DM") == "1" {
+	if shouldDisableDM(os.Getenv("DAL_NO_DM")) {
 		mm.NoDM = true
 	}
 	if err := mm.Connect(); err != nil {
@@ -142,11 +152,10 @@ func runAgentLoop(dalName string) error {
 	log.Printf("[agent] listening...")
 
 	uuidShort := os.Getenv("DAL_UUID_SHORT")
-	var mention string
+	mention := fmt.Sprintf("@dal-%s", dalName)
+	var legacyMention string
 	if uuidShort != "" {
-		mention = fmt.Sprintf("@dal-%s-%s", dalName, uuidShort)
-	} else {
-		mention = fmt.Sprintf("@dal-%s", dalName)
+		legacyMention = fmt.Sprintf("@dal-%s-%s", dalName, uuidShort)
 	}
 	// Also respond to @{dalName} directly (e.g. @dalroot without dal- prefix)
 	altMention := fmt.Sprintf("@%s", dalName)
@@ -217,25 +226,29 @@ func runAgentLoop(dalName string) error {
 			continue
 		}
 
-		isDirectMention := strings.Contains(msg.Content, mention) || strings.Contains(msg.Content, altMention)
+		isDirectMention := containsAnyMention(msg.Content, mention, legacyMention, altMention)
 		isThreadReply := msg.RootID != "" && isActiveThread(&activeThreads, msg.RootID)
 		isDM := msg.Channel != "" && msg.Channel != cfg.ChannelID // DM = different channel than main
 
-		log.Printf("[agent] msg from=%s mention=%v(m=%q alt=%q) thread=%v dm=%v content=%s",
-			msg.From[:8], isDirectMention, mention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
+		log.Printf("[agent] msg from=%s mention=%v(m=%q legacy=%q alt=%q) thread=%v dm=%v content=%s",
+			msg.From[:8], isDirectMention, mention, legacyMention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
 
-			if shouldIgnoreDalBotMessage(msg, mm, isDirectMention, isThreadReply, isDM) {
-				log.Printf("[agent] skipped dal-bot follow-up: %s", truncate(msg.Content, 60))
-				continue
-			}
-			if isDM && isOperationalNoticeMessage(msg.Content) {
-				log.Printf("[agent] skipped operational notice DM: %s", truncate(msg.Content, 60))
-				continue
-			}
+		if shouldIgnoreDalBotMessage(msg, mm, isDirectMention, isThreadReply, isDM) {
+			log.Printf("[agent] skipped dal-bot follow-up: %s", truncate(msg.Content, 60))
+			continue
+		}
+		if isDM && isDirectedAtDifferentDal(msg.Content, mention, legacyMention, altMention) {
+			log.Printf("[agent] skipped DM for different dal: %s", truncate(msg.Content, 60))
+			continue
+		}
+		if isDM && isOperationalNoticeMessage(msg.Content) {
+			log.Printf("[agent] skipped operational notice DM: %s", truncate(msg.Content, 60))
+			continue
+		}
 
-			if !isDirectMention && !isThreadReply && !isDM {
-				continue
-			}
+		if !isDirectMention && !isThreadReply && !isDM {
+			continue
+		}
 
 		// Track thread
 		threadID := msg.RootID
@@ -248,8 +261,7 @@ func runAgentLoop(dalName string) error {
 		task := extractTask(msg.Content, "작업 지시:")
 		if task == "" && isDirectMention {
 			// Free-form: strip mention, use entire message
-			task = strings.TrimSpace(strings.ReplaceAll(msg.Content, mention, ""))
-			task = strings.TrimSpace(strings.ReplaceAll(task, altMention, ""))
+			task = stripMentions(msg.Content, mention, legacyMention, altMention)
 		}
 		if task == "" && isThreadReply {
 			task = msg.Content
@@ -616,8 +628,8 @@ func notifyCredentialRefresh(dalName string) {
 
 	player := os.Getenv("DAL_PLAYER")
 	title := "credential 만료로 호스트 sync 필요"
-	detail := fmt.Sprintf("%s credential/auth failed; host에서 pve-sync-creds 실행 필요", player)
-	context := fmt.Sprintf("player=%s", player)
+	detail := fmt.Sprintf("%s credential/auth failed; host에서 proxmox-host-setup ai sync --agent %s, pve-sync-creds 실행 필요", player, player)
+	context := fmt.Sprintf("kind=credential_sync&player=%s&source=dalcli&source_dal=%s", player, dalName)
 	claim, err := client.Claim(dalName, "blocked", title, detail, context)
 	if err != nil {
 		log.Printf("[agent] credential refresh claim failed for %s: %v", dalName, err)
@@ -1071,6 +1083,61 @@ func isFromLeader(senderID string, mm *bridge.MattermostBridge) bool {
 func isFromDalBot(senderID string, mm *bridge.MattermostBridge) bool {
 	username := mm.GetUsername(senderID)
 	return strings.HasPrefix(username, "dal-")
+}
+
+func containsAnyMention(content string, mentions ...string) bool {
+	for _, mention := range mentions {
+		if mention != "" && strings.Contains(content, mention) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripMentions(content string, mentions ...string) string {
+	trimmed := content
+	for _, mention := range mentions {
+		if mention == "" {
+			continue
+		}
+		trimmed = strings.ReplaceAll(trimmed, mention, "")
+	}
+	return strings.TrimSpace(trimmed)
+}
+
+func isDirectedAtDifferentDal(content string, selfMentions ...string) bool {
+	var seenDalMention bool
+	for _, token := range strings.Fields(content) {
+		if !strings.HasPrefix(token, "@") {
+			continue
+		}
+		clean := strings.Trim(token, "@,.:;!?()[]{}<>\"'")
+		if clean == "" {
+			continue
+		}
+		mention := "@" + clean
+		if equalsAnyMention(mention, selfMentions...) {
+			return false
+		}
+		if strings.HasPrefix(clean, "dal-") {
+			seenDalMention = true
+			continue
+		}
+		switch clean {
+		case "leader", "reviewer", "dev", "verifier":
+			seenDalMention = true
+		}
+	}
+	return seenDalMention
+}
+
+func equalsAnyMention(content string, mentions ...string) bool {
+	for _, mention := range mentions {
+		if mention != "" && content == mention {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldIgnoreDalBotMessage(msg bridge.Message, mm *bridge.MattermostBridge, isDirectMention, isThreadReply, isDM bool) bool {

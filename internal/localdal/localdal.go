@@ -14,23 +14,24 @@ import (
 
 // DalProfile represents a dal read from dal.cue.
 type DalProfile struct {
-	UUID       string
-	Name       string
-	Version    string
+	UUID           string
+	Name           string
+	Version        string
 	Player         string
 	FallbackPlayer string // fallback player when primary fails (empty = auto-detect)
 	PlayerVersion  string // e.g. "2.1.81" for claude, empty = latest
-	Role          string // "leader" or "member"
-	Model         string // optional model override (opus, sonnet, haiku)
-	Skills     []string
-	Hooks      []string
-	FolderName string // directory name
-	Path       string // absolute path to dal folder
+	Role           string // "leader" or "member"
+	ChannelOnly    bool   // disable DM polling; project channel + threads only
+	Model          string // optional model override (opus, sonnet, haiku)
+	Skills         []string
+	Hooks          []string
+	FolderName     string // directory name
+	Path           string // absolute path to dal folder
 	// Git config
-	GitUser        string
-	GitEmail       string
-	GitHubToken    string // VeilKey ref or raw token
-	GeminiAPIKey   string // VeilKey ref, env: ref, or raw key
+	GitUser      string
+	GitEmail     string
+	GitHubToken  string // VeilKey ref or raw token
+	GeminiAPIKey string // VeilKey ref, env: ref, or raw key
 	// Workspace mode
 	Workspace string // "shared" (default, bind mount) or "clone" (git clone per dal)
 	// Auto task
@@ -327,6 +328,9 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	if p.Role == "" {
 		p.Role = "member"
 	}
+	if v := val.LookupPath(cue.ParsePath("channel_only")); v.Exists() {
+		p.ChannelOnly, _ = v.Bool()
+	}
 	if v := val.LookupPath(cue.ParsePath("skills")); v.Exists() {
 		if iter, err := v.List(); err == nil {
 			for iter.Next() {
@@ -406,6 +410,7 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 	player!:           #Player
 	fallback_player?:  #Player
 	role!:             #Role
+	channel_only?:   bool
 	skills?:         [...string]
 	hooks?:          [...string]
 	model?:          string

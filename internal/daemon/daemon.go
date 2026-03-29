@@ -19,9 +19,9 @@ import (
 
 // MattermostConfig holds Mattermost connection settings.
 type MattermostConfig struct {
-	URL       string // e.g. http://10.50.0.202:8065
+	URL        string // e.g. http://10.50.0.202:8065
 	AdminToken string // PAT with admin access
-	TeamName  string // e.g. "prelik"
+	TeamName   string // e.g. "prelik"
 }
 
 // Daemon is the dalcenter HTTP API server.
@@ -30,10 +30,13 @@ type Daemon struct {
 	localdalRoot string
 	serviceRepo  string // service repo path to mount as /workspace
 	mm           *MattermostConfig
-	apiToken     string // Bearer token for write endpoints (empty = no auth)
-	channelID    string // channel for this project
+	apiToken     string                // Bearer token for write endpoints (empty = no auth)
+	channelID    string                // channel for this project
+	opsChannelID string                // shared ops channel for credential sync notices
 	containers   map[string]*Container // dal name -> container
 	mu           sync.RWMutex
+	credSyncMu   sync.Mutex
+	credSyncLast map[string]time.Time
 	escalations  *escalationStore
 	claims       *claimStore
 	tasks        *taskStore
@@ -79,6 +82,7 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 		feedback:     newFeedbackStoreWithFile(filepath.Join(dataDir(serviceRepo), "feedback.json")),
 		costs:        newCostStoreWithFile(filepath.Join(dataDir(serviceRepo), "costs.json"), orchestrationLogDir(serviceRepo)),
 		registry:     newRegistry(serviceRepo),
+		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
 	}
 }
@@ -136,7 +140,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	// Start credential watcher
-	go startCredentialWatcher(ctx)
+	go startCredentialWatcher(ctx, d)
 
 	// Start repo watcher (git fetch/pull → sync on .dal/ changes)
 	go startRepoWatcher(ctx, d.serviceRepo, func() {
@@ -167,6 +171,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 			// dal-leaders 공유 채널 자동 생성 (cross-project leader 소통)
 			if leadersChID, err := talk.FindOrCreateChannel(d.mm.URL, d.mm.AdminToken, teamID, "dal-leaders"); err == nil {
 				log.Printf("[daemon] dal-leaders channel ready: %s", leadersChID[:8])
+			}
+			if credentialOpsEnabled() {
+				if opsChID, err := talk.FindOrCreateChannel(d.mm.URL, d.mm.AdminToken, teamID, credentialOpsChannelName()); err == nil {
+					d.opsChannelID = opsChID
+					log.Printf("[daemon] credential ops channel ready: %s (%s)", opsChID[:8], credentialOpsChannelName())
+				} else {
+					log.Printf("[daemon] credential ops channel setup failed: %v", err)
+				}
 			}
 		}
 	}
@@ -423,7 +435,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		Workspace:   ws,
 		Skills:      len(dal.Skills),
 		BotToken:    botToken,
-		BotUsername:  botUser,
+		BotUsername: botUser,
 	}
 	d.mu.Unlock()
 
@@ -700,11 +712,16 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 		// being re-consumed by the leader as a new task.
 		for _, c := range d.containers {
 			if c.Role == "leader" {
-				// Construct exact mention: @dal-{name}-{uuidShort}
-				short := uuidShort(c.UUID)
-				mention := fmt.Sprintf("@dal-%s-%s", c.DalName, short)
+				// Use the stable Mattermost bot username if available.
+				mention := "@"
+				if c.BotUsername != "" {
+					mention += c.BotUsername
+				} else {
+					mention += dalBotUsername(c.DalName, c.UUID)
+				}
+				legacyMention := fmt.Sprintf("@dal-%s-%s", c.DalName, uuidShort(c.UUID))
 				altMention := "@" + c.DalName
-				if !strings.Contains(msg, mention) && !strings.Contains(msg, altMention) {
+				if !strings.Contains(msg, mention) && !strings.Contains(msg, legacyMention) && !strings.Contains(msg, altMention) {
 					msg = mention + " " + msg
 				}
 				break

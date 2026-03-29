@@ -112,6 +112,7 @@ name:    "dev"
 version: "1.0.0"
 player:  "claude"
 role:    "member"
+channel_only: true
 skills:  ["skills/code-review", "skills/testing"]
 hooks:   []
 git: {
@@ -178,6 +179,14 @@ Uses `tee` (in-place write) to preserve file inode — Docker bind mounts stay i
 - **Codex**: ChatGPT OAuth. If expired, run `codex auth login` on the host, then `pve-sync-creds`.
 - **Gemini**: API key (no expiry). Set `GEMINI_API_KEY` env var on the dalcenter host.
 - When a running dal hits an auth failure, dalcli now auto-files a host-action claim and posts a short credential-sync notice instead of only emitting a plain chat message.
+- If `DALCENTER_CRED_OPS_ENABLED` is on (default), dalcenter also tries to run the documented credential sync flow and reports start/success/failure to the `dal-ops` channel.
+- If dalcenter runs inside an LXC and cannot execute `proxmox-host-setup` or `pve-sync-creds` directly, configure a host bridge with `DALCENTER_CRED_OPS_HTTP_URL` and `DALCENTER_CRED_OPS_HTTP_TOKEN`.
+- A reference bridge server is included at [`scripts/dalcenter-cred-ops-httpd.py`](./scripts/dalcenter-cred-ops-httpd.py). It exposes `POST /sync` and runs `proxmox-host-setup ai sync --agent <player>` followed by `pve-sync-creds <vmid>` on the Proxmox host.
+
+### Channel-only teams
+
+Add `channel_only: true` to a dal profile when the team should never poll Mattermost DMs.
+The dal will only react in the project channel and its active threads.
 
 ## Contributing
 

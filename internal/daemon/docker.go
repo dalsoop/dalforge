@@ -97,6 +97,10 @@ func playerHome(player string) string {
 	}
 }
 
+func shouldDisableContainerDM(dal *localdal.DalProfile) bool {
+	return dal != nil && dal.ChannelOnly
+}
+
 // dockerRun creates and starts a Docker container for a dal.
 // It returns the container ID, any credential warnings, and an error.
 func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *localdal.DalProfile) (string, []string, error) {
@@ -127,6 +131,9 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		"-e", fmt.Sprintf("DAL_UUID=%s", dal.UUID),
 		"-e", fmt.Sprintf("DAL_ROLE=%s", dal.Role),
 		"-e", fmt.Sprintf("DAL_PLAYER=%s", dal.Player),
+	}
+	if shouldDisableContainerDM(dal) {
+		args = append(args, "-e", "DAL_NO_DM=1")
 	}
 	if dal.Model != "" {
 		args = append(args, "-e", fmt.Sprintf("DAL_MODEL=%s", dal.Model))

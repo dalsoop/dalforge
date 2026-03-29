@@ -334,6 +334,72 @@ func TestShouldIgnoreDalBotMessage(t *testing.T) {
 	}
 }
 
+func TestIsDirectedAtDifferentDal(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"plain dm", "로그 좀 봐줘", false},
+		{"self stable mention", "@dal-leader 확인해줘", false},
+		{"self legacy mention", "@dal-leader-emotio 확인해줘", false},
+		{"self short mention", "@leader 확인해줘", false},
+		{"other stable mention", "@dal-reviewer 확인해줘", true},
+		{"other short mention", "@reviewer 확인해줘", true},
+		{"other malformed mention", "@dal-leader-leader 확인해줘", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDirectedAtDifferentDal(tt.content, "@dal-leader", "@dal-leader-emotio", "@leader")
+			if got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsOperationalNoticeMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"old credential notice", "@dal-leader [leader] ⚠️ credential 만료. 호스트에서 sync-dal-creds.sh 실행 필요.", true},
+		{"new credential notice", "[verifier] ⚠️ credential 만료. 호스트에서 pve-sync-creds 실행 필요. claim=claim-0001", true},
+		{"normal dm", "호스트에서 로그 좀 확인해줘", false},
+		{"generic warning", "⚠️ 디스크 용량 부족", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isOperationalNoticeMessage(tt.content); got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldDisableDM(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"enabled", "1", true},
+		{"disabled", "0", false},
+		{"unset", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldDisableDM(tt.raw); got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldUseCentralOverride(t *testing.T) {
 	tests := []struct {
 		name           string

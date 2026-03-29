@@ -373,3 +373,25 @@ hooks:   ["pre-commit", "post-deploy"]
 		t.Errorf("Hooks = %v", p.Hooks)
 	}
 }
+
+func TestReadDalCue_ChannelOnly(t *testing.T) {
+	dir := t.TempDir()
+	cue := `
+uuid:         "channel-only-001"
+name:         "ops"
+version:      "1.0.0"
+player:       "claude"
+role:         "member"
+channel_only: true
+`
+	f := filepath.Join(dir, "dal.cue")
+	os.WriteFile(f, []byte(cue), 0644)
+
+	p, err := ReadDalCue(f, "ops")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.ChannelOnly {
+		t.Fatal("ChannelOnly should be true")
+	}
+}

@@ -112,6 +112,7 @@ name:    "dev"
 version: "1.0.0"
 player:  "claude"
 role:    "member"
+channel_only: true
 skills:  ["skills/code-review", "skills/testing"]
 hooks:   []
 git: {
@@ -176,6 +177,13 @@ pve-sync-creds [CT_ID]   # 기본값: 105
 - **Codex**: 만료 시 호스트에서 `codex auth login` → `pve-sync-creds`
 - **Gemini**: API 키 (만료 없음). `GEMINI_API_KEY` 환경변수 설정.
 - 실행 중인 dal이 인증 실패를 만나면 이제 dalcli가 host action용 claim을 자동 생성하고, 채널에는 짧은 credential sync 안내만 남깁니다.
+- `DALCENTER_CRED_OPS_ENABLED`가 켜져 있으면(기본값), dalcenter가 이 credential sync 흐름을 자동 실행하려고 시도하고 `dal-ops` 채널에 진행 상태를 남깁니다.
+- dalcenter가 LXC 안에 떠 있어서 `proxmox-host-setup`나 `pve-sync-creds`를 직접 실행할 수 없으면 `DALCENTER_CRED_OPS_HTTP_URL`, `DALCENTER_CRED_OPS_HTTP_TOKEN`으로 호스트 bridge를 붙여야 합니다.
+- 예시 bridge 서버는 [`scripts/dalcenter-cred-ops-httpd.py`](./scripts/dalcenter-cred-ops-httpd.py)에 있고, `POST /sync`로 들어온 요청에 대해 Proxmox 호스트에서 `proxmox-host-setup ai sync --agent <player>` 후 `pve-sync-creds <vmid>`를 실행합니다.
+
+### Channel-only 팀
+
+dal profile에 `channel_only: true`를 넣으면 Mattermost DM polling을 끄고, 프로젝트 채널과 해당 스레드에서만 반응합니다.
 
 ## 기여
 

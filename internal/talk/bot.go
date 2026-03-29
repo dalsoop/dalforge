@@ -41,7 +41,8 @@ func SetupBot(mmURL, adminToken, teamID, channelID, username, displayName, descr
 		}
 	}
 
-	// Revoke all existing tokens, then create exactly one new token
+	// Revoke all existing tokens, then create exactly one new token.
+	// keep max 2 tokens: old accumulation must never grow unbounded across wake cycles.
 	existingTokens, _ := mmAPI("GET", mmURL+"/api/v4/users/"+userID+"/tokens", adminToken, "")
 	if existingTokens != nil {
 		var tokens []struct {

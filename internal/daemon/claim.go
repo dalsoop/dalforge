@@ -20,15 +20,15 @@ const (
 
 // Claim represents feedback from a dal to the host.
 type Claim struct {
-	ID        string    `json:"id"`
-	Dal       string    `json:"dal"`
-	Type      ClaimType `json:"type"`
-	Title     string    `json:"title"`
-	Detail    string    `json:"detail"`
-	Context   string    `json:"context,omitempty"` // task/repo context
-	Timestamp time.Time `json:"timestamp"`
-	Status    string    `json:"status"` // "open", "acknowledged", "resolved", "rejected"
-	Response  string    `json:"response,omitempty"`
+	ID        string     `json:"id"`
+	Dal       string     `json:"dal"`
+	Type      ClaimType  `json:"type"`
+	Title     string     `json:"title"`
+	Detail    string     `json:"detail"`
+	Context   string     `json:"context,omitempty"` // task/repo context
+	Timestamp time.Time  `json:"timestamp"`
+	Status    string     `json:"status"` // "open", "acknowledged", "resolved", "rejected"
+	Response  string     `json:"response,omitempty"`
 	RespondAt *time.Time `json:"responded_at,omitempty"`
 }
 
@@ -181,6 +181,7 @@ func (d *Daemon) handleClaim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claim := d.claims.Add(req.Dal, claimType, req.Title, req.Detail, req.Context)
+	d.handleCredentialSyncClaim(claim)
 
 	// Webhook notification
 	dispatchWebhook(WebhookEvent{

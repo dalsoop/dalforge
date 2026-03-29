@@ -157,7 +157,7 @@ func TestHandleMessage_ExternalMessageGetsLeaderMention(t *testing.T) {
 		},
 		channelID: "ch-123",
 		containers: map[string]*Container{
-			"leader": {DalName: "leader", UUID: "emotion-ai-leader-20260329", Role: "leader", Status: "running"},
+			"leader": {DalName: "leader", UUID: "emotion-ai-leader-20260329", Role: "leader", Status: "running", BotUsername: "dal-leader"},
 			"dev":    {DalName: "dev", UUID: "emotion-ai-dev-20260329", Role: "member", Status: "running"},
 		},
 	}
@@ -171,7 +171,7 @@ func TestHandleMessage_ExternalMessageGetsLeaderMention(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(receivedBody, "@dal-leader-emotio") {
+	if !strings.Contains(receivedBody, "@dal-leader") {
 		t.Fatalf("expected leader mention to be injected, body=%s", receivedBody)
 	}
 }
@@ -197,12 +197,12 @@ func TestHandleMessage_RunningDalNoticeSkipsLeaderMention(t *testing.T) {
 		},
 		channelID: "ch-123",
 		containers: map[string]*Container{
-			"leader":   {DalName: "leader", UUID: "emotion-ai-leader-20260329", Role: "leader", Status: "running"},
+			"leader":   {DalName: "leader", UUID: "emotion-ai-leader-20260329", Role: "leader", Status: "running", BotUsername: "dal-leader"},
 			"verifier": {DalName: "verifier", UUID: "emotion-ai-verifier-20260329", Role: "member", Status: "running"},
 		},
 	}
 
-	body := `{"from":"verifier","message":"[verifier] ⚠️ credential 만료. 호스트에서 sync-dal-creds.sh 실행 필요. claim=claim-0001"}`
+	body := `{"from":"verifier","message":"[verifier] ⚠️ credential 만료. 호스트에서 pve-sync-creds 실행 필요. claim=claim-0001"}`
 	req := httptest.NewRequest("POST", "/api/message", strings.NewReader(body))
 	w := httptest.NewRecorder()
 
@@ -211,7 +211,7 @@ func TestHandleMessage_RunningDalNoticeSkipsLeaderMention(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if strings.Contains(receivedBody, "@dal-leader-emotio") || strings.Contains(receivedBody, "@leader") {
+	if strings.Contains(receivedBody, "@dal-leader") || strings.Contains(receivedBody, "@leader") {
 		t.Fatalf("expected no leader mention for running-dal notice, body=%s", receivedBody)
 	}
 	if !strings.Contains(receivedBody, "claim-0001") {
