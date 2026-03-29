@@ -1,10 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"sync"
-	"fmt"
 	"testing"
 	"time"
 )
@@ -87,17 +87,17 @@ func TestDM_AllSendCallsHaveChannel(t *testing.T) {
 	src := readSrc(t, "cmd_run.go")
 	// mm.Send에서 ReplyTo가 있는 블록은 Channel도 있어야 함
 	// 최소 3곳: 상태, 에러, 응답
-	count := strings.Count(src, "Channel: msg.Channel,")
+	count := strings.Count(src, "Channel: spec.Channel,")
 	if count < 3 {
-		t.Fatalf("expected at least 3 Send calls with Channel: msg.Channel, got %d", count)
+		t.Fatalf("expected at least 3 Send calls with Channel: spec.Channel, got %d", count)
 	}
 }
 
 func TestDM_ResponseIncludesChannel(t *testing.T) {
 	src := readSrc(t, "cmd_run.go")
 	// 최종 응답에도 Channel이 전달되어야 함
-	if !strings.Contains(src, "Channel: msg.Channel,") {
-		t.Fatal("response mm.Send must include Channel: msg.Channel")
+	if !strings.Contains(src, "Channel: spec.Channel,") {
+		t.Fatal("response mm.Send must include Channel: spec.Channel")
 	}
 }
 
@@ -446,8 +446,6 @@ func TestExtractErrorSummary_Long(t *testing.T) {
 }
 
 // ── CircuitBreaker 추가 분기 ─────────────────────────────
-
-
 
 func TestCircuitBreaker_HalfOpenFailure_Full(t *testing.T) {
 	cb := NewCircuitBreaker(2, 50*time.Millisecond)
