@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,11 @@ import (
 // startSoftServe starts soft-serve as a child process.
 // Returns nil cmd if soft-serve binary not found (non-fatal).
 func startSoftServe(ctx context.Context) (*exec.Cmd, error) {
+	if softServeAlreadyRunning(300 * time.Millisecond) {
+		log.Printf("[soft-serve] port %s already in use; assuming an existing instance and skipping child start", softServeSSHPort())
+		return nil, nil
+	}
+
 	softBin, err := exec.LookPath("soft")
 	if err != nil {
 		return nil, nil // not installed, skip
@@ -37,6 +43,15 @@ func startSoftServe(ctx context.Context) (*exec.Cmd, error) {
 	log.Printf("[soft-serve] data=%s", dataPath)
 
 	return cmd, nil
+}
+
+func softServeAlreadyRunning(timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", softServeSSHPort()), timeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // softServeSSHPort returns the SSH port for soft-serve.
