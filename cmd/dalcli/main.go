@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/dalsoop/dalcenter/internal/daemon"
 	"github.com/spf13/cobra"
@@ -47,6 +48,12 @@ func statusCmd(dalName string) *cobra.Command {
 					fmt.Printf("player:    %s\n", c.Player)
 					fmt.Printf("role:      %s\n", c.Role)
 					fmt.Printf("status:    %s\n", c.Status)
+					if c.IdleFor != "" {
+						fmt.Printf("idle:      %s\n", c.IdleFor)
+					}
+					if !c.LastSeenAt.IsZero() {
+						fmt.Printf("last_seen: %s\n", c.LastSeenAt.Local().Format(time.RFC3339))
+					}
 					fmt.Printf("container: %s\n", c.ContainerID[:12])
 					return nil
 				}
@@ -74,9 +81,17 @@ func psCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tPLAYER\tROLE\tSTATUS")
+			fmt.Fprintln(w, "NAME\tPLAYER\tROLE\tSTATUS\tIDLE\tLAST SEEN")
 			for _, c := range containers {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.DalName, c.Player, c.Role, c.Status)
+				idle := c.IdleFor
+				if idle == "" {
+					idle = "-"
+				}
+				lastSeen := "-"
+				if !c.LastSeenAt.IsZero() {
+					lastSeen = c.LastSeenAt.Local().Format("2006-01-02 15:04:05")
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", c.DalName, c.Player, c.Role, c.Status, idle, lastSeen)
 			}
 			w.Flush()
 			return nil
