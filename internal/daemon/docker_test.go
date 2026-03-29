@@ -182,11 +182,28 @@ func TestShouldDisableContainerDM(t *testing.T) {
 	}
 }
 
+func TestInferredFallbackPlayer(t *testing.T) {
+	if got := inferredFallbackPlayer("claude"); got != "codex" {
+		t.Fatalf("inferredFallbackPlayer(claude) = %q, want codex", got)
+	}
+	if got := inferredFallbackPlayer("codex"); got != "claude" {
+		t.Fatalf("inferredFallbackPlayer(codex) = %q, want claude", got)
+	}
+	if got := inferredFallbackPlayer("gemini"); got != "" {
+		t.Fatalf("inferredFallbackPlayer(gemini) = %q, want empty", got)
+	}
+}
+
 func TestCredentialPlayers(t *testing.T) {
 	dal := &localdal.DalProfile{Player: "claude", FallbackPlayer: "codex"}
 	got := credentialPlayers(dal)
 	if len(got) != 2 || got[0] != "claude" || got[1] != "codex" {
 		t.Fatalf("credentialPlayers() = %v, want [claude codex]", got)
+	}
+
+	inferred := credentialPlayers(&localdal.DalProfile{Player: "claude"})
+	if len(inferred) != 2 || inferred[0] != "claude" || inferred[1] != "codex" {
+		t.Fatalf("credentialPlayers() should infer codex fallback, got %v", inferred)
 	}
 
 	same := credentialPlayers(&localdal.DalProfile{Player: "codex", FallbackPlayer: "codex"})

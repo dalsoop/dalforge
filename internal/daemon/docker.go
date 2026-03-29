@@ -101,6 +101,17 @@ func shouldDisableContainerDM(dal *localdal.DalProfile) bool {
 	return dal != nil && dal.ChannelOnly
 }
 
+func inferredFallbackPlayer(primary string) string {
+	switch strings.TrimSpace(primary) {
+	case "claude":
+		return "codex"
+	case "codex":
+		return "claude"
+	default:
+		return ""
+	}
+}
+
 func credentialPlayers(dal *localdal.DalProfile) []string {
 	if dal == nil {
 		return nil
@@ -116,7 +127,11 @@ func credentialPlayers(dal *localdal.DalProfile) []string {
 		players = append(players, player)
 	}
 	add(dal.Player)
-	add(dal.FallbackPlayer)
+	fallback := dal.FallbackPlayer
+	if strings.TrimSpace(fallback) == "" {
+		fallback = inferredFallbackPlayer(dal.Player)
+	}
+	add(fallback)
 	return players
 }
 
