@@ -285,13 +285,17 @@ type TaskResult struct {
 	ID     string `json:"task_id,omitempty"`
 	Status string `json:"status"`
 	// Full result fields (when polling)
-	Dal       string      `json:"dal,omitempty"`
-	Task      string      `json:"task,omitempty"`
-	Output    string      `json:"output,omitempty"`
-	Error     string      `json:"error,omitempty"`
-	StartedAt string      `json:"started_at,omitempty"`
-	DoneAt    *string     `json:"done_at,omitempty"`
-	Events    []TaskEvent `json:"events,omitempty"`
+	Dal        string            `json:"dal,omitempty"`
+	Task       string            `json:"task,omitempty"`
+	Output     string            `json:"output,omitempty"`
+	Error      string            `json:"error,omitempty"`
+	StartedAt  string            `json:"started_at,omitempty"`
+	DoneAt     *string           `json:"done_at,omitempty"`
+	Events     []TaskEvent       `json:"events,omitempty"`
+	GitDiff    string            `json:"git_diff,omitempty"`
+	GitChanges int               `json:"git_changes,omitempty"`
+	Verified   string            `json:"verified,omitempty"`
+	Completion *CompletionResult `json:"completion,omitempty"`
 }
 
 type TaskEvent struct {
@@ -410,6 +414,34 @@ func (c *Client) TaskEvent(id, kind, message string) (*TaskResult, error) {
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("task event failed: %s", strings.TrimSpace(string(b)))
+	}
+	var result TaskResult
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// UpdateTaskRun updates verification metadata for a tracked task.
+func (c *Client) UpdateTaskRun(id string, update TaskMetadataUpdate) (*TaskResult, error) {
+	bodyBytes, err := json.Marshal(update)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/task/"+id+"/metadata", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("task metadata update failed: %s", strings.TrimSpace(string(b)))
 	}
 	var result TaskResult
 	json.Unmarshal(b, &result)

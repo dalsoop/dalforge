@@ -218,6 +218,8 @@ func TestClient_StartAndFinishTaskRun(t *testing.T) {
 		case "/api/task/task-1234/event":
 			sawEvent = true
 			w.Write([]byte(`{"status":"running","events":[{"kind":"self_repair","message":"retry"}]}`))
+		case "/api/task/task-1234/metadata":
+			w.Write([]byte(`{"status":"running","verified":"yes","git_changes":2,"completion":{"build_ok":true,"test_ok":true,"duration":"2s"}}`))
 		case "/api/task/task-1234/finish":
 			sawFinish = true
 			w.Write([]byte(`{"status":"done","dal":"leader","task":"triage","output":"ok"}`))
@@ -245,6 +247,18 @@ func TestClient_StartAndFinishTaskRun(t *testing.T) {
 	}
 	if len(updated.Events) != 1 || updated.Events[0].Kind != "self_repair" {
 		t.Fatalf("unexpected task events: %+v", updated.Events)
+	}
+	meta, err := c.UpdateTaskRun("task-1234", TaskMetadataUpdate{
+		GitDiff:    "M README.md",
+		GitChanges: 2,
+		Verified:   "yes",
+		Completion: &CompletionResult{BuildOK: true, TestOK: true, Duration: "2s"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateTaskRun: %v", err)
+	}
+	if meta.Verified != "yes" || meta.GitChanges != 2 {
+		t.Fatalf("unexpected metadata result: %+v", meta)
 	}
 	finished, err := c.FinishTaskRun("task-1234", "done", "ok", "")
 	if err != nil {

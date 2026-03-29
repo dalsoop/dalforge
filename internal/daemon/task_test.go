@@ -183,6 +183,30 @@ func TestHandleTaskEvent(t *testing.T) {
 	}
 }
 
+func TestHandleTaskMetadata(t *testing.T) {
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
+	tr := d.tasks.New("leader", "triage issue")
+
+	req := httptest.NewRequest("POST", "/api/task/"+tr.ID+"/metadata", strings.NewReader(`{"git_diff":"M README.md","git_changes":1,"verified":"yes","completion":{"build_ok":true,"test_ok":false,"duration":"1.2s"}}`))
+	req.SetPathValue("id", tr.ID)
+	w := httptest.NewRecorder()
+	d.handleTaskMetadata(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	updated := d.tasks.Get(tr.ID)
+	if updated == nil {
+		t.Fatal("expected tracked task")
+	}
+	if updated.Verified != "yes" || updated.GitChanges != 1 {
+		t.Fatalf("unexpected metadata: %+v", updated)
+	}
+	if updated.Completion == nil || updated.Completion.Duration != "1.2s" {
+		t.Fatalf("unexpected completion metadata: %+v", updated.Completion)
+	}
+}
+
 func TestTruncateStr(t *testing.T) {
 	if truncateStr("hello", 10) != "hello" {
 		t.Error("should not truncate short string")

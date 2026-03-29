@@ -104,6 +104,164 @@ func appendTrackedRunEvent(taskID, kind, message string) {
 	}
 }
 
+type taskVerificationSnapshot struct {
+	GitDiff    string
+	GitChanges int
+	Verified   string
+	Completion *daemon.CompletionResult
+}
+
+func updateTrackedRunMetadata(taskID string, snapshot *taskVerificationSnapshot) {
+	if taskID == "" || snapshot == nil {
+		return
+	}
+	client, err := dalcenterClientOrFallback()
+	if err != nil {
+		log.Printf("[agent] task run metadata skipped for %s: %v", taskID, err)
+		return
+	}
+	update := daemon.TaskMetadataUpdate{
+		GitDiff:    snapshot.GitDiff,
+		GitChanges: snapshot.GitChanges,
+		Verified:   snapshot.Verified,
+		Completion: snapshot.Completion,
+	}
+	if _, err := client.UpdateTaskRun(taskID, update); err != nil {
+		log.Printf("[agent] task run metadata failed for %s: %v", taskID, err)
+	}
+}
+
+func collectTaskVerification() *taskVerificationSnapshot {
+	snapshot := &taskVerificationSnapshot{
+		Verified: "skipped",
+		Completion: &daemon.CompletionResult{
+			Skipped:    true,
+			SkipReason: "verification not collected",
+		},
+	}
+
+	diffOut, statusOut, err := workspaceGitSnapshot()
+	if err != nil {
+		snapshot.Completion.SkipReason = "git status failed"
+		return snapshot
+	}
+
+	var diffParts []string
+	if strings.TrimSpace(diffOut) != "" {
+		diffParts = append(diffParts, strings.TrimSpace(diffOut))
+	}
+	if strings.TrimSpace(statusOut) != "" {
+		diffParts = append(diffParts, strings.TrimSpace(statusOut))
+	}
+	snapshot.GitDiff = truncate(strings.Join(diffParts, "\n"), 4000)
+	snapshot.GitChanges = countGitStatusLines(statusOut)
+	if snapshot.GitChanges == 0 {
+		snapshot.Verified = "no_changes"
+		snapshot.Completion.SkipReason = "no code changes detected"
+		return snapshot
+	}
+
+	snapshot.Verified = "yes"
+	snapshot.Completion = collectWorkspaceCompletion()
+	return snapshot
+}
+
+func workspaceGitSnapshot() (string, string, error) {
+	diffCmd := exec.Command("git", "diff", "--stat", "HEAD")
+	diffCmd.Dir = "/workspace"
+	diffOut, diffErr := diffCmd.Output()
+
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = "/workspace"
+	statusOut, statusErr := statusCmd.Output()
+
+	if diffErr != nil || statusErr != nil {
+		if diffErr != nil {
+			return "", "", diffErr
+		}
+		return "", "", statusErr
+	}
+	return strings.TrimSpace(string(diffOut)), strings.TrimSpace(string(statusOut)), nil
+}
+
+func countGitStatusLines(status string) int {
+	if strings.TrimSpace(status) == "" {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(status, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func collectWorkspaceCompletion() *daemon.CompletionResult {
+	if _, err := os.Stat("/workspace/go.mod"); err != nil {
+		return &daemon.CompletionResult{
+			Skipped:    true,
+			SkipReason: "go.mod not found",
+		}
+	}
+
+	start := time.Now()
+	result := &daemon.CompletionResult{}
+
+	buildOut, buildErr := runWorkspaceCommand("go", "build", "./...")
+	if buildErr != nil {
+		result.BuildOutput = truncate(buildOut, 2000)
+	} else {
+		result.BuildOK = true
+		if strings.TrimSpace(buildOut) != "" {
+			result.BuildOutput = truncate(buildOut, 2000)
+		}
+	}
+
+	testOut, testErr := runWorkspaceCommand("go", "test", "./...")
+	if testErr != nil {
+		result.TestOutput = truncate(testOut, 2000)
+	} else {
+		result.TestOK = true
+		if strings.TrimSpace(testOut) != "" {
+			result.TestOutput = truncate(testOut, 2000)
+		}
+	}
+
+	result.Duration = time.Since(start).Round(time.Millisecond).String()
+	return result
+}
+
+func runWorkspaceCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = "/workspace"
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+func verificationSummaryLine(snapshot *taskVerificationSnapshot) string {
+	if snapshot == nil {
+		return ""
+	}
+	parts := []string{
+		"검증:",
+		fmt.Sprintf("verified=%s", snapshot.Verified),
+		fmt.Sprintf("changes=%d", snapshot.GitChanges),
+	}
+	if snapshot.Completion != nil {
+		if snapshot.Completion.Skipped {
+			parts = append(parts, "build/test=skipped", fmt.Sprintf("reason=%s", snapshot.Completion.SkipReason))
+		} else {
+			parts = append(parts,
+				fmt.Sprintf("build=%t", snapshot.Completion.BuildOK),
+				fmt.Sprintf("test=%t", snapshot.Completion.TestOK),
+				fmt.Sprintf("duration=%s", snapshot.Completion.Duration),
+			)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 func trackedRunURL(taskID string) string {
 	if taskID == "" {
 		return ""
@@ -404,6 +562,10 @@ func runAgentLoop(dalName string) error {
 
 		log.Printf("[agent] done (%d bytes)", len(output))
 
+		verification := collectTaskVerification()
+		updateTrackedRunMetadata(taskRunID, verification)
+		appendTrackedRunEvent(taskRunID, "verification", verificationSummaryLine(verification))
+
 		// Check if files were modified → auto git workflow (member only — leader는 라우터, 직접 커밋 안 함)
 		var gitResult string
 		if os.Getenv("DAL_ROLE") != "leader" {
@@ -435,6 +597,9 @@ func runAgentLoop(dalName string) error {
 		response := truncate(strings.TrimSpace(output), 3000)
 		if gitResult != "" {
 			response += "\n\n" + gitResult
+		}
+		if summary := verificationSummaryLine(verification); summary != "" {
+			response += "\n\n" + summary
 		}
 		if result.State == TaskStateNoop {
 			appendTrackedRunEvent(taskRunID, "result", "Task finished with no changes")
