@@ -110,6 +110,24 @@ func TestFreeFormMention_DirectMention(t *testing.T) {
 	}
 }
 
+func TestFreeFormMention_StableAndAltMention(t *testing.T) {
+	tests := []struct {
+		name, mention, content, want string
+	}{
+		{"stable username mention", "@dal-leader", "@dal-leader 해줘", "해줘"},
+		{"uuid mention", "@dal-leader-v2lead", "@dal-leader-v2lead 해줘", "해줘"},
+		{"alt mention", "@leader", "@leader 해줘", "해줘"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := strings.TrimSpace(strings.ReplaceAll(tt.content, tt.mention, ""))
+			if task != tt.want {
+				t.Fatalf("got %q, want %q", task, tt.want)
+			}
+		})
+	}
+}
+
 // ── Message type detection ──
 
 func TestMessageTypeDetection(t *testing.T) {
@@ -189,6 +207,20 @@ func TestMessageTypeDetection(t *testing.T) {
 				t.Errorf("process: got %v, want %v", shouldProcess, tt.wantProcess)
 			}
 		})
+	}
+}
+
+func TestThreadReplyFromDalBot_IsIgnoredBySource(t *testing.T) {
+	src, err := os.ReadFile("cmd_run.go")
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	text := string(src)
+	if !strings.Contains(text, "isFromDalBot(msg.From, mm)") {
+		t.Fatal("thread replies from dal bots must be ignored")
+	}
+	if !strings.Contains(text, "stableMention := fmt.Sprintf(\"@dal-%s\", dalName)") {
+		t.Fatal("stable @dal-{name} mention must be recognized")
 	}
 }
 
@@ -409,9 +441,9 @@ func TestMessageRouting_FreeFormFallback(t *testing.T) {
 
 func TestIsDalOnlyChanges(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   bool
+		name  string
+		input string
+		want  bool
 	}{
 		{"dal only", " M .dal/data/claims.json", true},
 		{"dal added", "?? .dal/data/new.json", true},

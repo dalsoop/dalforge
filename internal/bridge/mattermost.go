@@ -268,8 +268,10 @@ func (m *MattermostBridge) fetchDMChannelIDs() ([]string, error) {
 		if ch.ID == m.ChannelID {
 			continue // skip main channel (already polled)
 		}
-		// Include DMs and any other channels this bot is a member of
-		if ch.Type == "D" || ch.Type == "O" || ch.Type == "P" {
+		// Only include direct and group-message channels.
+		// Public/private team channels must not be treated as DMs, or
+		// agents in one project will consume traffic from other project channels.
+		if ch.Type == "D" || ch.Type == "G" {
 			dms = append(dms, ch.ID)
 		}
 	}

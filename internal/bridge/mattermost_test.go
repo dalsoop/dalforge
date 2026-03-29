@@ -162,3 +162,35 @@ func TestClose(t *testing.T) {
 	b.Close()
 	b.Close()
 }
+
+func TestFetchDMChannelIDs_OnlyDirectAndGroupMessages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v4/users/bot-123/channels":
+			w.Write([]byte(`[
+				{"id":"main-ch","type":"O"},
+				{"id":"dm-1","type":"D"},
+				{"id":"gm-1","type":"G"},
+				{"id":"public-other","type":"O"},
+				{"id":"private-other","type":"P"}
+			]`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	b := NewMattermostBridge(srv.URL, "token", "main-ch", time.Second)
+	b.BotUserID = "bot-123"
+
+	got, err := b.fetchDMChannelIDs()
+	if err != nil {
+		t.Fatalf("fetchDMChannelIDs: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d channels, want 2: %v", len(got), got)
+	}
+	if got[0] != "dm-1" || got[1] != "gm-1" {
+		t.Fatalf("got %v, want [dm-1 gm-1]", got)
+	}
+}

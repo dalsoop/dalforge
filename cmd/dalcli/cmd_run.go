@@ -112,6 +112,7 @@ func runAgentLoop(dalName string) error {
 	} else {
 		mention = fmt.Sprintf("@dal-%s", dalName)
 	}
+	stableMention := fmt.Sprintf("@dal-%s", dalName)
 	// Also respond to @{dalName} directly (e.g. @dalroot without dal- prefix)
 	altMention := fmt.Sprintf("@%s", dalName)
 	var activeThreads sync.Map
@@ -181,12 +182,18 @@ func runAgentLoop(dalName string) error {
 			continue
 		}
 
-		isDirectMention := strings.Contains(msg.Content, mention) || strings.Contains(msg.Content, altMention)
+		isDirectMention := strings.Contains(msg.Content, mention) || strings.Contains(msg.Content, stableMention) || strings.Contains(msg.Content, altMention)
 		isThreadReply := msg.RootID != "" && isActiveThread(&activeThreads, msg.RootID)
 		isDM := msg.Channel != "" && msg.Channel != cfg.ChannelID // DM = different channel than main
 
 		log.Printf("[agent] msg from=%s mention=%v(m=%q alt=%q) thread=%v dm=%v content=%s",
 			msg.From[:8], isDirectMention, mention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
+
+		// Ignore dal bot thread replies to prevent cross-bot feedback loops.
+		if isThreadReply && isFromDalBot(msg.From, mm) {
+			log.Printf("[agent] skipped dal bot thread reply: %s", truncate(msg.Content, 60))
+			continue
+		}
 
 		if !isDirectMention && !isThreadReply && !isDM {
 			continue
@@ -204,6 +211,7 @@ func runAgentLoop(dalName string) error {
 		if task == "" && isDirectMention {
 			// Free-form: strip mention, use entire message
 			task = strings.TrimSpace(strings.ReplaceAll(msg.Content, mention, ""))
+			task = strings.TrimSpace(strings.ReplaceAll(task, stableMention, ""))
 			task = strings.TrimSpace(strings.ReplaceAll(task, altMention, ""))
 		}
 		if task == "" && isThreadReply {
@@ -998,6 +1006,11 @@ func escalateAutoTaskFailure(consecutiveFails int, dalName, autoTask, errMsg str
 func isFromLeader(senderID string, mm *bridge.MattermostBridge) bool {
 	username := mm.GetUsername(senderID)
 	return strings.Contains(username, "leader")
+}
+
+func isFromDalBot(senderID string, mm *bridge.MattermostBridge) bool {
+	username := mm.GetUsername(senderID)
+	return strings.HasPrefix(username, "dal-")
 }
 
 // reportToLeader sends a summary to the leader bot in the same channel
