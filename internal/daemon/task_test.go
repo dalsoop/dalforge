@@ -20,6 +20,12 @@ func TestTaskStore_New(t *testing.T) {
 	if tr.Status != "running" {
 		t.Errorf("expected status=running, got %s", tr.Status)
 	}
+	if len(tr.Events) != 1 {
+		t.Fatalf("expected initial event, got %d", len(tr.Events))
+	}
+	if tr.Events[0].Kind != "accepted" {
+		t.Fatalf("expected initial accepted event, got %q", tr.Events[0].Kind)
+	}
 }
 
 func TestTaskStore_Get(t *testing.T) {
@@ -147,6 +153,33 @@ func TestHandleTaskStartAndFinish(t *testing.T) {
 	}
 	if tr.DoneAt == nil {
 		t.Fatal("expected DoneAt to be set")
+	}
+	if len(tr.Events) < 2 {
+		t.Fatalf("expected completion event, got %d events", len(tr.Events))
+	}
+	if tr.Events[len(tr.Events)-1].Kind != "done" {
+		t.Fatalf("expected final done event, got %q", tr.Events[len(tr.Events)-1].Kind)
+	}
+}
+
+func TestHandleTaskEvent(t *testing.T) {
+	d := New(":0", "/tmp/test", t.TempDir(), nil)
+	tr := d.tasks.New("leader", "triage issue")
+
+	req := httptest.NewRequest("POST", "/api/task/"+tr.ID+"/event", strings.NewReader(`{"kind":"self_repair","message":"Retrying after fix"}`))
+	req.SetPathValue("id", tr.ID)
+	w := httptest.NewRecorder()
+	d.handleTaskEvent(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	updated := d.tasks.Get(tr.ID)
+	if updated == nil {
+		t.Fatal("expected tracked task")
+	}
+	if got := updated.Events[len(updated.Events)-1]; got.Kind != "self_repair" || got.Message != "Retrying after fix" {
+		t.Fatalf("unexpected event: %+v", got)
 	}
 }
 

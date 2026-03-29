@@ -239,6 +239,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/task", d.requireAuth(d.handleTask))
 	mux.HandleFunc("POST /api/task/start", d.requireAuth(d.handleTaskStart))
 	mux.HandleFunc("GET /api/task/{id}", d.handleTaskStatus)
+	mux.HandleFunc("POST /api/task/{id}/event", d.requireAuth(d.handleTaskEvent))
 	mux.HandleFunc("POST /api/task/{id}/finish", d.requireAuth(d.handleTaskFinish))
 	mux.HandleFunc("GET /api/tasks", d.handleTaskList)
 	// Claims — dal feedback to host
@@ -664,6 +665,28 @@ func (d *Daemon) handleRunPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	formatTimeline := func(events []taskEvent) string {
+		if len(events) == 0 {
+			return "(no events yet)"
+		}
+		var b strings.Builder
+		for _, ev := range events {
+			at := ev.At.Format(time.RFC3339)
+			if ev.At.IsZero() {
+				at = "unknown-time"
+			}
+			line := fmt.Sprintf("[%s] %s", at, ev.Message)
+			if ev.Kind != "" {
+				line = fmt.Sprintf("[%s] (%s) %s", at, ev.Kind, ev.Message)
+			}
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(line)
+		}
+		return b.String()
+	}
+
 	const page = `<!doctype html>
 <html lang="ko">
 <head>
@@ -720,6 +743,18 @@ func (d *Daemon) handleRunPage(w http.ResponseWriter, r *http.Request) {
     </div>
 
     <div class="card">
+      <div class="label">Summary</div>
+      <pre id="summary">{{if .DoneAt}}done={{.DoneAt}}{{else}}done=pending{{end}}
+git_changes={{.GitChanges}}
+verified={{if .Verified}}{{.Verified}}{{else}}pending{{end}}</pre>
+    </div>
+
+    <div class="card">
+      <div class="label">Timeline</div>
+      <pre id="timeline">{{timeline .Events}}</pre>
+    </div>
+
+    <div class="card">
       <div class="label">Verification</div>
       <pre id="verification">{{if .Completion}}{{if .Completion.Skipped}}skipped: {{.Completion.SkipReason}}{{else}}build={{.Completion.BuildOK}} test={{.Completion.TestOK}} duration={{.Completion.Duration}}{{end}}{{else}}pending{{end}}</pre>
     </div>
@@ -743,6 +778,20 @@ func (d *Daemon) handleRunPage(w http.ResponseWriter, r *http.Request) {
   <script>
     const taskId = "{{.ID}}";
     const terminal = new Set(["done","failed","blocked","noop"]);
+    function formatSummary(data) {
+      const doneAt = data.done_at || "pending";
+      const gitChanges = Number.isFinite(data.git_changes) ? data.git_changes : 0;
+      const verified = data.verified || "pending";
+      return "done=" + doneAt + "\n" + "git_changes=" + gitChanges + "\n" + "verified=" + verified;
+    }
+    function formatTimeline(events) {
+      if (!events || events.length === 0) return "(no events yet)";
+      return events.map((event) => {
+        const at = event.at || "unknown-time";
+        const kind = event.kind ? " (" + event.kind + ")" : "";
+        return "[" + at + "]" + kind + " " + (event.message || "");
+      }).join("\n");
+    }
     async function refresh() {
       const res = await fetch("/api/task/" + taskId, {headers: {"Accept":"application/json"}});
       if (!res.ok) return;
@@ -752,6 +801,8 @@ func (d *Daemon) handleRunPage(w http.ResponseWriter, r *http.Request) {
       document.getElementById("task").textContent = data.task || "";
       document.getElementById("output").textContent = data.output || "";
       document.getElementById("error").textContent = data.error || "";
+      document.getElementById("summary").textContent = formatSummary(data);
+      document.getElementById("timeline").textContent = formatTimeline(data.events || []);
       document.getElementById("gitdiff").textContent = data.git_diff || "(none)";
       const completion = data.completion || null;
       let verification = "pending";
@@ -777,7 +828,7 @@ func (d *Daemon) handleRunPage(w http.ResponseWriter, r *http.Request) {
 </body>
 </html>`
 
-	tpl := template.Must(template.New("run").Parse(page))
+	tpl := template.Must(template.New("run").Funcs(template.FuncMap{"timeline": formatTimeline}).Parse(page))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = tpl.Execute(w, tr)
 }

@@ -285,12 +285,19 @@ type TaskResult struct {
 	ID     string `json:"task_id,omitempty"`
 	Status string `json:"status"`
 	// Full result fields (when polling)
-	Dal       string  `json:"dal,omitempty"`
-	Task      string  `json:"task,omitempty"`
-	Output    string  `json:"output,omitempty"`
-	Error     string  `json:"error,omitempty"`
-	StartedAt string  `json:"started_at,omitempty"`
-	DoneAt    *string `json:"done_at,omitempty"`
+	Dal       string      `json:"dal,omitempty"`
+	Task      string      `json:"task,omitempty"`
+	Output    string      `json:"output,omitempty"`
+	Error     string      `json:"error,omitempty"`
+	StartedAt string      `json:"started_at,omitempty"`
+	DoneAt    *string     `json:"done_at,omitempty"`
+	Events    []TaskEvent `json:"events,omitempty"`
+}
+
+type TaskEvent struct {
+	At      string `json:"at,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // Task submits a direct task to a dal container. If async=true, returns immediately with a task ID.
@@ -378,6 +385,31 @@ func (c *Client) FinishTaskRun(id, status, output, errMsg string) (*TaskResult, 
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("task finish failed: %s", strings.TrimSpace(string(b)))
+	}
+	var result TaskResult
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// TaskEvent appends an event to a tracked task created by StartTaskRun.
+func (c *Client) TaskEvent(id, kind, message string) (*TaskResult, error) {
+	body := fmt.Sprintf(`{"kind":%q,"message":%q}`, kind, message)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/task/"+id+"/event", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("task event failed: %s", strings.TrimSpace(string(b)))
 	}
 	var result TaskResult
 	json.Unmarshal(b, &result)

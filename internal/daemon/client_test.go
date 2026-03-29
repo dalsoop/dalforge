@@ -209,12 +209,15 @@ func TestClient_Logs(t *testing.T) {
 }
 
 func TestClient_StartAndFinishTaskRun(t *testing.T) {
-	var sawStart, sawFinish bool
+	var sawStart, sawEvent, sawFinish bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/task/start":
 			sawStart = true
 			w.Write([]byte(`{"task_id":"task-1234","status":"running"}`))
+		case "/api/task/task-1234/event":
+			sawEvent = true
+			w.Write([]byte(`{"status":"running","events":[{"kind":"self_repair","message":"retry"}]}`))
 		case "/api/task/task-1234/finish":
 			sawFinish = true
 			w.Write([]byte(`{"status":"done","dal":"leader","task":"triage","output":"ok"}`))
@@ -236,6 +239,13 @@ func TestClient_StartAndFinishTaskRun(t *testing.T) {
 	if started.ID != "task-1234" {
 		t.Fatalf("task id = %q, want task-1234", started.ID)
 	}
+	updated, err := c.TaskEvent("task-1234", "self_repair", "retry")
+	if err != nil {
+		t.Fatalf("TaskEvent: %v", err)
+	}
+	if len(updated.Events) != 1 || updated.Events[0].Kind != "self_repair" {
+		t.Fatalf("unexpected task events: %+v", updated.Events)
+	}
 	finished, err := c.FinishTaskRun("task-1234", "done", "ok", "")
 	if err != nil {
 		t.Fatalf("FinishTaskRun: %v", err)
@@ -243,7 +253,7 @@ func TestClient_StartAndFinishTaskRun(t *testing.T) {
 	if finished.Status != "done" {
 		t.Fatalf("status = %q, want done", finished.Status)
 	}
-	if !sawStart || !sawFinish {
-		t.Fatalf("expected both start and finish requests, got start=%v finish=%v", sawStart, sawFinish)
+	if !sawStart || !sawEvent || !sawFinish {
+		t.Fatalf("expected start, event, finish requests, got start=%v event=%v finish=%v", sawStart, sawEvent, sawFinish)
 	}
 }

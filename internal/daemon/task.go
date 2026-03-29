@@ -13,20 +13,27 @@ import (
 
 // taskResult holds the result of a direct task execution.
 type taskResult struct {
-	ID        string     `json:"id"`
-	Dal       string     `json:"dal"`
-	Task      string     `json:"task"`
-	Output    string     `json:"output"`
-	Error     string     `json:"error,omitempty"`
-	Status    string     `json:"status"` // "running", "done", "failed", "blocked", "noop"
-	StartedAt time.Time  `json:"started_at"`
-	DoneAt    *time.Time `json:"done_at,omitempty"`
+	ID        string      `json:"id"`
+	Dal       string      `json:"dal"`
+	Task      string      `json:"task"`
+	Output    string      `json:"output"`
+	Error     string      `json:"error,omitempty"`
+	Status    string      `json:"status"` // "running", "done", "failed", "blocked", "noop"
+	StartedAt time.Time   `json:"started_at"`
+	DoneAt    *time.Time  `json:"done_at,omitempty"`
+	Events    []taskEvent `json:"events,omitempty"`
 	// Post-task verification
 	GitDiff    string `json:"git_diff,omitempty"`    // workspace git diff after task
 	GitChanges int    `json:"git_changes,omitempty"` // number of files changed
 	Verified   string `json:"verified,omitempty"`    // "yes", "no_changes", "skipped"
 	// Post-task build/test verification
 	Completion *CompletionResult `json:"completion,omitempty"`
+}
+
+type taskEvent struct {
+	At      time.Time `json:"at"`
+	Kind    string    `json:"kind"`
+	Message string    `json:"message"`
 }
 
 // taskStore manages running and completed direct tasks.
@@ -51,6 +58,7 @@ func (s *taskStore) New(dal, task string) *taskResult {
 		Status:    "running",
 		StartedAt: time.Now().UTC(),
 	}
+	t.appendEvent("accepted", "Task accepted and running")
 	s.tasks[t.ID] = t
 
 	// Evict old tasks (keep last 50)
@@ -99,7 +107,54 @@ func (s *taskStore) Complete(id, status, output, errMsg string) *taskResult {
 	tr.Output = output
 	tr.Error = errMsg
 	tr.DoneAt = &now
+	message := taskStatusMessage(status, errMsg)
+	if message != "" {
+		tr.appendEvent(status, message)
+	}
 	return tr
+}
+
+func (s *taskStore) AddEvent(id, kind, message string) *taskResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tr := s.tasks[id]
+	if tr == nil {
+		return nil
+	}
+	tr.appendEvent(kind, message)
+	return tr
+}
+
+func (tr *taskResult) appendEvent(kind, message string) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+	tr.Events = append(tr.Events, taskEvent{
+		At:      time.Now().UTC(),
+		Kind:    kind,
+		Message: message,
+	})
+}
+
+func taskStatusMessage(status, errMsg string) string {
+	switch status {
+	case "done":
+		return "Task completed"
+	case "blocked":
+		if strings.TrimSpace(errMsg) != "" {
+			return "Task blocked: " + errMsg
+		}
+		return "Task blocked"
+	case "failed":
+		if strings.TrimSpace(errMsg) != "" {
+			return "Task failed: " + errMsg
+		}
+		return "Task failed"
+	case "noop":
+		return "Task completed with no changes"
+	default:
+		return ""
+	}
 }
 
 // handleTaskStart registers a tracked task without executing it inside the daemon.
@@ -142,6 +197,30 @@ func (d *Daemon) handleTaskFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tr := d.tasks.Complete(id, req.Status, req.Output, req.Error)
+	if tr == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+	respondJSON(w, http.StatusOK, tr)
+}
+
+// handleTaskEvent appends an event to a previously registered tracked task.
+// POST /api/task/{id}/event
+func (d *Daemon) handleTaskEvent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+	tr := d.tasks.AddEvent(id, strings.TrimSpace(req.Kind), req.Message)
 	if tr == nil {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return

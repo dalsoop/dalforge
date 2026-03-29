@@ -90,6 +90,20 @@ func finishTrackedRun(taskID, status, output, errMsg string) {
 	}
 }
 
+func appendTrackedRunEvent(taskID, kind, message string) {
+	if taskID == "" || strings.TrimSpace(message) == "" {
+		return
+	}
+	client, err := dalcenterClientOrFallback()
+	if err != nil {
+		log.Printf("[agent] task run event skipped for %s: %v", taskID, err)
+		return
+	}
+	if _, err := client.TaskEvent(taskID, kind, message); err != nil {
+		log.Printf("[agent] task run event failed for %s: %v", taskID, err)
+	}
+}
+
 func trackedRunURL(taskID string) string {
 	if taskID == "" {
 		return ""
@@ -351,6 +365,7 @@ func runAgentLoop(dalName string) error {
 			// Self-repair: try to fix and retry once
 			if shouldRetry, fix := selfRepair(spec.Prompt, output, err); shouldRetry {
 				log.Printf("[agent] self-repair applied: %s, retrying", fix)
+				appendTrackedRunEvent(taskRunID, "self_repair", fmt.Sprintf("Self-repair applied: %s", fix))
 				mm.Send(bridge.Message{
 					Content: fmt.Sprintf("🔧 자가 수리: %s — 재시도 중...", fix),
 					Channel: spec.Channel,
@@ -407,6 +422,7 @@ func runAgentLoop(dalName string) error {
 					prURL = strings.TrimSpace(line)
 				}
 			}
+			appendTrackedRunEvent(taskRunID, "git", "Auto git workflow produced follow-up output")
 		}
 
 		// History buffer: record completed task
@@ -419,6 +435,9 @@ func runAgentLoop(dalName string) error {
 		response := truncate(strings.TrimSpace(output), 3000)
 		if gitResult != "" {
 			response += "\n\n" + gitResult
+		}
+		if result.State == TaskStateNoop {
+			appendTrackedRunEvent(taskRunID, "result", "Task finished with no changes")
 		}
 		finishTrackedRun(taskRunID, string(result.State), truncate(response, 12000), "")
 		if runURL != "" {

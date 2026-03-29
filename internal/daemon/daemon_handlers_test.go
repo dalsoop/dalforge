@@ -51,6 +51,9 @@ func TestHandleRunPage_TaskFound(t *testing.T) {
 	tr := d.tasks.New("leader", "triage issue")
 	tr.Output = "still running"
 	tr.GitDiff = "M  README.md"
+	tr.GitChanges = 1
+	tr.Verified = "yes"
+	tr.Events = append(tr.Events, taskEvent{Kind: "self_repair", Message: "Retrying after fix"})
 	tr.Completion = &CompletionResult{
 		BuildOK:    true,
 		TestOK:     false,
@@ -77,8 +80,14 @@ func TestHandleRunPage_TaskFound(t *testing.T) {
 	if !strings.Contains(body, "Verification") || !strings.Contains(body, "Git Diff") {
 		t.Fatalf("expected verification sections in body: %s", body)
 	}
+	if !strings.Contains(body, "Summary") || !strings.Contains(body, "Timeline") {
+		t.Fatalf("expected summary sections in body: %s", body)
+	}
 	if !strings.Contains(body, tr.GitDiff) || !strings.Contains(body, tr.Completion.TestOutput) {
 		t.Fatalf("expected task detail content in body: %s", body)
+	}
+	if !strings.Contains(body, "Retrying after fix") || !strings.Contains(body, "git_changes=1") {
+		t.Fatalf("expected timeline and summary content in body: %s", body)
 	}
 }
 
