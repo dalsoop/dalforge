@@ -240,6 +240,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/task/start", d.requireAuth(d.handleTaskStart))
 	mux.HandleFunc("GET /api/task/{id}", d.handleTaskStatus)
 	mux.HandleFunc("POST /api/task/{id}/event", d.requireAuth(d.handleTaskEvent))
+	mux.HandleFunc("POST /api/task/{id}/metadata", d.requireAuth(d.handleTaskMetadata))
 	mux.HandleFunc("POST /api/task/{id}/finish", d.requireAuth(d.handleTaskFinish))
 	mux.HandleFunc("GET /api/tasks", d.handleTaskList)
 	// Claims — dal feedback to host

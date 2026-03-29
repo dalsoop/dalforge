@@ -118,6 +118,16 @@ func TestRunStatus_FinalResponsesKeepRunLink(t *testing.T) {
 	}
 }
 
+func TestRunStatus_FinalResponsesIncludeVerificationSummary(t *testing.T) {
+	src := readSrc(t, "cmd_run.go")
+	if !strings.Contains(src, "검증:") {
+		t.Fatal("final success replies should include a verification summary line")
+	}
+	if !strings.Contains(src, "updateTrackedRunMetadata") {
+		t.Fatal("tracked runs should upload verification metadata before finish")
+	}
+}
+
 // ── 타임아웃 테스트 ──────────────────────────────────────
 
 func TestTimeout_ContextUsed(t *testing.T) {

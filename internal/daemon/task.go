@@ -36,6 +36,13 @@ type taskEvent struct {
 	Message string    `json:"message"`
 }
 
+type TaskMetadataUpdate struct {
+	GitDiff    string            `json:"git_diff"`
+	GitChanges int               `json:"git_changes"`
+	Verified   string            `json:"verified"`
+	Completion *CompletionResult `json:"completion"`
+}
+
 // taskStore manages running and completed direct tasks.
 type taskStore struct {
 	mu    sync.RWMutex
@@ -122,6 +129,20 @@ func (s *taskStore) AddEvent(id, kind, message string) *taskResult {
 		return nil
 	}
 	tr.appendEvent(kind, message)
+	return tr
+}
+
+func (s *taskStore) UpdateMetadata(id string, update TaskMetadataUpdate) *taskResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tr := s.tasks[id]
+	if tr == nil {
+		return nil
+	}
+	tr.GitDiff = update.GitDiff
+	tr.GitChanges = update.GitChanges
+	tr.Verified = update.Verified
+	tr.Completion = update.Completion
 	return tr
 }
 
@@ -221,6 +242,23 @@ func (d *Daemon) handleTaskEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tr := d.tasks.AddEvent(id, strings.TrimSpace(req.Kind), req.Message)
+	if tr == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+	respondJSON(w, http.StatusOK, tr)
+}
+
+// handleTaskMetadata updates verification metadata for a tracked task.
+// POST /api/task/{id}/metadata
+func (d *Daemon) handleTaskMetadata(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req TaskMetadataUpdate
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	tr := d.tasks.UpdateMetadata(id, req)
 	if tr == nil {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
