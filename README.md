@@ -177,6 +177,7 @@ Uses `tee` (in-place write) to preserve file inode — Docker bind mounts stay i
 - **Claude**: OAuth token. If expired, run `claude auth login` on the host, then `pve-sync-creds`.
 - **Codex**: ChatGPT OAuth. If expired, run `codex auth login` on the host, then `pve-sync-creds`.
 - **Gemini**: API key (no expiry). Set `GEMINI_API_KEY` env var on the dalcenter host.
+- When a running dal hits an auth failure, dalcli now auto-files a host-action claim and posts a short credential-sync notice instead of only emitting a plain chat message.
 
 ## Contributing
 

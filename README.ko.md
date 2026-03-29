@@ -175,6 +175,7 @@ pve-sync-creds [CT_ID]   # 기본값: 105
 - **Claude**: 만료 시 호스트에서 `claude auth login` → `pve-sync-creds`
 - **Codex**: 만료 시 호스트에서 `codex auth login` → `pve-sync-creds`
 - **Gemini**: API 키 (만료 없음). `GEMINI_API_KEY` 환경변수 설정.
+- 실행 중인 dal이 인증 실패를 만나면 이제 dalcli가 host action용 claim을 자동 생성하고, 채널에는 짧은 credential sync 안내만 남깁니다.
 
 ## 기여
 

@@ -27,6 +27,41 @@ type agentConfig struct {
 	TeamMembers string `json:"team_members"`
 }
 
+var credentialRefreshCooldown = struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+	ttl  time.Duration
+}{
+	last: make(map[string]time.Time),
+	ttl:  10 * time.Minute,
+}
+
+func shouldNotifyCredentialRefresh(dalName string) bool {
+	if dalName == "" {
+		return false
+	}
+	credentialRefreshCooldown.mu.Lock()
+	defer credentialRefreshCooldown.mu.Unlock()
+	now := time.Now()
+	last, ok := credentialRefreshCooldown.last[dalName]
+	if ok && now.Sub(last) < credentialRefreshCooldown.ttl {
+		return false
+	}
+	credentialRefreshCooldown.last[dalName] = now
+	return true
+}
+
+func dalcenterClientOrFallback() (*daemon.Client, error) {
+	if client, err := daemon.NewClient(); err == nil {
+		return client, nil
+	}
+	if os.Getenv("DALCENTER_URL") == "" {
+		_ = os.Setenv("DALCENTER_URL", "http://host.docker.internal:11190")
+		return daemon.NewClient()
+	}
+	return nil, fmt.Errorf("DALCENTER_URL not set")
+}
+
 func runCmd(dalName string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
@@ -556,18 +591,36 @@ func buildThreadContext(mm *bridge.MattermostBridge, newMsg bridge.Message, dalN
 }
 
 // notifyCredentialRefresh tells dalcenter daemon that credentials need refresh.
-// The daemon can log this or trigger external sync.
+// It files a host-action claim and posts a short channel notice once per cooldown window.
 func notifyCredentialRefresh(dalName string) {
-	dcURL := os.Getenv("DALCENTER_URL")
-	if dcURL == "" {
+	if !shouldNotifyCredentialRefresh(dalName) {
+		log.Printf("[agent] credential refresh already requested recently for %s", dalName)
 		return
 	}
-	body := fmt.Sprintf(`{"dal":"%s","message":"[%s] ⚠️ credential 만료. 호스트에서 sync-dal-creds.sh 실행 필요."}`, dalName, dalName)
-	req, _ := http.NewRequest("POST", dcURL+"/api/message", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err == nil {
-		resp.Body.Close()
+
+	client, err := dalcenterClientOrFallback()
+	if err != nil {
+		log.Printf("[agent] credential refresh request skipped for %s: %v", dalName, err)
+		return
+	}
+
+	player := os.Getenv("DAL_PLAYER")
+	title := "credential 만료로 호스트 sync 필요"
+	detail := fmt.Sprintf("%s credential/auth failed; host에서 sync-dal-creds.sh 실행 필요", player)
+	context := fmt.Sprintf("player=%s", player)
+	claim, err := client.Claim(dalName, "blocked", title, detail, context)
+	if err != nil {
+		log.Printf("[agent] credential refresh claim failed for %s: %v", dalName, err)
+	} else {
+		log.Printf("[agent] credential refresh claim filed for %s: %s", dalName, claim.ID)
+	}
+
+	notice := fmt.Sprintf("[%s] ⚠️ credential 만료. 호스트에서 sync-dal-creds.sh 실행 필요.", dalName)
+	if claim != nil && claim.ID != "" {
+		notice = fmt.Sprintf("%s claim=%s", notice, claim.ID)
+	}
+	if _, err := client.Message(dalName, notice); err != nil {
+		log.Printf("[agent] credential refresh notice failed for %s: %v", dalName, err)
 	}
 	log.Printf("[agent] credential refresh requested for %s", dalName)
 }

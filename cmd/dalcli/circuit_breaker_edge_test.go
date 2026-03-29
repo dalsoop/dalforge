@@ -251,10 +251,76 @@ func TestClassify_AuthIsUnknown(t *testing.T) {
 // ══════════════════════════════════════════════════════════════
 
 func TestNotifyCredentialRefresh_WithServer(t *testing.T) {
-	var received string
+	credentialRefreshCooldown.mu.Lock()
+	credentialRefreshCooldown.last = make(map[string]time.Time)
+	credentialRefreshCooldown.mu.Unlock()
+
+	var claimBody string
+	var messageBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		received = string(b)
+		switch r.URL.Path {
+		case "/api/claim":
+			claimBody = string(b)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(`{"id":"claim-0001","status":"open"}`))
+			return
+		case "/api/message":
+			messageBody = string(b)
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	os.Setenv("DALCENTER_URL", srv.URL)
+	os.Setenv("DAL_PLAYER", "codex")
+	defer os.Unsetenv("DALCENTER_URL")
+	defer os.Unsetenv("DAL_PLAYER")
+
+	notifyCredentialRefresh("test-dal")
+
+	if !strings.Contains(claimBody, "test-dal") {
+		t.Errorf("claim body should contain dal name, got: %s", claimBody)
+	}
+	if !strings.Contains(claimBody, "sync-dal-creds.sh") || !strings.Contains(claimBody, "blocked") {
+		t.Errorf("claim body should request host sync, got: %s", claimBody)
+	}
+	if !strings.Contains(messageBody, "claim-0001") || !strings.Contains(messageBody, "credential") {
+		t.Errorf("message body should include claim id and credential notice, got: %s", messageBody)
+	}
+}
+
+func TestNotifyCredentialRefresh_ServerDown(t *testing.T) {
+	credentialRefreshCooldown.mu.Lock()
+	credentialRefreshCooldown.last = make(map[string]time.Time)
+	credentialRefreshCooldown.mu.Unlock()
+
+	os.Setenv("DALCENTER_URL", "http://127.0.0.1:1") // 연결 불가 포트
+	defer os.Unsetenv("DALCENTER_URL")
+
+	// panic 없이 리턴해야 함
+	notifyCredentialRefresh("test-dal")
+}
+
+func TestNotifyCredentialRefresh_DedupesWithinCooldown(t *testing.T) {
+	credentialRefreshCooldown.mu.Lock()
+	credentialRefreshCooldown.last = make(map[string]time.Time)
+	credentialRefreshCooldown.mu.Unlock()
+
+	var claimCount int
+	var messageCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/claim":
+			claimCount++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(`{"id":"claim-0002","status":"open"}`))
+			return
+		case "/api/message":
+			messageCount++
+		}
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -263,21 +329,14 @@ func TestNotifyCredentialRefresh_WithServer(t *testing.T) {
 	defer os.Unsetenv("DALCENTER_URL")
 
 	notifyCredentialRefresh("test-dal")
-
-	if !strings.Contains(received, "test-dal") {
-		t.Errorf("request body should contain dal name, got: %s", received)
-	}
-	if !strings.Contains(received, "credential") || !strings.Contains(received, "만료") {
-		t.Errorf("request body should contain credential expiry message, got: %s", received)
-	}
-}
-
-func TestNotifyCredentialRefresh_ServerDown(t *testing.T) {
-	os.Setenv("DALCENTER_URL", "http://127.0.0.1:1") // 연결 불가 포트
-	defer os.Unsetenv("DALCENTER_URL")
-
-	// panic 없이 리턴해야 함
 	notifyCredentialRefresh("test-dal")
+
+	if claimCount != 1 {
+		t.Fatalf("claim count = %d, want 1", claimCount)
+	}
+	if messageCount != 1 {
+		t.Fatalf("message count = %d, want 1", messageCount)
+	}
 }
 
 // ══════════════════════════════════════════════════════════════
