@@ -544,16 +544,7 @@ func TestHandleCredentialStatusQuery_FallbackOnStatusError(t *testing.T) {
 	}))
 	defer mmServer.Close()
 
-	dcServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/claims" {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, "boom", http.StatusInternalServerError)
-	}))
-	defer dcServer.Close()
-
-	t.Setenv("DALCENTER_URL", dcServer.URL)
+	t.Setenv("DALCENTER_URL", "http://127.0.0.1:1")
 	mm := &bridge.MattermostBridge{URL: mmServer.URL, Token: "tok", ChannelID: "ch-1"}
 
 	handled, err := handleCredentialStatusQuery("leader", "sync-dal-creds.sh 왜 뜨지", "root-1", "ch-1", mm)
