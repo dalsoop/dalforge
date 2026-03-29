@@ -223,6 +223,11 @@ func runAgentLoop(dalName string) error {
 		log.Printf("[agent] msg from=%s mention=%v(m=%q alt=%q) thread=%v dm=%v content=%s",
 			msg.From[:8], isDirectMention, mention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
 
+		if shouldIgnoreDalBotMessage(msg, mm, isDirectMention, isThreadReply, isDM) {
+			log.Printf("[agent] skipped dal-bot follow-up: %s", truncate(msg.Content, 60))
+			continue
+		}
+
 		if !isDirectMention && !isThreadReply && !isDM {
 			continue
 		}
@@ -1039,6 +1044,24 @@ func escalateAutoTaskFailure(consecutiveFails int, dalName, autoTask, errMsg str
 func isFromLeader(senderID string, mm *bridge.MattermostBridge) bool {
 	username := mm.GetUsername(senderID)
 	return strings.Contains(username, "leader")
+}
+
+func isFromDalBot(senderID string, mm *bridge.MattermostBridge) bool {
+	username := mm.GetUsername(senderID)
+	return strings.HasPrefix(username, "dal-")
+}
+
+func shouldIgnoreDalBotMessage(msg bridge.Message, mm *bridge.MattermostBridge, isDirectMention, isThreadReply, isDM bool) bool {
+	if !isFromDalBot(msg.From, mm) {
+		return false
+	}
+	if isDM {
+		return true
+	}
+	if isThreadReply && !isDirectMention && !isFromLeader(msg.From, mm) {
+		return true
+	}
+	return false
 }
 
 // reportToLeader sends a summary to the leader bot in the same channel

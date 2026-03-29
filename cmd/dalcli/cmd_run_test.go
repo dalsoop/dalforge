@@ -291,6 +291,49 @@ func TestBuildThreadContext_Fallback(t *testing.T) {
 	}
 }
 
+func TestShouldIgnoreDalBotMessage(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/users/bot-leader", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"id": "bot-leader", "username": "dal-leader-emotio"})
+	})
+	mux.HandleFunc("/api/v4/users/bot-reviewer", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"id": "bot-reviewer", "username": "dal-reviewer-emotio"})
+	})
+	mux.HandleFunc("/api/v4/users/human-devops", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"id": "human-devops", "username": "devops"})
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	mm := &bridge.MattermostBridge{URL: srv.URL, Token: "tok"}
+
+	tests := []struct {
+		name            string
+		from            string
+		isDirectMention bool
+		isThreadReply   bool
+		isDM            bool
+		want            bool
+	}{
+		{"human dm allowed", "human-devops", false, false, true, false},
+		{"dal dm ignored", "bot-reviewer", false, false, true, true},
+		{"leader thread followup allowed", "bot-leader", false, true, false, false},
+		{"nonleader thread followup ignored", "bot-reviewer", false, true, false, true},
+		{"direct mention from dal bot allowed", "bot-reviewer", true, true, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := bridge.Message{From: tt.from, Content: "test"}
+			got := shouldIgnoreDalBotMessage(msg, mm, tt.isDirectMention, tt.isThreadReply, tt.isDM)
+			if got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // ── fetchAgentConfig ──
 
 func TestFetchAgentConfig_Success(t *testing.T) {
