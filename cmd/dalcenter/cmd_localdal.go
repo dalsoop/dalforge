@@ -73,6 +73,11 @@ func newInitCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := localdalRoot()
 			if repoPath != "" {
+				abs, err := filepath.Abs(repoPath)
+				if err != nil {
+					return fmt.Errorf("resolve path: %w", err)
+				}
+				repoPath = abs
 				root = filepath.Join(repoPath, ".dal")
 			}
 			if err := localdal.Init(root); err != nil {
