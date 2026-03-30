@@ -8,12 +8,8 @@ import (
 )
 
 func TestProposeWisdom_DirectCall_Pattern(t *testing.T) {
-	if _, err := os.Stat("/workspace"); err != nil {
-		t.Skip("not in container environment")
-	}
-	inboxDir := "/workspace/wisdom-inbox"
-	os.MkdirAll(inboxDir, 0755)
-	defer os.RemoveAll(inboxDir)
+	inboxDir := t.TempDir()
+	t.Setenv("DALCLI_WISDOM_INBOX", inboxDir)
 
 	err := proposeWisdom("test-dal", "always test first", "prevents regressions", false)
 	if err != nil {
@@ -33,12 +29,8 @@ func TestProposeWisdom_DirectCall_Pattern(t *testing.T) {
 }
 
 func TestProposeWisdom_DirectCall_AntiPattern(t *testing.T) {
-	if _, err := os.Stat("/workspace"); err != nil {
-		t.Skip("not in container environment")
-	}
-	inboxDir := "/workspace/wisdom-inbox"
-	os.MkdirAll(inboxDir, 0755)
-	defer os.RemoveAll(inboxDir)
+	inboxDir := t.TempDir()
+	t.Setenv("DALCLI_WISDOM_INBOX", inboxDir)
 
 	err := proposeWisdom("test-dal", "force push", "destroys history", true)
 	if err != nil {

@@ -29,9 +29,17 @@ func wisdomCmd(dalName string) *cobra.Command {
 	return cmd
 }
 
+// wisdomInboxDir returns the inbox directory, allowing override via environment variable.
+func wisdomInboxDir() string {
+	if d := os.Getenv("DALCLI_WISDOM_INBOX"); d != "" {
+		return d
+	}
+	return "/workspace/wisdom-inbox"
+}
+
 // proposeWisdom writes a wisdom proposal to wisdom-inbox.
 func proposeWisdom(dalName, pattern, context string, isAntiPattern bool) error {
-	inboxDir := "/workspace/wisdom-inbox"
+	inboxDir := wisdomInboxDir()
 	if err := os.MkdirAll(inboxDir, 0755); err != nil {
 		return fmt.Errorf("wisdom inbox not available: %w", err)
 	}

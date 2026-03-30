@@ -28,7 +28,10 @@ func proposeCmd(dalName string) *cobra.Command {
 }
 
 func proposeDecision(dalName, title, body string) error {
-	inboxDir := "/workspace/decisions/inbox"
+	inboxDir := os.Getenv("DALCLI_DECISIONS_INBOX")
+	if inboxDir == "" {
+		inboxDir = "/workspace/decisions/inbox"
+	}
 	if err := os.MkdirAll(inboxDir, 0755); err != nil {
 		return fmt.Errorf("inbox not available: %w", err)
 	}

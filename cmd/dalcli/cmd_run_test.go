@@ -295,6 +295,10 @@ func TestIsActiveThread(t *testing.T) {
 // ── autoGitWorkflow ──
 
 func TestAutoGitWorkflow_NoWorkspace(t *testing.T) {
+	// Skip when /workspace has uncommitted changes — this test assumes a clean workspace.
+	if out, err := exec.Command("git", "-C", "/workspace", "status", "--porcelain").Output(); err == nil && len(strings.TrimSpace(string(out))) > 0 {
+		t.Skip("workspace has uncommitted changes")
+	}
 	result := autoGitWorkflow("test-dal")
 	if result != "" {
 		t.Errorf("expected empty for no workspace, got %q", result)

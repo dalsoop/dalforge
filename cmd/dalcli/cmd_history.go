@@ -10,7 +10,10 @@ import (
 // appendHistoryBuffer writes a session record to history-buffer.
 // Scribe dal will later merge this into .dal/{name}/history.md.
 func appendHistoryBuffer(dalName, task, result, status string) {
-	bufferDir := "/workspace/history-buffer"
+	bufferDir := os.Getenv("DALCLI_HISTORY_BUFFER")
+	if bufferDir == "" {
+		bufferDir = "/workspace/history-buffer"
+	}
 	if _, err := os.Stat(bufferDir); err != nil {
 		return // history-buffer not mounted, skip silently
 	}
