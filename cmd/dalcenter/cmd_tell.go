@@ -93,7 +93,11 @@ func resolveRepoURL(repo string) (string, error) {
 			}
 		}
 		if port != "" {
-			return "http://localhost:" + port, nil
+			host := "localhost"
+			if h := readEnvVar(paths.ConfigDir(), "common.env", "DALCENTER_HOST_IP"); h != "" {
+				host = h
+			}
+			return "http://" + host + ":" + port, nil
 		}
 	}
 
@@ -104,4 +108,19 @@ func resolveRepoURL(repo string) (string, error) {
 func currentRepoName() string {
 	wd, _ := os.Getwd()
 	return filepath.Base(wd)
+}
+
+// readEnvVar reads a specific variable from an env file.
+func readEnvVar(dir, file, key string) string {
+	data, err := os.ReadFile(filepath.Join(dir, file))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, key+"=") {
+			return strings.TrimPrefix(line, key+"=")
+		}
+	}
+	return ""
 }
