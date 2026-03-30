@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -233,6 +234,77 @@ func TestHandlePs_OutputFormat(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&containers)
 	if len(containers) != 2 {
 		t.Fatalf("got %d containers, want 2", len(containers))
+	}
+}
+
+func TestHandleEscalate_PostsNotice(t *testing.T) {
+	var posted []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		posted = append(posted, string(body))
+		w.Write([]byte(`{"id":"post-1"}`))
+	}))
+	defer srv.Close()
+
+	d := &Daemon{
+		mm:          &MattermostConfig{URL: srv.URL, AdminToken: "tok"},
+		channelID:   "ch-123",
+		escalations: newEscalationStore(),
+	}
+
+	body := `{"dal":"verifier","task":"go test","error_class":"consecutive_auto_task_failure","output":"auth error"}`
+	req := httptest.NewRequest("POST", "/api/escalate", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	d.handleEscalate(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if len(posted) == 0 {
+		t.Fatal("expected escalation notice to be posted to Mattermost")
+	}
+	if !strings.Contains(posted[0], "verifier") {
+		t.Fatalf("posted message should mention dal name: %s", posted[0])
+	}
+}
+
+func TestHandleEscalate_NoticeCooldown(t *testing.T) {
+	var postCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		postCount++
+		w.Write([]byte(`{"id":"post-1"}`))
+	}))
+	defer srv.Close()
+
+	d := &Daemon{
+		mm:          &MattermostConfig{URL: srv.URL, AdminToken: "tok"},
+		channelID:   "ch-123",
+		escalations: newEscalationStore(),
+	}
+
+	// First escalation should post
+	body := `{"dal":"verifier","task":"go test","error_class":"consecutive_auto_task_failure","output":"auth error"}`
+	req := httptest.NewRequest("POST", "/api/escalate", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	d.handleEscalate(w, req)
+
+	// Second identical escalation within cooldown should NOT post again
+	req2 := httptest.NewRequest("POST", "/api/escalate", strings.NewReader(body))
+	w2 := httptest.NewRecorder()
+	d.handleEscalate(w2, req2)
+
+	if postCount != 1 {
+		t.Fatalf("expected 1 post (cooldown), got %d", postCount)
+	}
+
+	// Different dal should still post
+	body3 := `{"dal":"dev","task":"go test","error_class":"consecutive_auto_task_failure","output":"auth error"}`
+	req3 := httptest.NewRequest("POST", "/api/escalate", strings.NewReader(body3))
+	w3 := httptest.NewRecorder()
+	d.handleEscalate(w3, req3)
+
+	if postCount != 2 {
+		t.Fatalf("expected 2 posts (different dal), got %d", postCount)
 	}
 }
 
