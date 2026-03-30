@@ -1,0 +1,4 @@
+.dal/decisions.md merge=union
+.dal/decisions-archive.md merge=union
+.dal/*/history.md merge=union
+.dal/wisdom.md merge=union
