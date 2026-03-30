@@ -33,6 +33,7 @@ func main() {
 		newUnregisterCmd(),
 		newTellCmd(),
 		newUpdateCmd(),
+		newVersionCmd(),
 		newTuiCmd(),
 	)
 

@@ -19,75 +19,242 @@ func newUpdateCmd() *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "update",
-		Short: "Update dalcenter binary from GitHub release",
+		Use:   "self-update",
+		Short: "Update dalcenter binary from GitHub release with graceful restart and rollback",
+		Aliases: []string{"update"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			release, err := fetchLatestRelease()
-			if err != nil {
-				return fmt.Errorf("fetch latest release: %w", err)
-			}
-
-			currentPath, err := os.Executable()
-			if err != nil {
-				return fmt.Errorf("get executable path: %w", err)
-			}
-			currentPath, err = filepath.EvalSymlinks(currentPath)
-			if err != nil {
-				return fmt.Errorf("resolve symlink: %w", err)
-			}
-
-			if !force {
-				currentVersion := getCurrentVersion(currentPath)
-				if currentVersion != "" && currentVersion == release.TagName {
-					fmt.Printf("[update] already at version %s (use --force to re-install)\n", currentVersion)
-					return nil
-				}
-			}
-
-			assetName := fmt.Sprintf("dalcenter-%s-%s", runtime.GOOS, runtime.GOARCH)
-			var downloadURL string
-			for _, a := range release.Assets {
-				if a.Name == assetName {
-					downloadURL = a.BrowserDownloadURL
-					break
-				}
-			}
-			if downloadURL == "" {
-				return fmt.Errorf("no asset found matching %q in release %s", assetName, release.TagName)
-			}
-
-			fmt.Printf("[update] downloading %s (%s)...\n", release.TagName, assetName)
-
-			tmpFile, err := downloadAsset(downloadURL, filepath.Dir(currentPath))
-			if err != nil {
-				return fmt.Errorf("download asset: %w", err)
-			}
-			defer os.Remove(tmpFile) // clean up on failure
-
-			if err := os.Chmod(tmpFile, 0755); err != nil {
-				return fmt.Errorf("chmod: %w", err)
-			}
-
-			if err := os.Rename(tmpFile, currentPath); err != nil {
-				return fmt.Errorf("replace binary: %w", err)
-			}
-
-			fmt.Printf("[update] binary replaced: %s\n", currentPath)
-
-			fmt.Println("[update] restarting dalcenter via systemctl...")
-			restartCmd := exec.Command("systemctl", "restart", "dalcenter")
-			restartCmd.Stdout = os.Stdout
-			restartCmd.Stderr = os.Stderr
-			if err := restartCmd.Run(); err != nil {
-				return fmt.Errorf("systemctl restart: %w", err)
-			}
-
-			return nil
+			return runSelfUpdate(force)
 		},
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "Force update even if already at latest version")
 	return cmd
+}
+
+func runSelfUpdate(force bool) error {
+	// Step 1: Fetch latest release
+	fmt.Println("[self-update] fetching latest release...")
+	release, err := fetchLatestRelease()
+	if err != nil {
+		return fmt.Errorf("fetch latest release: %w", err)
+	}
+	fmt.Printf("[self-update] latest release: %s\n", release.TagName)
+
+	// Step 2: Resolve current binary path
+	currentPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("get executable path: %w", err)
+	}
+	currentPath, err = filepath.EvalSymlinks(currentPath)
+	if err != nil {
+		return fmt.Errorf("resolve symlink: %w", err)
+	}
+
+	// Step 3: Version check
+	if !force {
+		currentVersion := getCurrentVersion(currentPath)
+		if currentVersion != "" && currentVersion == release.TagName {
+			fmt.Printf("[self-update] already at version %s (use --force to re-install)\n", currentVersion)
+			return nil
+		}
+		if currentVersion != "" {
+			fmt.Printf("[self-update] current: %s → target: %s\n", currentVersion, release.TagName)
+		}
+	}
+
+	// Step 4: Find matching asset
+	assetName := fmt.Sprintf("dalcenter-%s-%s", runtime.GOOS, runtime.GOARCH)
+	var downloadURL string
+	for _, a := range release.Assets {
+		if a.Name == assetName {
+			downloadURL = a.BrowserDownloadURL
+			break
+		}
+	}
+	if downloadURL == "" {
+		return fmt.Errorf("no asset found matching %q in release %s", assetName, release.TagName)
+	}
+
+	// Step 5: Download new binary to temp file
+	fmt.Printf("[self-update] downloading %s...\n", assetName)
+	tmpFile, err := downloadAsset(downloadURL, filepath.Dir(currentPath))
+	if err != nil {
+		return fmt.Errorf("download asset: %w", err)
+	}
+	defer os.Remove(tmpFile)
+
+	if err := os.Chmod(tmpFile, 0755); err != nil {
+		return fmt.Errorf("chmod: %w", err)
+	}
+
+	// Step 6: Discover all dalcenter systemd services
+	services := discoverDalcenterServices()
+	if len(services) == 0 {
+		fmt.Println("[self-update] no systemd services found, replacing binary only")
+		return replaceBinary(tmpFile, currentPath)
+	}
+	fmt.Printf("[self-update] found %d service(s): %s\n", len(services), strings.Join(services, ", "))
+
+	// Step 7: Backup current binary
+	backupPath := currentPath + ".bak"
+	fmt.Printf("[self-update] backing up %s → %s\n", currentPath, backupPath)
+	if err := copyFile(currentPath, backupPath); err != nil {
+		return fmt.Errorf("backup binary: %w", err)
+	}
+	defer os.Remove(backupPath) // clean up backup on success
+
+	// Step 8: Graceful stop all services
+	fmt.Println("[self-update] stopping all services...")
+	if err := stopServices(services); err != nil {
+		return fmt.Errorf("stop services: %w", err)
+	}
+
+	// Step 9: Replace binary
+	fmt.Println("[self-update] replacing binary...")
+	if err := replaceBinary(tmpFile, currentPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[self-update] replace failed: %v\n", err)
+		fmt.Println("[self-update] rolling back...")
+		rollback(backupPath, currentPath, services)
+		return fmt.Errorf("replace binary failed, rolled back: %w", err)
+	}
+
+	// Step 10: Restart all services
+	fmt.Println("[self-update] starting all services...")
+	if err := startServices(services); err != nil {
+		fmt.Fprintf(os.Stderr, "[self-update] start failed: %v\n", err)
+		fmt.Println("[self-update] rolling back...")
+		rollback(backupPath, currentPath, services)
+		return fmt.Errorf("restart failed, rolled back: %w", err)
+	}
+
+	// Step 11: Health check
+	fmt.Println("[self-update] verifying services...")
+	time.Sleep(3 * time.Second)
+	if failed := checkServicesActive(services); len(failed) > 0 {
+		fmt.Fprintf(os.Stderr, "[self-update] services not active: %s\n", strings.Join(failed, ", "))
+		fmt.Println("[self-update] rolling back...")
+		rollback(backupPath, currentPath, services)
+		return fmt.Errorf("health check failed for %s, rolled back", strings.Join(failed, ", "))
+	}
+
+	fmt.Printf("[self-update] updated to %s successfully\n", release.TagName)
+	return nil
+}
+
+// discoverDalcenterServices finds all dalcenter systemd service units.
+func discoverDalcenterServices() []string {
+	matches, err := filepath.Glob("/etc/systemd/system/dalcenter*.service")
+	if err != nil {
+		return nil
+	}
+	var services []string
+	for _, m := range matches {
+		name := strings.TrimSuffix(filepath.Base(m), ".service")
+		services = append(services, name)
+	}
+	return services
+}
+
+// stopServices stops all services gracefully via systemctl.
+func stopServices(services []string) error {
+	for _, svc := range services {
+		fmt.Printf("  stopping %s...\n", svc)
+		cmd := exec.Command("systemctl", "stop", svc)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("stop %s: %w", svc, err)
+		}
+	}
+	return nil
+}
+
+// startServices starts all services via systemctl.
+func startServices(services []string) error {
+	for _, svc := range services {
+		fmt.Printf("  starting %s...\n", svc)
+		cmd := exec.Command("systemctl", "start", svc)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("start %s: %w", svc, err)
+		}
+	}
+	return nil
+}
+
+// checkServicesActive returns services that are not in "active" state.
+func checkServicesActive(services []string) []string {
+	var failed []string
+	for _, svc := range services {
+		out, err := exec.Command("systemctl", "is-active", svc).Output()
+		if err != nil || strings.TrimSpace(string(out)) != "active" {
+			failed = append(failed, svc)
+		}
+	}
+	return failed
+}
+
+// rollback restores the backup binary and restarts services.
+func rollback(backupPath, currentPath string, services []string) {
+	// Stop any partially started services
+	for _, svc := range services {
+		exec.Command("systemctl", "stop", svc).Run()
+	}
+
+	// Restore backup
+	if err := os.Rename(backupPath, currentPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[rollback] CRITICAL: cannot restore backup: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[rollback] backup is at: %s\n", backupPath)
+		return
+	}
+	fmt.Println("[rollback] binary restored")
+
+	// Restart with old binary
+	for _, svc := range services {
+		if err := exec.Command("systemctl", "start", svc).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "[rollback] warning: cannot start %s: %v\n", svc, err)
+		} else {
+			fmt.Printf("[rollback] restarted %s\n", svc)
+		}
+	}
+}
+
+// replaceBinary atomically replaces the target binary.
+func replaceBinary(src, dst string) error {
+	if err := os.Rename(src, dst); err != nil {
+		// Cross-device fallback: copy then remove
+		if err := copyFile(src, dst); err != nil {
+			return err
+		}
+		os.Remove(src)
+	}
+	return nil
+}
+
+// copyFile copies src to dst preserving permissions.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer in.Close()
+
+	info, err := in.Stat()
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", src, err)
+	}
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+	if err != nil {
+		return fmt.Errorf("create %s: %w", dst, err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy: %w", err)
+	}
+	return nil
 }
 
 type ghRelease struct {
@@ -172,8 +339,7 @@ func downloadAsset(url, dir string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
-// getCurrentVersion attempts to get the version by running the current binary with --version.
-// Returns empty string if it fails.
+// getCurrentVersion runs the binary with "version" to get the current version string.
 func getCurrentVersion(binaryPath string) string {
 	out, err := exec.Command(binaryPath, "version").Output()
 	if err != nil {
