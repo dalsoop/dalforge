@@ -43,9 +43,10 @@ type Daemon struct {
 	claims       *claimStore
 	tasks        *taskStore
 	feedback     *feedbackStore
-	costs        *costStore
-	registry     *Registry
-	startTime    time.Time
+	costs          *costStore
+	issueWorkflows *issueWorkflowStore
+	registry       *Registry
+	startTime      time.Time
 }
 
 // Container tracks a running dal Docker container.
@@ -83,8 +84,9 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, bridgeConf string) *Daemon 
 		claims:       newClaimStoreWithFile(filepath.Join(dataDir(serviceRepo), "claims.json")),
 		tasks:        newTaskStoreWithFile(filepath.Join(dataDir(serviceRepo), "tasks.json")),
 		feedback:     newFeedbackStoreWithFile(filepath.Join(dataDir(serviceRepo), "feedback.json")),
-		costs:        newCostStoreWithFile(filepath.Join(dataDir(serviceRepo), "costs.json"), orchestrationLogDir(serviceRepo)),
-		registry:     newRegistry(serviceRepo),
+		costs:          newCostStoreWithFile(filepath.Join(dataDir(serviceRepo), "costs.json"), orchestrationLogDir(serviceRepo)),
+		issueWorkflows: newIssueWorkflowStore(),
+		registry:       newRegistry(serviceRepo),
 		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
 	}
@@ -218,6 +220,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// A2A protocol endpoints
 	mux.HandleFunc("GET /api/provider-status", d.handleProviderStatus)
 	mux.HandleFunc("POST /api/provider-trip", d.handleProviderTrip)
+
+	// Issue workflow — full orchestration endpoints
+	mux.HandleFunc("POST /api/issue-workflow", d.requireAuth(d.handleIssueWorkflow))
+	mux.HandleFunc("GET /api/issue-workflow/{id}", d.handleIssueWorkflowStatus)
+	mux.HandleFunc("GET /api/issue-workflows", d.handleIssueWorkflowList)
 
 	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
 	mux.HandleFunc("POST /rpc", d.requireAuth(d.handleA2ARPC))

@@ -541,3 +541,80 @@ func (c *Client) TaskList() ([]TaskResult, error) {
 	json.NewDecoder(resp.Body).Decode(&results)
 	return results, nil
 }
+
+// IssueWorkflowResult holds the response from an issue workflow request.
+type IssueWorkflowResult struct {
+	WorkflowID string `json:"workflow_id"`
+	Status     string `json:"status"`
+	IssueID    string `json:"issue_id"`
+	Error      string `json:"error,omitempty"`
+}
+
+// IssueWorkflowStatus holds the full status of an issue workflow.
+type IssueWorkflowStatus struct {
+	ID        string `json:"id"`
+	IssueID   string `json:"issue_id"`
+	Member    string `json:"member"`
+	Task      string `json:"task"`
+	Status    string `json:"status"`
+	Phase     string `json:"phase"`
+	TaskID    string `json:"task_id,omitempty"`
+	PRUrl     string `json:"pr_url,omitempty"`
+	Error     string `json:"error,omitempty"`
+	StartedAt string `json:"started_at"`
+	DoneAt    string `json:"done_at,omitempty"`
+}
+
+// StartIssueWorkflow kicks off the full issue workflow orchestration.
+func (c *Client) StartIssueWorkflow(issueID, member, task, callbackPane string) (*IssueWorkflowResult, error) {
+	body := fmt.Sprintf(`{"issue_id":%q,"member":%q,"task":%q,"callback_pane":%q}`,
+		issueID, member, task, callbackPane)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/issue-workflow", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("issue workflow failed: %s", strings.TrimSpace(string(b)))
+	}
+	var result IssueWorkflowResult
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// GetIssueWorkflow returns the status of an issue workflow.
+func (c *Client) GetIssueWorkflow(id string) (*IssueWorkflowStatus, error) {
+	resp, err := c.http.Get(c.baseURL + "/api/issue-workflow/" + id)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("workflow not found: %s", strings.TrimSpace(string(b)))
+	}
+	var result IssueWorkflowStatus
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// ListIssueWorkflows returns all issue workflows.
+func (c *Client) ListIssueWorkflows() ([]IssueWorkflowStatus, error) {
+	resp, err := c.http.Get(c.baseURL + "/api/issue-workflows")
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	var results []IssueWorkflowStatus
+	json.NewDecoder(resp.Body).Decode(&results)
+	return results, nil
+}
