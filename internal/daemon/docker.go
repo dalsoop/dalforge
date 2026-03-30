@@ -272,10 +272,22 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", skillPath, targetPath))
 	}
 
-	// Mount charter.md as the right filename
+	// Mount charter.md as the right filename (e.g. CLAUDE.md, AGENTS.md, GEMINI.md).
+	// The source file MUST exist before docker run; otherwise Docker creates the
+	// mount-point as an empty directory instead of a file (GitHub #499).
 	instrSrc := filepath.Join(dalDir, "charter.md")
 	instrDst := filepath.Join(home, instructionsFileName(dal.Player))
-	args = append(args, "-v", fmt.Sprintf("%s:%s:ro", instrSrc, instrDst))
+	if info, err := os.Stat(instrSrc); err != nil {
+		w := fmt.Sprintf("charter.md not found at %s — skipping instructions mount", instrSrc)
+		log.Printf("WARNING: %s", w)
+		warnings = append(warnings, w)
+	} else if info.IsDir() {
+		w := fmt.Sprintf("charter.md is a directory at %s — skipping instructions mount", instrSrc)
+		log.Printf("WARNING: %s", w)
+		warnings = append(warnings, w)
+	} else {
+		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", instrSrc, instrDst))
+	}
 
 	// Mount decisions.md as shared team memory (read-only — scribe commits changes)
 	decisionsPath := filepath.Join(localdalRoot, "decisions.md")
