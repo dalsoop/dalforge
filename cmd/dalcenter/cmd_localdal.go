@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"syscall"
 	"text/tabwriter"
 
@@ -260,6 +261,16 @@ func newPsCmd() *cobra.Command {
 				fmt.Println("no awake dals")
 				return nil
 			}
+			// Sort: leader first, then by name
+			sort.Slice(containers, func(i, j int) bool {
+				if containers[i].Role == "leader" && containers[j].Role != "leader" {
+					return true
+				}
+				if containers[i].Role != "leader" && containers[j].Role == "leader" {
+					return false
+				}
+				return containers[i].DalName < containers[j].DalName
+			})
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "NAME\tPLAYER\tROLE\tSTATUS\tCONTAINER")
 			for _, c := range containers {

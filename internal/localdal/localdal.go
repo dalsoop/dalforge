@@ -71,6 +71,8 @@ type DalProfile struct {
 	Branch BranchConfig
 	// Setup config (ready-to-code environment)
 	Setup SetupConfig
+	// Team management (leader only)
+	MaxMembers int // max concurrent member containers (0 = unlimited)
 }
 
 // Init initializes a localdal repository at the given path.
@@ -523,6 +525,11 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	if p.Setup.Timeout == "" {
 		p.Setup.Timeout = "5m"
 	}
+	// Team management
+	if v := val.LookupPath(cue.ParsePath("max_members")); v.Exists() {
+		n, _ := v.Int64()
+		p.MaxMembers = int(n)
+	}
 	return p, nil
 }
 
@@ -752,6 +759,7 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 	workspace?:      string
 	branch?:         #BranchConfig
 	setup?:          #SetupConfig
+	max_members?:    int & >=0
 	git?: {
 		user?:         string
 		email?:        string

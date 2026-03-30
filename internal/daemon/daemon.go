@@ -168,6 +168,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start peer health watcher (dalcenter HA)
 	go d.startPeerWatcher(ctx)
 
+	// Start leader health watcher (auto-recovery)
+	go d.startLeaderWatcher(ctx)
+
 	if d.bridgeURL != "" {
 		log.Printf("[daemon] matterbridge URL: %s", d.bridgeURL)
 	}
@@ -247,15 +250,35 @@ func (d *Daemon) Run(ctx context.Context) error {
 func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 	d.mu.RLock()
 	dalsRunning := len(d.containers)
+	// Find leader status
+	leaderStatus := "not_configured"
+	for _, c := range d.containers {
+		if c.Role == "leader" {
+			leaderStatus = c.Status
+			break
+		}
+	}
 	d.mu.RUnlock()
+
+	// If no leader is running but one is defined, mark as sleeping
+	if leaderStatus == "not_configured" {
+		dals, _ := localdal.ListDals(d.localdalRoot)
+		for _, dal := range dals {
+			if dal.Role == "leader" {
+				leaderStatus = "sleeping"
+				break
+			}
+		}
+	}
 
 	dals, _ := localdal.ListDals(d.localdalRoot)
 
 	respondJSON(w, http.StatusOK, map[string]any{
-		"status":       "ok",
-		"uptime":       time.Since(d.startTime).Truncate(time.Second).String(),
-		"dals_running": dalsRunning,
-		"repo_count":   len(dals),
+		"status":        "ok",
+		"uptime":        time.Since(d.startTime).Truncate(time.Second).String(),
+		"dals_running":  dalsRunning,
+		"repo_count":    len(dals),
+		"leader_status": leaderStatus,
 	})
 }
 
@@ -364,6 +387,14 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("dal %q not found: %v", name, err), 404)
 		return
+	}
+
+	// Validate member count limit: find the leader's max_members setting
+	if dal.Role == "member" || dal.Role == "ops" {
+		if err := d.validateMemberLimit(name); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 
 	// Prepare issue workspace if --issue is provided
@@ -1095,4 +1126,43 @@ func (d *Daemon) agentConfigResponse(name string, c *Container) map[string]strin
 func (d *Daemon) dalCuePath(name string) string {
 	tplRoot := localdal.ResolveTemplateRoot(d.localdalRoot)
 	return fmt.Sprintf("%s/%s/dal.cue", tplRoot, name)
+}
+
+// validateMemberLimit checks the leader's max_members setting and rejects
+// wake requests that would exceed the limit.
+func (d *Daemon) validateMemberLimit(name string) error {
+	// Find leader profile to read max_members
+	dals, err := localdal.ListDals(d.localdalRoot)
+	if err != nil {
+		return nil // cannot validate, allow
+	}
+
+	var maxMembers int
+	for _, dal := range dals {
+		if dal.Role == "leader" && dal.MaxMembers > 0 {
+			maxMembers = dal.MaxMembers
+			break
+		}
+	}
+	if maxMembers == 0 {
+		return nil // no limit configured
+	}
+
+	// Count currently running member containers (excluding the one being waked if it's a re-wake)
+	d.mu.RLock()
+	var memberCount int
+	for n, c := range d.containers {
+		if c.Role == "member" || c.Role == "ops" {
+			if n != name { // don't count self if re-waking
+				memberCount++
+			}
+		}
+	}
+	d.mu.RUnlock()
+
+	if memberCount >= maxMembers {
+		return fmt.Errorf("member limit reached: %d/%d members running (max_members=%d in leader config)",
+			memberCount, maxMembers, maxMembers)
+	}
+	return nil
 }

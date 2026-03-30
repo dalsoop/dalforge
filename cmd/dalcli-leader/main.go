@@ -28,16 +28,18 @@ func main() {
 }
 
 func wakeCmd() *cobra.Command {
-	return &cobra.Command{
+	var issueID string
+	cmd := &cobra.Command{
 		Use:   "wake <dal>",
 		Short: "Wake a team member",
+		Long:  "Wake a team member. Use --issue to create an issue branch.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := daemon.NewClient()
 			if err != nil {
 				return err
 			}
-			result, err := client.Wake(args[0])
+			result, err := client.WakeWithIssue(args[0], issueID)
 			if err != nil {
 				return err
 			}
@@ -46,9 +48,14 @@ func wakeCmd() *cobra.Command {
 				return fmt.Errorf("unexpected response: missing container_id")
 			}
 			fmt.Printf("wake: %s → %s\n", args[0], cid)
+			if issueID != "" {
+				fmt.Printf("issue: %s\n", issueID)
+			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&issueID, "issue", "", "Issue ID for branch creation (e.g. 489)")
+	return cmd
 }
 
 func sleepCmd() *cobra.Command {
