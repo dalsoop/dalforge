@@ -2,7 +2,12 @@ FROM ubuntu:24.04
 
 RUN apt-get update -qq && \
     apt-get install -y -qq --no-install-recommends \
-      bash git curl ca-certificates nodejs npm gpg wget && \
+      bash git curl ca-certificates gpg wget build-essential && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 (nodesource)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y -qq nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Go 1.24
@@ -26,7 +31,10 @@ RUN mkdir -p /root/.claude/skills /root/.claude/hooks
 RUN git config --global credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
 
 # Quorum — multi-agent consensus & orchestration
-RUN npm install -g quorum
+RUN npm install -g quorum-audit
+
+# CCW — JSON-driven multi-agent workflow orchestration
+RUN npm install -g claude-code-workflow && ccw install -m Global || true
 
 ENV DAL_ROLE=member
 ENV DAL_PLAYER=claude
