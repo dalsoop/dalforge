@@ -22,9 +22,10 @@ RUN mkdir -p /root/.codex/skills
 
 RUN git config --global credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
 
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 # CCW — JSON-driven multi-agent workflow orchestration
 RUN npm install -g claude-code-workflow && ccw install -m Global || true
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENV DAL_ROLE=member
 ENV DAL_PLAYER=codex
