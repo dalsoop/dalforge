@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/dalsoop/dalcenter/internal/paths"
 )
 
 // startSoftServe starts soft-serve as a child process.
@@ -64,11 +66,7 @@ func softServeGitPort() string {
 
 // softServeDataPath returns the data directory for soft-serve.
 func softServeDataPath() string {
-	if p := os.Getenv("SOFT_SERVE_DATA_PATH"); p != "" {
-		return p
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".dalcenter", "soft-serve")
+	return paths.SoftServeDir()
 }
 
 func softServePIDFile() string {

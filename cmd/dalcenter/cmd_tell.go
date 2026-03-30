@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dalsoop/dalcenter/internal/paths"
 	"github.com/spf13/cobra"
 )
 
@@ -80,7 +81,7 @@ func resolveRepoURL(repo string) (string, error) {
 	}
 
 	// 2. Auto-detect from /etc/dalcenter/<repo>.env
-	envFile := filepath.Join("/etc/dalcenter", repo+".env")
+	envFile := filepath.Join(paths.ConfigDir(), repo+".env")
 	data, err := os.ReadFile(envFile)
 	if err == nil {
 		var port string

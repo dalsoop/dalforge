@@ -7,15 +7,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/dalsoop/dalcenter/internal/paths"
 )
 
-const defaultReposPath = "/root/.dalcenter/repos"
-
-// SyncSubtrees iterates repos under defaultReposPath and syncs .dal/ subtree
+// SyncSubtrees iterates repos under the repos directory and syncs .dal/ subtree
 // with soft-serve. Each repo is processed independently — a single failure
 // does not stop the rest.
 func SyncSubtrees(ctx context.Context) error {
-	entries, err := os.ReadDir(defaultReposPath)
+	reposPath := paths.ReposDir()
+	entries, err := os.ReadDir(reposPath)
 	if err != nil {
 		return fmt.Errorf("read repos dir: %w", err)
 	}
@@ -32,7 +33,7 @@ func SyncSubtrees(ctx context.Context) error {
 		}
 
 		repoName := entry.Name()
-		repoPath := filepath.Join(defaultReposPath, repoName)
+		repoPath := filepath.Join(reposPath, repoName)
 
 		if err := subtreePush(repoPath, repoName); err != nil {
 			log.Printf("[sync] push failed for %s: %v", repoName, err)

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/dalsoop/dalcenter/internal/paths"
 )
 
 // RegistryEntry tracks a dal instance across daemon restarts.
@@ -28,8 +30,7 @@ type Registry struct {
 }
 
 func newRegistry(serviceRepo string) *Registry {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".dalcenter")
+	dir := paths.RegistryDir()
 	os.MkdirAll(dir, 0700)
 
 	h := sha256.Sum256([]byte(serviceRepo))

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/dalsoop/dalcenter/internal/paths"
 )
 
 // dataDir returns the persistent data directory for a service repo.
@@ -40,10 +42,7 @@ func persistJSON(path string, data any, mu *sync.RWMutex) {
 // stateDir returns the git-external state directory for a service repo.
 // Path: /var/lib/dalcenter/state/{repo-name}/
 func stateDir(serviceRepo string) string {
-	base := os.Getenv("DALCENTER_STATE_DIR")
-	if base == "" {
-		base = "/var/lib/dalcenter/state"
-	}
+	base := paths.StateBaseDir()
 	// Use basename + short hash to avoid collisions between same-named repos
 	baseName := filepath.Base(serviceRepo)
 	if baseName == "" || baseName == "." {

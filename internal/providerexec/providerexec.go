@@ -7,25 +7,29 @@ import (
 	"path/filepath"
 )
 
-var binaryCandidates = map[string][]string{
-	"claude": {
-		"claude",
-		"/root/.local/bin/claude",
-		"/usr/local/bin/claude",
-		"/usr/bin/claude",
-	},
-	"codex": {
-		"codex",
-		"/root/.local/bin/codex",
-		"/usr/local/bin/codex",
-		"/usr/bin/codex",
-	},
+func binaryCandidates() map[string][]string {
+	home, _ := os.UserHomeDir()
+	localBin := filepath.Join(home, ".local", "bin")
+	return map[string][]string{
+		"claude": {
+			"claude",
+			filepath.Join(localBin, "claude"),
+			"/usr/local/bin/claude",
+			"/usr/bin/claude",
+		},
+		"codex": {
+			"codex",
+			filepath.Join(localBin, "codex"),
+			"/usr/local/bin/codex",
+			"/usr/bin/codex",
+		},
+	}
 }
 
 // Resolve returns an executable path for the named provider binary.
 // It checks PATH first, then a small set of known install locations.
 func Resolve(player string) (string, error) {
-	candidates, ok := binaryCandidates[player]
+	candidates, ok := binaryCandidates()[player]
 	if !ok {
 		return "", fmt.Errorf("unknown provider %q", player)
 	}

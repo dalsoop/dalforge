@@ -9,7 +9,7 @@ import (
 
 func TestStateDir_CreatesDirectory(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	dir := stateDir("/path/to/myrepo")
 	base := filepath.Base(dir)
@@ -23,7 +23,7 @@ func TestStateDir_CreatesDirectory(t *testing.T) {
 
 func TestStateDir_DefaultName(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	dir := stateDir("")
 	base := filepath.Base(dir)
@@ -34,7 +34,7 @@ func TestStateDir_DefaultName(t *testing.T) {
 
 func TestHistoryBufferDir_Creates(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 	dir := historyBufferDir("/path/to/repo")
 	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("history-buffer not created: %v", err)
@@ -43,7 +43,7 @@ func TestHistoryBufferDir_Creates(t *testing.T) {
 
 func TestWisdomInboxDir_Creates(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 	dir := wisdomInboxDir("/path/to/repo")
 	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("wisdom/inbox not created: %v", err)
@@ -52,7 +52,7 @@ func TestWisdomInboxDir_Creates(t *testing.T) {
 
 func TestInboxDir_CreatesNestedDirs(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	dir := inboxDir("/path/to/myrepo")
 	if _, err := os.Stat(dir); err != nil {
@@ -66,7 +66,7 @@ func TestInboxDir_CreatesNestedDirs(t *testing.T) {
 
 func TestStateDir_HashUniqueness(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	// Same basename, different paths → different dirs
 	dir1 := stateDir("/path/to/app")
@@ -78,7 +78,7 @@ func TestStateDir_HashUniqueness(t *testing.T) {
 
 func TestStateDir_Deterministic(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	dir1 := stateDir("/path/to/repo")
 	dir2 := stateDir("/path/to/repo")
@@ -89,7 +89,7 @@ func TestStateDir_Deterministic(t *testing.T) {
 
 func TestStateDir_EnvOverride(t *testing.T) {
 	custom := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", custom)
+	t.Setenv("DALCENTER_DATA_DIR", custom)
 
 	dir := stateDir("/some/repo")
 	if !strings.HasPrefix(dir, custom) {
@@ -99,7 +99,7 @@ func TestStateDir_EnvOverride(t *testing.T) {
 
 func TestNowPath_ReturnsFilePath(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	path := nowPath("/some/repo")
 	if !strings.HasSuffix(path, "now.md") {
@@ -109,7 +109,7 @@ func TestNowPath_ReturnsFilePath(t *testing.T) {
 
 func TestInboxDir_NestedUnderState(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	inbox := inboxDir("/my/repo")
 	state := stateDir("/my/repo")
@@ -120,7 +120,7 @@ func TestInboxDir_NestedUnderState(t *testing.T) {
 
 func TestHistoryBufferDir_NestedUnderState(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	buf := historyBufferDir("/my/repo")
 	state := stateDir("/my/repo")
@@ -134,7 +134,7 @@ func TestHistoryBufferDir_NestedUnderState(t *testing.T) {
 
 func TestWisdomInboxDir_NestedUnderState(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	wis := wisdomInboxDir("/my/repo")
 	state := stateDir("/my/repo")

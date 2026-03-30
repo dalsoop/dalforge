@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -148,6 +149,13 @@ func (d *Daemon) handleEscalate(w http.ResponseWriter, r *http.Request) {
 		Error:     req.ErrorClass + ": " + req.Output,
 		Timestamp: esc.Timestamp.Format(time.RFC3339),
 	})
+
+	// Post escalation notice directly to project channel.
+	// This is critical for credential errors: when tokens expire,
+	// the leader dal cannot call its AI provider to process the
+	// escalation, so the daemon must notify the channel directly.
+	d.postEscalationNotice(esc)
+
 	respondJSON(w, http.StatusOK, esc)
 }
 
@@ -181,4 +189,44 @@ func (d *Daemon) handleResolveEscalation(w http.ResponseWriter, r *http.Request)
 	} else {
 		http.Error(w, "escalation not found or already resolved", http.StatusNotFound)
 	}
+}
+
+const escalationNoticeCooldown = 10 * time.Minute
+
+// postEscalationNotice posts an escalation notice directly to the project
+// Mattermost channel from the daemon process. This bypasses the leader dal,
+// which is essential when credentials are expired and the leader cannot
+// call its AI provider.
+func (d *Daemon) postEscalationNotice(esc Escalation) {
+	if d.mm == nil || d.channelID == "" {
+		return
+	}
+
+	// Deduplicate: suppress repeated notices for the same dal+error class.
+	key := esc.Dal + ":" + esc.ErrorClass
+	d.credSyncMu.Lock()
+	if d.escNoticeLast == nil {
+		d.escNoticeLast = make(map[string]time.Time)
+	}
+	if last, ok := d.escNoticeLast[key]; ok && time.Since(last) < escalationNoticeCooldown {
+		d.credSyncMu.Unlock()
+		return
+	}
+	d.escNoticeLast[key] = time.Now()
+	d.credSyncMu.Unlock()
+
+	msg := fmt.Sprintf("[dalcenter] :warning: **에스컬레이션** dal=%s class=%s\n> %s",
+		esc.Dal, esc.ErrorClass, truncateEscalationOutput(esc.Output, 300))
+
+	body := fmt.Sprintf(`{"channel_id":%q,"message":%q}`, d.channelID, msg)
+	if _, err := mmPost(d.mm.URL, d.mm.AdminToken, "/api/v4/posts", body); err != nil {
+		log.Printf("[escalation] notice post failed: %v", err)
+	}
+}
+
+func truncateEscalationOutput(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }

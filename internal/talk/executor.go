@@ -27,12 +27,9 @@ type Executor struct {
 }
 
 func NewExecutor(role, cwd string) *Executor {
-	binary := "claude"
-	for _, p := range []string{"/usr/local/bin/claude", "/usr/bin/claude"} {
-		if _, err := exec.LookPath(p); err == nil {
-			binary = p
-			break
-		}
+	binary, err := exec.LookPath("claude")
+	if err != nil {
+		binary = "claude"
 	}
 	return &Executor{Binary: binary, Role: role, Cwd: cwd}
 }

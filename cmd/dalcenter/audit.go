@@ -5,14 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/dalsoop/dalcenter/internal/paths"
 )
 
 // appendAuditLog writes an audit entry to the state directory.
 func appendAuditLog(action, target, reason string) {
-	base := os.Getenv("DALCENTER_STATE_DIR")
-	if base == "" {
-		base = "/var/lib/dalcenter/state"
-	}
+	base := paths.StateBaseDir()
 	// Use current working directory's .dal to derive repo name
 	wd, _ := os.Getwd()
 	repoName := filepath.Base(wd)

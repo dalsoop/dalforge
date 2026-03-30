@@ -9,23 +9,23 @@ import (
 
 func TestAppendAuditLog_WritesEntry(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	// Create repo-name dir
-	repoDir := filepath.Join(tmp, "test-repo")
+	repoDir := filepath.Join(tmp, "state", "test-repo")
 	os.MkdirAll(repoDir, 0755)
 
 	// Override wd
 	origWd, _ := os.Getwd()
-	os.Chdir(filepath.Join(tmp, "test-repo"))
+	os.Chdir(filepath.Join(tmp, "state", "test-repo"))
 	defer os.Chdir(origWd)
 	// Need to create the directory first
-	os.MkdirAll(filepath.Join(tmp, "test-repo"), 0755)
-	os.Chdir(filepath.Join(tmp, "test-repo"))
+	os.MkdirAll(filepath.Join(tmp, "state", "test-repo"), 0755)
+	os.Chdir(filepath.Join(tmp, "state", "test-repo"))
 
 	appendAuditLog("attach", "dev", "긴급 디버깅")
 
-	data, err := os.ReadFile(filepath.Join(tmp, "test-repo", "audit.log"))
+	data, err := os.ReadFile(filepath.Join(tmp, "state", "test-repo", "audit.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +43,8 @@ func TestAppendAuditLog_WritesEntry(t *testing.T) {
 
 func TestAppendAuditLog_MultipleEntries(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
-	repoDir := filepath.Join(tmp, "test-repo")
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
+	repoDir := filepath.Join(tmp, "state", "test-repo")
 	os.MkdirAll(repoDir, 0755)
 	origWd, _ := os.Getwd()
 	os.Chdir(repoDir)
@@ -63,8 +63,8 @@ func TestAppendAuditLog_MultipleEntries(t *testing.T) {
 
 func TestAppendAuditLog_TSVFormat(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
-	repoDir := filepath.Join(tmp, "test-repo")
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
+	repoDir := filepath.Join(tmp, "state", "test-repo")
 	os.MkdirAll(repoDir, 0755)
 	origWd, _ := os.Getwd()
 	os.Chdir(repoDir)
@@ -80,7 +80,7 @@ func TestAppendAuditLog_TSVFormat(t *testing.T) {
 }
 
 func TestAppendAuditLog_NoStateDir(t *testing.T) {
-	t.Setenv("DALCENTER_STATE_DIR", "/nonexistent/path/that/does/not/exist")
+	t.Setenv("DALCENTER_DATA_DIR", "/nonexistent/path/that/does/not/exist")
 	origWd, _ := os.Getwd()
 	os.Chdir("/tmp")
 	defer os.Chdir(origWd)
@@ -90,8 +90,8 @@ func TestAppendAuditLog_NoStateDir(t *testing.T) {
 
 func TestAppendAuditLog_TimestampFormat(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
-	repoDir := filepath.Join(tmp, "test-repo")
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
+	repoDir := filepath.Join(tmp, "state", "test-repo")
 	os.MkdirAll(repoDir, 0755)
 	origWd, _ := os.Getwd()
 	os.Chdir(repoDir)

@@ -127,7 +127,7 @@ func TestMountPermissions_DalOverlayReadOnly(t *testing.T) {
 // TestMountPaths_StateDir verifies state dir paths are correct
 func TestMountPaths_StateDir(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	serviceRepo := "/path/to/myrepo"
 
@@ -175,7 +175,7 @@ func TestMountPaths_ContainerDestinations(t *testing.T) {
 // TestMountPaths_StateDirSubpaths verifies the exact subdirectory structure
 func TestMountPaths_StateDirSubpaths(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	serviceRepo := "/path/to/myrepo"
 	state := stateDir(serviceRepo)
@@ -212,7 +212,7 @@ func TestMountPaths_StateDirSubpaths(t *testing.T) {
 // TestMountPaths_StateDirCreation verifies directories are created on disk
 func TestMountPaths_StateDirCreation(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("DALCENTER_STATE_DIR", tmp)
+	t.Setenv("DALCENTER_DATA_DIR", tmp)
 
 	serviceRepo := "/path/to/myrepo"
 

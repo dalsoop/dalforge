@@ -38,9 +38,10 @@ type Daemon struct {
 	opsChannelID string                // shared ops channel for credential sync notices
 	containers   map[string]*Container // dal name -> container
 	mu           sync.RWMutex
-	credSyncMu   sync.Mutex
-	credSyncLast map[string]time.Time
-	escalations  *escalationStore
+	credSyncMu    sync.Mutex
+	credSyncLast  map[string]time.Time
+	escNoticeLast map[string]time.Time
+	escalations   *escalationStore
 	claims       *claimStore
 	tasks        *taskStore
 	feedback     *feedbackStore
