@@ -10,6 +10,7 @@ import (
 
 	"github.com/dalsoop/dalcenter/internal/daemon"
 	"github.com/dalsoop/dalcenter/internal/localdal"
+	"github.com/dalsoop/dalcenter/internal/paths"
 	"github.com/dalsoop/dalcenter/internal/talk"
 	"github.com/spf13/cobra"
 )
@@ -158,7 +159,7 @@ func installSystemdService(serviceName, repoPath, addr, mmURL, mmToken, mmTeam s
 	unitPath := filepath.Join("/etc/systemd/system", serviceName+".service")
 
 	// Build ExecStart
-	execStart := fmt.Sprintf("/usr/local/bin/dalcenter serve --addr %s --repo %s", addr, repoPath)
+	execStart := fmt.Sprintf("%s serve --addr %s --repo %s", paths.BinaryPath(), addr, repoPath)
 	if mmURL != "" {
 		execStart += fmt.Sprintf(" --mm-url %s", mmURL)
 	}

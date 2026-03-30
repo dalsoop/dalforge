@@ -48,3 +48,24 @@ func SoftServeDir() string {
 func RegistryDir() string {
 	return DataRootDir()
 }
+
+const defaultConfigDir = "/etc/dalcenter"
+
+// ConfigDir returns the directory for dalcenter env files.
+// Reads DALCENTER_CONFIG_DIR; defaults to /etc/dalcenter.
+func ConfigDir() string {
+	if d := os.Getenv("DALCENTER_CONFIG_DIR"); d != "" {
+		return d
+	}
+	return defaultConfigDir
+}
+
+// BinaryPath returns the path to the dalcenter binary.
+// Uses os.Executable() to find the current binary, falling back to
+// /usr/local/bin/dalcenter.
+func BinaryPath() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	return "/usr/local/bin/dalcenter"
+}
