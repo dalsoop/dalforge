@@ -94,6 +94,38 @@ func Init(root string) error {
 		}
 	}
 
+	// Auto-create leader dal
+	leaderDir := filepath.Join(root, "leader")
+	if _, err := os.Stat(leaderDir); err != nil {
+		if err := os.MkdirAll(leaderDir, 0755); err != nil {
+			return fmt.Errorf("create leader dir: %w", err)
+		}
+		leaderUUID := generateUUID()
+		leaderCue := fmt.Sprintf(defaultLeaderCueTemplate, leaderUUID)
+		if err := os.WriteFile(filepath.Join(leaderDir, "dal.cue"), []byte(leaderCue), 0644); err != nil {
+			return fmt.Errorf("write leader dal.cue: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(leaderDir, "charter.md"), []byte(defaultLeaderCharter), 0644); err != nil {
+			return fmt.Errorf("write leader charter.md: %w", err)
+		}
+	}
+
+	// Auto-create dev dal
+	devDir := filepath.Join(root, "dev")
+	if _, err := os.Stat(devDir); err != nil {
+		if err := os.MkdirAll(devDir, 0755); err != nil {
+			return fmt.Errorf("create dev dir: %w", err)
+		}
+		devUUID := generateUUID()
+		devCue := fmt.Sprintf(defaultDevCueTemplate, devUUID)
+		if err := os.WriteFile(filepath.Join(devDir, "dal.cue"), []byte(devCue), 0644); err != nil {
+			return fmt.Errorf("write dev dal.cue: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(devDir, "charter.md"), []byte(defaultDevCharter), 0644); err != nil {
+			return fmt.Errorf("write dev charter.md: %w", err)
+		}
+	}
+
 	// Auto-create wisdom.md
 	wisdomPath := filepath.Join(root, "wisdom.md")
 	if _, err := os.Stat(wisdomPath); err != nil {
@@ -397,6 +429,87 @@ const defaultSkillPreFlight = "# Pre-Flight\n\n작업 전 필수: now.md → dec
 const defaultSkillGitWorkflow = "# Git Workflow\n\nmain 직접 커밋 금지. 브랜치 → PR → 리뷰 → 머지.\n"
 const defaultSkillReviewerProtocol = "# Reviewer Protocol\n\n작성자 ≠ 리뷰어. 리뷰어 본인 수정 금지.\n"
 const defaultSkillLeaderProtocol = "# Leader Protocol\n\n나는 중개자. 직접 수정 안 함. 소환+읽기+판단+라우팅만.\nWrite/Edit/commit 금지. dalcli-leader assign으로 멤버에게 위임.\n"
+
+// defaultLeaderCueTemplate has one %s placeholder for the UUID.
+const defaultLeaderCueTemplate = `uuid:    %q
+name:    "leader"
+version: "1.0.0"
+player:  "claude"
+role:    "leader"
+channel_only: true
+skills:  ["skills/leader-protocol", "skills/inbox-protocol", "skills/pre-flight"]
+hooks:   []
+git: {
+	user:         "dal-leader"
+	email:        "dal-leader@dalcenter.local"
+	github_token: "env:GITHUB_TOKEN"
+}
+`
+
+const defaultLeaderCharter = `# Leader Dal
+
+## Role
+팀 리더. 작업을 분배하고 결과를 검토한다. 직접 코드를 수정하지 않는다.
+
+## Tools
+- dalcli-leader ps — 팀 상태 확인
+- dalcli-leader wake/sleep <dal> — 멤버 관리
+- dalcli-leader assign <dal> <task> — 작업 배정
+- dalcli-leader logs <dal> — 멤버 로그 확인
+
+## Workflow
+1. 작업 요청 수신
+2. 하위 작업으로 분해
+3. 멤버에게 배정 (dalcli-leader assign)
+4. 진행 상황 모니터링
+5. 결과 검토 및 피드백
+6. 완료 시 최종 PR 생성
+
+## Rules
+- main 직접 커밋 금지
+- Write/Edit/commit 금지 — dalcli-leader assign으로 위임
+- 리뷰 없이 머지 금지
+`
+
+// defaultDevCueTemplate has one %s placeholder for the UUID.
+const defaultDevCueTemplate = `uuid:    %q
+name:    "dev"
+version: "1.0.0"
+player:  "claude"
+role:    "member"
+channel_only: true
+skills:  ["skills/git-workflow", "skills/pre-flight", "skills/inbox-protocol"]
+hooks:   []
+git: {
+	user:         "dal-dev"
+	email:        "dal-dev@dalcenter.local"
+	github_token: "env:GITHUB_TOKEN"
+}
+`
+
+const defaultDevCharter = `# Dev Dal
+
+## Role
+개발자. 코드를 작성하고 테스트한다.
+
+## Tools
+- dalcli status — 내 상태 확인
+- dalcli ps — 팀 상태 확인
+- dalcli report <message> — 리더에게 보고
+
+## Workflow
+1. 배정된 작업 확인
+2. 브랜치 생성: git checkout -b feat/<task>
+3. 구현 및 테스트
+4. 커밋, 푸시, PR 생성
+5. dalcli report로 완료 보고
+
+## Rules
+- main 직접 커밋 금지
+- 테스트 작성 필수
+- 작고 명확한 커밋
+- 기존 코드 패턴 준수
+`
 
 const defaultSpec = `// dal.spec.cue — localdal schema
 

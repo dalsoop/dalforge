@@ -10,6 +10,39 @@
 
 dalcenter는 dal(AI 인형)을 관리합니다. Claude Code, Codex, Gemini가 설치된 Docker 컨테이너를 각각의 스킬, 지시사항, git 인증으로 구성합니다. 템플릿은 git(localdal)으로 관리하고, dalcenter는 런타임을 담당합니다.
 
+## 설치
+
+### 사전 요구사항
+
+- **Go** 1.25.0+
+- **Docker**
+- **Git**
+- **Mattermost** 서버 및 admin 토큰
+
+### 빌드
+
+```bash
+go build -o /usr/local/bin/dalcenter ./cmd/dalcenter/
+go build -o /usr/local/bin/dalcli ./cmd/dalcli/
+go build -o /usr/local/bin/dalcli-leader ./cmd/dalcli-leader/
+```
+
+### Docker 이미지 빌드
+
+dal을 소환하기 전에 최소한 base 이미지를 빌드해야 합니다:
+
+```bash
+cd dockerfiles && docker build -t dalcenter/claude:latest -f claude.Dockerfile .
+```
+
+기타 이미지: `claude-go.Dockerfile`, `claude-rust.Dockerfile`, `codex.Dockerfile`, `gemini.Dockerfile`.
+
+### 환경변수
+
+| 변수 | 설명 |
+|------|------|
+| `DALCENTER_URL` | dalcenter API 주소 (예: `http://localhost:11190`) |
+
 ## 빠른 시작
 
 ```bash

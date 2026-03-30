@@ -10,6 +10,39 @@
 
 dalcenter manages dal (AI puppets) — Docker containers with Claude Code, Codex, or Gemini installed, each with their own skills, instructions, and git identity. Templates live in git (localdal), dalcenter handles the runtime.
 
+## Installation
+
+### Prerequisites
+
+- **Go** 1.25.0+
+- **Docker**
+- **Git**
+- **Mattermost** server with an admin token
+
+### Build
+
+```bash
+go build -o /usr/local/bin/dalcenter ./cmd/dalcenter/
+go build -o /usr/local/bin/dalcli ./cmd/dalcli/
+go build -o /usr/local/bin/dalcli-leader ./cmd/dalcli-leader/
+```
+
+### Docker Images
+
+Build at least the base image before waking dals:
+
+```bash
+cd dockerfiles && docker build -t dalcenter/claude:latest -f claude.Dockerfile .
+```
+
+Other images: `claude-go.Dockerfile`, `claude-rust.Dockerfile`, `codex.Dockerfile`, `gemini.Dockerfile`.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DALCENTER_URL` | dalcenter API address (e.g. `http://localhost:11190`) |
+
 ## Quick Start
 
 ```bash

@@ -190,6 +190,10 @@ func TestInit_FullStructure(t *testing.T) {
 		"wisdom.md",
 		"scribe/dal.cue",
 		"scribe/charter.md",
+		"leader/dal.cue",
+		"leader/charter.md",
+		"dev/dal.cue",
+		"dev/charter.md",
 		"skills/inbox-protocol/SKILL.md",
 		"skills/history-hygiene/SKILL.md",
 		"skills/escalation/SKILL.md",
@@ -208,6 +212,104 @@ func TestInit_FullStructure(t *testing.T) {
 	gitattrs := filepath.Join(tmp, ".gitattributes")
 	if _, err := os.Stat(gitattrs); err != nil {
 		t.Error("missing .gitattributes in parent dir")
+	}
+}
+
+func TestInit_CreatesLeaderDal(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+
+	cueFile := filepath.Join(root, "leader", "dal.cue")
+	data, err := os.ReadFile(cueFile)
+	if err != nil {
+		t.Fatal("leader/dal.cue not created")
+	}
+	content := string(data)
+
+	checks := []string{"leader", "role:", "\"leader\"", "dal-leader", "GITHUB_TOKEN"}
+	for _, check := range checks {
+		if !strings.Contains(content, check) {
+			t.Errorf("leader dal.cue missing: %q", check)
+		}
+	}
+
+	charter := filepath.Join(root, "leader", "charter.md")
+	if _, err := os.Stat(charter); err != nil {
+		t.Fatal("leader/charter.md not created")
+	}
+}
+
+func TestInit_CreatesDevDal(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+
+	if err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+
+	cueFile := filepath.Join(root, "dev", "dal.cue")
+	data, err := os.ReadFile(cueFile)
+	if err != nil {
+		t.Fatal("dev/dal.cue not created")
+	}
+	content := string(data)
+
+	checks := []string{"dev", "\"member\"", "dal-dev", "GITHUB_TOKEN"}
+	for _, check := range checks {
+		if !strings.Contains(content, check) {
+			t.Errorf("dev dal.cue missing: %q", check)
+		}
+	}
+
+	charter := filepath.Join(root, "dev", "charter.md")
+	if _, err := os.Stat(charter); err != nil {
+		t.Fatal("dev/charter.md not created")
+	}
+}
+
+func TestInit_LeaderDevIdempotent(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+
+	Init(root)
+
+	// Modify leader charter
+	path := filepath.Join(root, "leader", "charter.md")
+	os.WriteFile(path, []byte("custom leader"), 0644)
+
+	// Re-init should not overwrite
+	Init(root)
+
+	data, _ := os.ReadFile(path)
+	if string(data) != "custom leader" {
+		t.Error("Init() overwrote existing leader/charter.md")
+	}
+}
+
+func TestInit_LeaderDevHaveUUIDs(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".dal")
+	os.MkdirAll(root, 0755)
+
+	Init(root)
+
+	for _, name := range []string{"leader", "dev"} {
+		data, _ := os.ReadFile(filepath.Join(root, name, "dal.cue"))
+		content := string(data)
+		if !strings.Contains(content, "uuid:") {
+			t.Errorf("%s/dal.cue missing uuid field", name)
+		}
+		// UUID should be non-empty (not just "uuid:")
+		if strings.Contains(content, `uuid:    ""`) {
+			t.Errorf("%s/dal.cue has empty uuid", name)
+		}
 	}
 }
 

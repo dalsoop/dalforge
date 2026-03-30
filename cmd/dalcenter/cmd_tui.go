@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/dalsoop/dalcenter/internal/paths"
 	"github.com/spf13/cobra"
 )
 
@@ -22,19 +24,66 @@ func newTuiCmd() *cobra.Command {
 		Use:   "tui",
 		Short: "Interactive terminal dashboard",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if addr == "" {
-				addr = os.Getenv("DALCENTER_TUI_ADDR")
+			addrs := discoverAddrs(addr)
+			if len(addrs) == 0 {
+				return fmt.Errorf("no dalcenter API found")
 			}
-			if addr == "" {
-				addr = "http://localhost:11192"
-			}
-			p := tea.NewProgram(newDashboard(addr), tea.WithAltScreen(), tea.WithMouseCellMotion())
+			p := tea.NewProgram(newMultiDashboard(addrs), tea.WithAltScreen(), tea.WithMouseCellMotion())
 			_, err := p.Run()
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&addr, "addr", "", "dalcenter API address (default: $DALCENTER_TUI_ADDR or http://localhost:11192)")
+	cmd.Flags().StringVar(&addr, "addr", "", "dalcenter API address (overrides auto-detection)")
 	return cmd
+}
+
+// discoverAddrs finds dalcenter API addresses from env files.
+func discoverAddrs(override string) []string {
+	if override != "" {
+		return []string{override}
+	}
+
+	// Read host IP from common.env
+	hostIP := "localhost"
+	commonData, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "common.env"))
+	if err == nil {
+		for _, line := range strings.Split(string(commonData), "\n") {
+			if strings.HasPrefix(line, "DALCENTER_HOST_IP=") {
+				hostIP = strings.TrimPrefix(line, "DALCENTER_HOST_IP=")
+				break
+			}
+		}
+	}
+
+	// Read ports from per-repo env files
+	entries, err := os.ReadDir(paths.ConfigDir())
+	if err != nil {
+		return []string{fmt.Sprintf("http://%s:11192", hostIP)}
+	}
+
+	var addrs []string
+	for _, e := range entries {
+		if e.Name() == "common.env" || !strings.HasSuffix(e.Name(), ".env") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(paths.ConfigDir(), e.Name()))
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "DALCENTER_PORT=") {
+				port := strings.TrimPrefix(line, "DALCENTER_PORT=")
+				addrs = append(addrs, fmt.Sprintf("http://%s:%s", hostIP, port))
+				break
+			}
+		}
+	}
+
+	if len(addrs) == 0 {
+		return []string{fmt.Sprintf("http://%s:11192", hostIP)}
+	}
+	sort.Strings(addrs)
+	return addrs
 }
 
 // --- styles ---
@@ -95,7 +144,7 @@ const (
 )
 
 type dashboard struct {
-	addr        string
+	addrs       []string
 	tab         tab
 	dals        []dalInfo
 	tasks       []taskInfo
@@ -106,8 +155,8 @@ type dashboard struct {
 	height      int
 }
 
-func newDashboard(addr string) dashboard {
-	return dashboard{addr: addr}
+func newMultiDashboard(addrs []string) dashboard {
+	return dashboard{addrs: addrs}
 }
 
 func (d dashboard) Init() tea.Cmd {
@@ -208,7 +257,7 @@ func (d dashboard) View() string {
 	// Header
 	b.WriteString(titleStyle.Render("dalcenter"))
 	b.WriteString("  ")
-	b.WriteString(helpStyle.Render(d.addr))
+	b.WriteString(helpStyle.Render(fmt.Sprintf("%d repos", len(d.addrs))))
 	if d.err != nil {
 		b.WriteString("  ")
 		b.WriteString(errorStyle.Render(d.err.Error()))
@@ -371,56 +420,64 @@ func (d dashboard) fetchAll() tea.Cmd {
 
 func (d dashboard) fetchDals() tea.Cmd {
 	return func() tea.Msg {
-		data, err := apiGet(d.addr + "/api/status")
-		if err != nil {
-			return errMsg{err}
-		}
-		var dals []dalInfo
-		if err := json.Unmarshal(data, &dals); err != nil {
-			return errMsg{err}
-		}
-		// Sort: running first, then by name
-		sort.Slice(dals, func(i, j int) bool {
-			if dals[i].ContainerStatus != dals[j].ContainerStatus {
-				return dals[i].ContainerStatus == "running"
+		var all []dalInfo
+		for _, addr := range d.addrs {
+			data, err := apiGet(addr + "/api/status")
+			if err != nil {
+				continue
 			}
-			return dals[i].Name < dals[j].Name
+			var dals []dalInfo
+			if err := json.Unmarshal(data, &dals); err != nil {
+				continue
+			}
+			all = append(all, dals...)
+		}
+		sort.Slice(all, func(i, j int) bool {
+			if all[i].ContainerStatus != all[j].ContainerStatus {
+				return all[i].ContainerStatus == "running"
+			}
+			return all[i].Name < all[j].Name
 		})
-		return dalStatusMsg(dals)
+		return dalStatusMsg(all)
 	}
 }
 
 func (d dashboard) fetchTasks() tea.Cmd {
 	return func() tea.Msg {
-		data, err := apiGet(d.addr + "/api/tasks")
-		if err != nil {
-			return nil // non-critical
+		var all []taskInfo
+		for _, addr := range d.addrs {
+			data, err := apiGet(addr + "/api/tasks")
+			if err != nil {
+				continue
+			}
+			var tasks []taskInfo
+			if json.Unmarshal(data, &tasks) == nil {
+				all = append(all, tasks...)
+			}
 		}
-		var tasks []taskInfo
-		if err := json.Unmarshal(data, &tasks); err != nil {
-			return nil
-		}
-		// Sort: newest first
-		sort.Slice(tasks, func(i, j int) bool {
-			return tasks[i].StartedAt.After(tasks[j].StartedAt)
+		sort.Slice(all, func(i, j int) bool {
+			return all[i].StartedAt.After(all[j].StartedAt)
 		})
-		return taskListMsg(tasks)
+		return taskListMsg(all)
 	}
 }
 
 func (d dashboard) fetchEscalations() tea.Cmd {
 	return func() tea.Msg {
-		data, err := apiGet(d.addr + "/api/escalations")
-		if err != nil {
-			return nil
+		var all []escalationInfo
+		for _, addr := range d.addrs {
+			data, err := apiGet(addr + "/api/escalations")
+			if err != nil {
+				continue
+			}
+			var resp struct {
+				Escalations []escalationInfo `json:"escalations"`
+			}
+			if json.Unmarshal(data, &resp) == nil {
+				all = append(all, resp.Escalations...)
+			}
 		}
-		var resp struct {
-			Escalations []escalationInfo `json:"escalations"`
-		}
-		if err := json.Unmarshal(data, &resp); err != nil {
-			return nil
-		}
-		return escalationMsg(resp.Escalations)
+		return escalationMsg(all)
 	}
 }
 
