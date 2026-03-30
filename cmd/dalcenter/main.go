@@ -33,6 +33,7 @@ func main() {
 		newUnregisterCmd(),
 		newTellCmd(),
 		newUpdateCmd(),
+		newTuiCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
