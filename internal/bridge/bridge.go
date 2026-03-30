@@ -21,4 +21,13 @@ type Bridge interface {
 	Send(msg Message) error
 	UpdateToken(token string)
 	Close() error
+
+	// BotID returns the bot's own user/identity ID (used to filter self-messages).
+	BotID() string
+	// GetUsername resolves a user ID to a display username.
+	GetUsername(userID string) string
+	// GetUserIDByUsername resolves a username to a user ID.
+	GetUserIDByUsername(username string) (string, error)
+	// SetNoDM disables DM channel polling.
+	SetNoDM(noDM bool)
 }

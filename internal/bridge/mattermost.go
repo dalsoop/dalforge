@@ -95,6 +95,14 @@ func (m *MattermostBridge) Close() error {
 	return nil
 }
 
+func (m *MattermostBridge) BotID() string {
+	return m.BotUserID
+}
+
+func (m *MattermostBridge) SetNoDM(noDM bool) {
+	m.NoDM = noDM
+}
+
 func (m *MattermostBridge) poll() {
 	consecutiveErrors := 0
 	for {

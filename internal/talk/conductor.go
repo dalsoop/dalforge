@@ -14,6 +14,7 @@ import (
 
 // ConductorConfig for the central orchestrator bot.
 type ConductorConfig struct {
+	BridgeType string
 	URL        string
 	BotToken   string
 	ChannelID  string
@@ -49,7 +50,15 @@ type Conductor struct {
 }
 
 func NewConductor(cfg ConductorConfig) (*Conductor, error) {
-	br := bridge.NewMattermostBridge(cfg.URL, cfg.BotToken, cfg.ChannelID, 2*time.Second)
+	var br bridge.Bridge
+	switch cfg.BridgeType {
+	case "mattermost", "":
+		br = bridge.NewMattermostBridge(cfg.URL, cfg.BotToken, cfg.ChannelID, 2*time.Second)
+	case "matterbridge":
+		br = bridge.NewMatterbridgeBridge(cfg.URL, cfg.BotToken, cfg.ChannelID, cfg.BotUsername)
+	default:
+		return nil, fmt.Errorf("unsupported bridge type: %s", cfg.BridgeType)
+	}
 	return &Conductor{
 		cfg:       cfg,
 		br:        br,
@@ -67,17 +76,16 @@ func (c *Conductor) Run(ctx context.Context) error {
 	}
 	defer c.br.Close()
 
-	if mm, ok := c.br.(*bridge.MattermostBridge); ok {
-		c.botUserID = mm.BotUserID
-		for _, d := range c.cfg.Dals {
-			uid, err := mm.GetUserIDByUsername(d.Username)
-			if err != nil {
-				log.Printf("[conductor] warning: could not resolve dal bot %q: %v", d.Username, err)
-				continue
-			}
-			c.dalBotIDs[uid] = true
-			log.Printf("[conductor] registered dal bot: @%s → %s", d.Username, uid)
+	c.botUserID = c.br.BotID()
+
+	for _, d := range c.cfg.Dals {
+		uid, err := c.br.GetUserIDByUsername(d.Username)
+		if err != nil {
+			log.Printf("[conductor] warning: could not resolve dal bot %q: %v", d.Username, err)
+			continue
 		}
+		c.dalBotIDs[uid] = true
+		log.Printf("[conductor] registered dal bot: @%s → %s", d.Username, uid)
 	}
 
 	dalList := c.buildDalList()

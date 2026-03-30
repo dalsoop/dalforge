@@ -480,8 +480,8 @@ func refreshAgentConfig(dalName string) (*agentConfig, error) {
 	}, nil
 }
 
-func sendMattermostMessage(mm *bridge.MattermostBridge, dalName string, cfg *agentConfig, msg bridge.Message) error {
-	err := mm.Send(msg)
+func sendBridgeMessage(br bridge.Bridge, dalName string, cfg *agentConfig, msg bridge.Message) error {
+	err := br.Send(msg)
 	if err == nil {
 		return nil
 	}
@@ -495,14 +495,14 @@ func sendMattermostMessage(mm *bridge.MattermostBridge, dalName string, cfg *age
 	if refreshed.BotToken == "" {
 		return fmt.Errorf("refresh bot token: empty token")
 	}
-	mm.UpdateToken(refreshed.BotToken)
+	br.UpdateToken(refreshed.BotToken)
 	if cfg != nil {
 		*cfg = *refreshed
 		if refreshed.TeamMembers != "" {
 			os.Setenv("DAL_TEAM_MEMBERS", refreshed.TeamMembers)
 		}
 	}
-	return mm.Send(msg)
+	return br.Send(msg)
 }
 
 func runCmd(dalName string) *cobra.Command {
@@ -572,14 +572,12 @@ func runAgentLoop(dalName string) error {
 		}
 	}()
 
-	mm := bridge.NewMattermostBridge(cfg.MMURL, cfg.BotToken, cfg.ChannelID, 5*time.Second)
-	if shouldDisableDM(os.Getenv("DAL_NO_DM")) {
-		mm.NoDM = true
+	br := bridge.NewMattermostBridge(cfg.MMURL, cfg.BotToken, cfg.ChannelID, 5*time.Second)
+	br.SetNoDM(shouldDisableDM(os.Getenv("DAL_NO_DM")))
+	if err := br.Connect(); err != nil {
+		return fmt.Errorf("bridge connect: %w", err)
 	}
-	if err := mm.Connect(); err != nil {
-		return fmt.Errorf("mattermost connect: %w", err)
-	}
-	defer mm.Close()
+	defer br.Close()
 
 	log.Printf("[agent] listening...")
 
@@ -609,7 +607,7 @@ func runAgentLoop(dalName string) error {
 		defer autoTicker.Stop()
 	}
 
-	msgC := mm.Listen()
+	msgC := br.Listen()
 	var autoTaskConsecutiveFails int
 
 	for {
@@ -636,7 +634,7 @@ func runAgentLoop(dalName string) error {
 			output, err := executeTask(autoTask)
 			if err != nil {
 				log.Printf("[agent] auto-task failed: %v", err)
-				mm.Send(bridge.Message{Content: fmt.Sprintf("⚠️ 자동 검증 실패: %v\n```\n%s\n```", err, truncate(output, 500))})
+				br.Send(bridge.Message{Content: fmt.Sprintf("⚠️ 자동 검증 실패: %v\n```\n%s\n```", err, truncate(output, 500))})
 				autoTaskConsecutiveFails = escalateAutoTaskFailure(autoTaskConsecutiveFails, dalName, autoTask, fmt.Sprintf("%v: %s", err, truncate(output, 500)))
 				continue
 			}
@@ -650,7 +648,7 @@ func runAgentLoop(dalName string) error {
 				if issueURL != "" {
 					result += fmt.Sprintf("\n\n🐛 GitHub issue 생성: %s", issueURL)
 				}
-				mm.Send(bridge.Message{Content: result})
+				br.Send(bridge.Message{Content: result})
 			} else {
 				log.Printf("[agent] auto-task: all passed")
 			}
@@ -658,7 +656,7 @@ func runAgentLoop(dalName string) error {
 		}
 
 		// --- MM message handling (existing logic) ---
-		if msg.From == mm.BotUserID {
+		if msg.From == br.BotID() {
 			log.Printf("[agent] skipped own message: %s", truncate(msg.Content, 40))
 			continue
 		}
@@ -670,11 +668,11 @@ func runAgentLoop(dalName string) error {
 		log.Printf("[agent] msg from=%s mention=%v(m=%q legacy=%q alt=%q) thread=%v dm=%v content=%s",
 			msg.From[:8], isDirectMention, mention, legacyMention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
 
-		if shouldIgnoreDalBotMessage(msg, mm, isDirectMention, isThreadReply, isDM) {
+		if shouldIgnoreDalBotMessage(msg, br, isDirectMention, isThreadReply, isDM) {
 			log.Printf("[agent] skipped dal-bot follow-up: %s", truncate(msg.Content, 60))
 			continue
 		}
-		if shouldIgnoreOperationalDalBotMessage(msg, mm) {
+		if shouldIgnoreOperationalDalBotMessage(msg, br) {
 			log.Printf("[agent] skipped operational dal-bot message: %s", truncate(msg.Content, 60))
 			continue
 		}
@@ -714,11 +712,11 @@ func runAgentLoop(dalName string) error {
 			continue
 		}
 
-		spec := buildTaskSpec(dalName, mm, msg, task, isDirectMention, isThreadReply, isDM)
+		spec := buildTaskSpec(dalName, br, msg, task, isDirectMention, isThreadReply, isDM)
 		log.Printf("[agent] message: %s (intent=%s source=%s)", truncate(spec.UserTask, 80), spec.Intent, spec.Source)
 		recordDalActivity(dalName)
 
-		if handled, err := handleCredentialStatusQuery(dalName, credentialStatusQueryInput(spec.UserTask, spec.Prompt), spec.ThreadID, spec.Channel, mm); err != nil {
+		if handled, err := handleCredentialStatusQuery(dalName, credentialStatusQueryInput(spec.UserTask, spec.Prompt), spec.ThreadID, spec.Channel, br); err != nil {
 			log.Printf("[agent] credential status reply failed: %v", err)
 		} else if handled {
 			appendHistoryBuffer(dalName, spec.Prompt, "credential status reply", "완료")
@@ -736,7 +734,7 @@ func runAgentLoop(dalName string) error {
 		} else {
 			statusMsg = "💬 작업 중..."
 		}
-		if err := sendMattermostMessage(mm, dalName, cfg, bridge.Message{
+		if err := sendBridgeMessage(br, dalName, cfg, bridge.Message{
 			Content: statusMsg,
 			Channel: spec.Channel,
 			ReplyTo: spec.ThreadID,
@@ -758,7 +756,7 @@ func runAgentLoop(dalName string) error {
 			if shouldRetry, fix := selfRepair(spec.Prompt, output, err); shouldRetry {
 				log.Printf("[agent] self-repair applied: %s, retrying", fix)
 				appendTrackedRunEvent(taskRunID, "self_repair", fmt.Sprintf("Self-repair applied: %s", fix))
-				if err := sendMattermostMessage(mm, dalName, cfg, bridge.Message{
+				if err := sendBridgeMessage(br, dalName, cfg, bridge.Message{
 					Content: fmt.Sprintf("🔧 자가 수리: %s — 재시도 중...", fix),
 					Channel: spec.Channel,
 					ReplyTo: spec.ThreadID,
@@ -780,7 +778,7 @@ func runAgentLoop(dalName string) error {
 				if runURL != "" {
 					failureMsg += fmt.Sprintf("\n\n[실행 보기](%s)", runURL)
 				}
-				if err := sendMattermostMessage(mm, dalName, cfg, bridge.Message{
+				if err := sendBridgeMessage(br, dalName, cfg, bridge.Message{
 					Content: failureMsg,
 					Channel: spec.Channel,
 					ReplyTo: spec.ThreadID,
@@ -847,7 +845,7 @@ func runAgentLoop(dalName string) error {
 			response += fmt.Sprintf("\n\n[실행 보기](%s)", runURL)
 		}
 
-		if err := sendMattermostMessage(mm, dalName, cfg, bridge.Message{
+		if err := sendBridgeMessage(br, dalName, cfg, bridge.Message{
 			Content: response,
 			Channel: spec.Channel,
 			ReplyTo: spec.ThreadID,
@@ -858,8 +856,8 @@ func runAgentLoop(dalName string) error {
 		// Report to leader: when a member dal receives a direct task from user (not from leader),
 		// notify the leader so they stay in the loop
 		role := os.Getenv("DAL_ROLE")
-		if role == "member" && isDirectMention && !isFromLeader(msg.From, mm) {
-			reportToLeader(mm, dalName, spec.UserTask, response, spec.ThreadID)
+		if role == "member" && isDirectMention && !isFromLeader(msg.From, br) {
+			reportToLeader(br, dalName, spec.UserTask, response, spec.ThreadID)
 		}
 	}
 }
@@ -1082,7 +1080,7 @@ func notifyCredentialRefresh(dalName string) {
 	log.Printf("[agent] credential refresh requested for %s", dalName)
 }
 
-func handleCredentialStatusQuery(dalName, prompt, threadID, channel string, mm *bridge.MattermostBridge) (bool, error) {
+func handleCredentialStatusQuery(dalName, prompt, threadID, channel string, br bridge.Bridge) (bool, error) {
 	if !isCredentialStatusQuery(prompt) {
 		return false, nil
 	}
@@ -1090,7 +1088,7 @@ func handleCredentialStatusQuery(dalName, prompt, threadID, channel string, mm *
 	if err != nil {
 		reply = fmt.Sprintf("credential-ops 상태 조회 실패: %v\n일반 작업으로 넘기지 않고 여기서 중단합니다.", err)
 	}
-	if err := mm.Send(bridge.Message{
+	if err := br.Send(bridge.Message{
 		Content: reply,
 		Channel: channel,
 		ReplyTo: threadID,
@@ -1642,13 +1640,13 @@ func escalateAutoTaskFailure(consecutiveFails int, dalName, autoTask, errMsg str
 }
 
 // isFromLeader checks if a message sender is a leader bot (by checking dal- prefix + leader keyword)
-func isFromLeader(senderID string, mm *bridge.MattermostBridge) bool {
-	username := mm.GetUsername(senderID)
+func isFromLeader(senderID string, br bridge.Bridge) bool {
+	username := br.GetUsername(senderID)
 	return strings.Contains(username, "leader")
 }
 
-func isFromDalBot(senderID string, mm *bridge.MattermostBridge) bool {
-	username := mm.GetUsername(senderID)
+func isFromDalBot(senderID string, br bridge.Bridge) bool {
+	username := br.GetUsername(senderID)
 	return strings.HasPrefix(username, "dal-")
 }
 
@@ -1707,21 +1705,21 @@ func equalsAnyMention(content string, mentions ...string) bool {
 	return false
 }
 
-func shouldIgnoreDalBotMessage(msg bridge.Message, mm *bridge.MattermostBridge, isDirectMention, isThreadReply, isDM bool) bool {
-	if !isFromDalBot(msg.From, mm) {
+func shouldIgnoreDalBotMessage(msg bridge.Message, br bridge.Bridge, isDirectMention, isThreadReply, isDM bool) bool {
+	if !isFromDalBot(msg.From, br) {
 		return false
 	}
 	if isDM {
 		return true
 	}
-	if isThreadReply && !isDirectMention && !isFromLeader(msg.From, mm) {
+	if isThreadReply && !isDirectMention && !isFromLeader(msg.From, br) {
 		return true
 	}
 	return false
 }
 
-func shouldIgnoreOperationalDalBotMessage(msg bridge.Message, mm *bridge.MattermostBridge) bool {
-	return isFromDalBot(msg.From, mm) && isOperationalNoticeMessage(msg.Content)
+func shouldIgnoreOperationalDalBotMessage(msg bridge.Message, br bridge.Bridge) bool {
+	return isFromDalBot(msg.From, br) && isOperationalNoticeMessage(msg.Content)
 }
 
 func isOperationalNoticeMessage(content string) bool {
@@ -1733,7 +1731,7 @@ func isOperationalNoticeMessage(content string) bool {
 }
 
 // reportToLeader sends a summary to the leader bot in the same channel
-func reportToLeader(mm *bridge.MattermostBridge, dalName, task, result, threadID string) {
+func reportToLeader(br bridge.Bridge, dalName, task, result, threadID string) {
 	// Find leader mention from team_members env
 	teamMembers := os.Getenv("DAL_TEAM_MEMBERS")
 	var leaderMention string
@@ -1750,5 +1748,5 @@ func reportToLeader(mm *bridge.MattermostBridge, dalName, task, result, threadID
 
 	report := fmt.Sprintf("%s 📋 보고: **%s**가 사용자 직접 지시를 수행했습니다.\n\n**태스크:** %s\n**결과:** %s",
 		leaderMention, dalName, truncate(task, 200), truncate(result, 500))
-	mm.Send(bridge.Message{Content: report})
+	br.Send(bridge.Message{Content: report})
 }

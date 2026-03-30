@@ -43,7 +43,7 @@ type TaskResult struct {
 	Err    error
 }
 
-func buildTaskSpec(dalName string, mm *bridge.MattermostBridge, msg bridge.Message, task string, isDirectMention, isThreadReply, isDM bool) TaskSpec {
+func buildTaskSpec(dalName string, br bridge.Bridge, msg bridge.Message, task string, isDirectMention, isThreadReply, isDM bool) TaskSpec {
 	threadID := msg.RootID
 	if threadID == "" {
 		threadID = msg.ID
@@ -70,7 +70,7 @@ func buildTaskSpec(dalName string, mm *bridge.MattermostBridge, msg bridge.Messa
 	}
 
 	if isThreadReply && !isDirectMention {
-		spec.Prompt = buildThreadContext(mm, msg, dalName, task)
+		spec.Prompt = buildThreadContext(br, msg, dalName, task)
 	}
 	if isCredentialStatusQuery(credentialStatusQueryInput(task, spec.Prompt)) {
 		spec.Intent = TaskIntentCredentialStatus
@@ -89,8 +89,8 @@ func runTaskSpec(spec TaskSpec) TaskResult {
 	return TaskResult{State: TaskStateDone, Output: output}
 }
 
-func buildThreadContext(mm *bridge.MattermostBridge, newMsg bridge.Message, dalName, latestTask string) string {
-	rootTask := fetchThreadRootTask(mm, newMsg, dalName)
+func buildThreadContext(br bridge.Bridge, newMsg bridge.Message, dalName, latestTask string) string {
+	rootTask := fetchThreadRootTask(br, newMsg, dalName)
 	var sb strings.Builder
 	sb.WriteString("너는 Mattermost 스레드의 후속 작업만 처리한다.\n")
 	if rootTask != "" && rootTask != latestTask {
@@ -101,7 +101,7 @@ func buildThreadContext(mm *bridge.MattermostBridge, newMsg bridge.Message, dalN
 	return sb.String()
 }
 
-func fetchThreadRootTask(mm *bridge.MattermostBridge, newMsg bridge.Message, dalName string) string {
+func fetchThreadRootTask(br bridge.Bridge, newMsg bridge.Message, dalName string) string {
 	threadID := newMsg.RootID
 	if threadID == "" {
 		threadID = newMsg.ID
@@ -142,7 +142,7 @@ func fetchThreadRootTask(mm *bridge.MattermostBridge, newMsg bridge.Message, dal
 		if json.Unmarshal(thread.Posts[pid], &post) != nil {
 			continue
 		}
-		if post.UserID == mm.BotUserID {
+		if post.UserID == br.BotID() {
 			continue
 		}
 		if isOperationalNoticeMessage(post.Message) || isStatusOnlyMessage(post.Message) {

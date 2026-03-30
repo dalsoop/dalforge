@@ -336,7 +336,7 @@ func TestBuildThreadContext_WithAPI(t *testing.T) {
 	os.Setenv("DALCENTER_URL", srv.URL)
 	defer os.Unsetenv("DALCENTER_URL")
 
-	mm := &bridge.MattermostBridge{BotUserID: "bot-writer"}
+	var br bridge.Bridge = &bridge.MattermostBridge{BotUserID: "bot-writer"}
 	msg := bridge.Message{
 		ID:      "p3",
 		RootID:  "p1",
@@ -344,7 +344,7 @@ func TestBuildThreadContext_WithAPI(t *testing.T) {
 		Content: "머지해봐",
 	}
 
-	ctx := buildThreadContext(mm, msg, "writer", "머지해봐")
+	ctx := buildThreadContext(br, msg, "writer", "머지해봐")
 
 	if !strings.Contains(ctx, "원래 요청: @dal-writer ep04 수정해") {
 		t.Error("should contain normalized root task")
@@ -456,13 +456,13 @@ func TestBuildThreadContext_Fallback(t *testing.T) {
 	// No DALCENTER_URL → fallback to single message
 	os.Unsetenv("DALCENTER_URL")
 
-	mm := &bridge.MattermostBridge{BotUserID: "bot-123"}
+	var br bridge.Bridge = &bridge.MattermostBridge{BotUserID: "bot-123"}
 	msg := bridge.Message{
 		Content: "테스트 메시지",
 		RootID:  "root-1",
 	}
 
-	ctx := buildThreadContext(mm, msg, "test-dal", "테스트 메시지")
+	ctx := buildThreadContext(br, msg, "test-dal", "테스트 메시지")
 	if !strings.Contains(ctx, "이번 요청: 테스트 메시지") {
 		t.Error("fallback should contain latest task")
 	}
@@ -498,7 +498,7 @@ func TestBuildTaskSpec_ThreadReplyUsesSelectiveContext(t *testing.T) {
 
 	t.Setenv("DALCENTER_URL", srv.URL)
 
-	mm := &bridge.MattermostBridge{BotUserID: "bot-writer"}
+	var br bridge.Bridge = &bridge.MattermostBridge{BotUserID: "bot-writer"}
 	msg := bridge.Message{
 		ID:      "p3",
 		RootID:  "p1",
@@ -507,7 +507,7 @@ func TestBuildTaskSpec_ThreadReplyUsesSelectiveContext(t *testing.T) {
 		Channel: "ch1",
 	}
 
-	spec := buildTaskSpec("writer", mm, msg, "머지해봐", false, true, false)
+	spec := buildTaskSpec("writer", br, msg, "머지해봐", false, true, false)
 	if spec.Intent != TaskIntentExecute {
 		t.Fatalf("intent = %s, want %s", spec.Intent, TaskIntentExecute)
 	}
@@ -526,7 +526,7 @@ func TestBuildTaskSpec_ThreadReplyUsesSelectiveContext(t *testing.T) {
 }
 
 func TestBuildTaskSpec_CredentialStatusIntent(t *testing.T) {
-	mm := &bridge.MattermostBridge{BotUserID: "bot-leader"}
+	var br bridge.Bridge = &bridge.MattermostBridge{BotUserID: "bot-leader"}
 	msg := bridge.Message{
 		ID:      "root-1",
 		From:    "user-devops",
@@ -534,7 +534,7 @@ func TestBuildTaskSpec_CredentialStatusIntent(t *testing.T) {
 		Channel: "ch1",
 	}
 
-	spec := buildTaskSpec("leader", mm, msg, "sync-dal-creds.sh 왜 뜨지", true, false, false)
+	spec := buildTaskSpec("leader", br, msg, "sync-dal-creds.sh 왜 뜨지", true, false, false)
 	if spec.Intent != TaskIntentCredentialStatus {
 		t.Fatalf("intent = %s, want %s", spec.Intent, TaskIntentCredentialStatus)
 	}
@@ -555,7 +555,7 @@ func TestShouldIgnoreDalBotMessage(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	mm := &bridge.MattermostBridge{URL: srv.URL, Token: "tok"}
+	var br bridge.Bridge = &bridge.MattermostBridge{URL: srv.URL, Token: "tok"}
 
 	tests := []struct {
 		name            string
@@ -575,7 +575,7 @@ func TestShouldIgnoreDalBotMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := bridge.Message{From: tt.from, Content: "test"}
-			got := shouldIgnoreDalBotMessage(msg, mm, tt.isDirectMention, tt.isThreadReply, tt.isDM)
+			got := shouldIgnoreDalBotMessage(msg, br, tt.isDirectMention, tt.isThreadReply, tt.isDM)
 			if got != tt.want {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
@@ -595,7 +595,7 @@ func TestShouldIgnoreOperationalDalBotMessage(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	mm := &bridge.MattermostBridge{URL: srv.URL, Token: "tok"}
+	var br bridge.Bridge = &bridge.MattermostBridge{URL: srv.URL, Token: "tok"}
 
 	tests := []struct {
 		name string
@@ -630,7 +630,7 @@ func TestShouldIgnoreOperationalDalBotMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldIgnoreOperationalDalBotMessage(tt.msg, mm); got != tt.want {
+			if got := shouldIgnoreOperationalDalBotMessage(tt.msg, br); got != tt.want {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
@@ -698,9 +698,9 @@ func TestHandleCredentialStatusQuery_FallbackOnStatusError(t *testing.T) {
 	defer mmServer.Close()
 
 	t.Setenv("DALCENTER_URL", "http://127.0.0.1:1")
-	mm := &bridge.MattermostBridge{URL: mmServer.URL, Token: "tok", ChannelID: "ch-1"}
+	var br bridge.Bridge = &bridge.MattermostBridge{URL: mmServer.URL, Token: "tok", ChannelID: "ch-1"}
 
-	handled, err := handleCredentialStatusQuery("leader", "sync-dal-creds.sh 왜 뜨지", "root-1", "ch-1", mm)
+	handled, err := handleCredentialStatusQuery("leader", "sync-dal-creds.sh 왜 뜨지", "root-1", "ch-1", br)
 	if err != nil {
 		t.Fatalf("handleCredentialStatusQuery: %v", err)
 	}

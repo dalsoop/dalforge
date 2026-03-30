@@ -66,6 +66,8 @@ func NewDaemon(cfg Config) (*Daemon, error) {
 	switch cfg.BridgeType {
 	case "mattermost", "":
 		br = bridge.NewMattermostBridge(cfg.URL, cfg.BotToken, cfg.ChannelID, 2*time.Second)
+	case "matterbridge":
+		br = bridge.NewMatterbridgeBridge(cfg.URL, cfg.BotToken, cfg.ChannelID, cfg.BotUsername)
 	default:
 		return nil, fmt.Errorf("unsupported bridge type: %s", cfg.BridgeType)
 	}
@@ -86,10 +88,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	defer d.br.Close()
 
-	botUserID := ""
-	if mm, ok := d.br.(*bridge.MattermostBridge); ok {
-		botUserID = mm.BotUserID
-	}
+	botUserID := d.br.BotID()
 	log.Printf("[talk] connected, channel=%s, role=%q, bot=%s", d.cfg.ChannelID, d.cfg.Role, botUserID)
 
 	// Register with dalcenter serve
