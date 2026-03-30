@@ -1042,7 +1042,7 @@ func (d *Daemon) agentConfigResponse(name string, c *Container) map[string]strin
 	resp := map[string]string{
 		"dal_name":   c.DalName,
 		"uuid":       c.UUID,
-		"bridge_url": d.bridgeURL,
+		"bridge_url": bridgeURLForContainer(d.bridgeURL),
 		"gateway":    "dal-team",
 	}
 
