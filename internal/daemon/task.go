@@ -27,7 +27,8 @@ type taskResult struct {
 	GitChanges int    `json:"git_changes,omitempty"` // number of files changed
 	Verified   string `json:"verified,omitempty"`    // "yes", "no_changes", "skipped"
 	// Post-task build/test verification
-	Completion *CompletionResult `json:"completion,omitempty"`
+	Completion    *CompletionResult `json:"completion,omitempty"`
+	CallbackPane  string            `json:"callback_pane,omitempty"`
 }
 
 type taskEvent struct {
@@ -306,7 +307,8 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Dal   string `json:"dal"`
 		Task  string `json:"task"`
-		Async bool   `json:"async"`
+		Async        bool   `json:"async"`
+		CallbackPane string `json:"callback_pane,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -331,6 +333,7 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tr := d.tasks.New(req.Dal, req.Task)
+	tr.CallbackPane = req.CallbackPane
 
 	if req.Async {
 		// Run in background, return task ID for polling
@@ -445,6 +448,11 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 			Error:     tr.Error,
 			Timestamp: now.Format(time.RFC3339),
 		})
+
+		// Notify dalroot if callback pane was specified
+		if tr.CallbackPane != "" {
+			notifyDalroot(c.DalName, tr, d.serviceRepo)
+		}
 	} else {
 		tr.Status = "done"
 		tr.Output = stdout.String()
@@ -475,6 +483,11 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 			OutputSize: len(tr.Output),
 			Timestamp:  now.Format(time.RFC3339),
 		})
+
+		// Notify dalroot if callback pane was specified
+		if tr.CallbackPane != "" {
+			notifyDalroot(c.DalName, tr, d.serviceRepo)
+		}
 	}
 }
 
@@ -503,6 +516,15 @@ func verifyTaskChanges(containerID string, tr *taskResult) {
 				tr.GitChanges++
 			}
 		}
+	}
+}
+
+// notifyDalroot calls notify-dalroot to send a notification to the requesting pane.
+func notifyDalroot(dalName string, tr *taskResult, repo string) {
+	msg := fmt.Sprintf("[%s] task %s: %s", dalName, tr.Status, truncateStr(tr.Task, 80))
+	cmd := exec.Command("notify-dalroot", repo, msg, tr.CallbackPane)
+	if err := cmd.Run(); err != nil {
+		log.Printf("[notify] dalroot notification failed: %v", err)
 	}
 }
 
