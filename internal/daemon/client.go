@@ -328,8 +328,12 @@ type TaskEvent struct {
 }
 
 // Task submits a direct task to a dal container. If async=true, returns immediately with a task ID.
-func (c *Client) Task(dal, task string, async bool) (*TaskResult, error) {
-	body := fmt.Sprintf(`{"dal":%q,"task":%q,"async":%t}`, dal, task, async)
+func (c *Client) Task(dal, task string, async bool, callbackPane ...string) (*TaskResult, error) {
+	pane := ""
+	if len(callbackPane) > 0 {
+		pane = callbackPane[0]
+	}
+	body := fmt.Sprintf(`{"dal":%q,"task":%q,"async":%t,"callback_pane":%q}`, dal, task, async, pane)
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/task", strings.NewReader(body))
 	if err != nil {
 		return nil, err

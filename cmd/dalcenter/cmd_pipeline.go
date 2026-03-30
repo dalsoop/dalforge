@@ -50,6 +50,7 @@ func newTaskCmd() *cobra.Command {
 	var async bool
 	var poll bool
 	var reason string
+	var callbackPane string
 	cmd := &cobra.Command{
 		Use:   "task <dal> <prompt>",
 		Short: "Execute a task directly in a dal container",
@@ -68,7 +69,7 @@ func newTaskCmd() *cobra.Command {
 			dal := args[0]
 			task := strings.Join(args[1:], " ")
 
-			result, err := client.Task(dal, task, async)
+			result, err := client.Task(dal, task, async, callbackPane)
 			if err != nil {
 				return err
 			}
@@ -103,6 +104,7 @@ func newTaskCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&async, "async", false, "Run task asynchronously")
 	cmd.Flags().BoolVar(&poll, "poll", false, "Wait for async task to complete (implies --async)")
 	cmd.Flags().StringVar(&reason, "reason", "", "사유 (audit trail)")
+	cmd.Flags().StringVar(&callbackPane, "callback-pane", "", "dalroot pane ID for completion notification")
 	return cmd
 }
 
