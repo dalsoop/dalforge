@@ -1,6 +1,8 @@
 ---
 id: DAL:SKILL:depl0001
 ---
+> **CT_ID**: dalcenter LXC의 VMID. 현재 기본값 `105`. 이중화 시 `125`.
+
 # Deploy Binary — dalcenter 바이너리 배포
 
 ## 빌드 + 배포
@@ -14,13 +16,13 @@ go build -o /tmp/dalcenter-new ./cmd/dalcenter/
 go build -o /tmp/dalcli-new ./cmd/dalcli/
 go build -o /tmp/dalcli-leader-new ./cmd/dalcli-leader/
 
-# 3. LXC 105로 전송
-pct push 105 /tmp/dalcenter-new /usr/local/bin/dalcenter.new
-pct push 105 /tmp/dalcli-new /usr/local/bin/dalcli.new
-pct push 105 /tmp/dalcli-leader-new /usr/local/bin/dalcli-leader.new
+# 3. LXC $CT로 전송
+pct push $CT /tmp/dalcenter-new /usr/local/bin/dalcenter.new
+pct push $CT /tmp/dalcli-new /usr/local/bin/dalcli.new
+pct push $CT /tmp/dalcli-leader-new /usr/local/bin/dalcli-leader.new
 
-# 4. 교체 (LXC 105에서)
-pct exec 105 -- bash -c '
+# 4. 교체 (LXC $CT에서)
+pct exec $CT -- bash -c '
 cp /usr/local/bin/dalcenter /usr/local/bin/dalcenter.bak
 mv /usr/local/bin/dalcenter.new /usr/local/bin/dalcenter
 chmod +x /usr/local/bin/dalcenter
@@ -30,7 +32,7 @@ chmod +x /usr/local/bin/dalcli /usr/local/bin/dalcli-leader
 '
 
 # 5. 서비스 재시작
-pct exec 105 -- systemctl restart \
+pct exec $CT -- systemctl restart \
   dalcenter@dalcenter \
   dalcenter@veilkey-selfhosted \
   dalcenter@veilkey-v2 \
@@ -38,7 +40,7 @@ pct exec 105 -- systemctl restart \
   dalcenter@dal-qa-team
 
 # 6. 확인
-pct exec 105 -- systemctl is-active \
+pct exec $CT -- systemctl is-active \
   dalcenter@dalcenter \
   dalcenter@veilkey-selfhosted \
   dalcenter@veilkey-v2 \
@@ -49,7 +51,7 @@ pct exec 105 -- systemctl is-active \
 ## 롤백
 
 ```bash
-pct exec 105 -- bash -c '
+pct exec $CT -- bash -c '
 mv /usr/local/bin/dalcenter.bak /usr/local/bin/dalcenter
 systemctl restart dalcenter@dalcenter dalcenter@veilkey-selfhosted dalcenter@veilkey-v2 dalcenter@bridge-of-gaya-script dalcenter@dal-qa-team
 '
