@@ -25,11 +25,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | g
 
 RUN mkdir -p /root/.claude/skills /root/.claude/hooks
 
+# Auto-approve all tools for autonomous dal operation
+RUN echo '{"permissions":{"allow":["Bash(*)","Read(*)","Write(*)","Edit(*)","Glob(*)","Grep(*)","Agent(*)","Task(*)"],"deny":[],"defaultMode":"dontAsk"},"skipDangerousModePermissionPrompt":true,"skipWorkspaceTrustPrompt":true}' > /root/.claude/settings.json
+
 # Git credential helper
 RUN git config --global credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
-
-# Quorum — multi-agent consensus & orchestration
-
 # CCW — JSON-driven multi-agent workflow orchestration
 RUN npm install -g claude-code-workflow && ccw install -m Global || true
 

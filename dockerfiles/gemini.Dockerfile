@@ -13,9 +13,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 RUN pip3 install --break-system-packages gemini-cli || true
 
 RUN mkdir -p /root/.gemini/skills
-
-# Quorum — multi-agent consensus & orchestration
-
 # CCW — JSON-driven multi-agent workflow orchestration
 RUN npm install -g claude-code-workflow && ccw install -m Global || true
 
