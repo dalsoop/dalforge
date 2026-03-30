@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -21,12 +22,18 @@ func newTuiCmd() *cobra.Command {
 		Use:   "tui",
 		Short: "Interactive terminal dashboard",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p := tea.NewProgram(newDashboard(addr), tea.WithAltScreen())
+			if addr == "" {
+				addr = os.Getenv("DALCENTER_TUI_ADDR")
+			}
+			if addr == "" {
+				addr = "http://localhost:11192"
+			}
+			p := tea.NewProgram(newDashboard(addr), tea.WithAltScreen(), tea.WithMouseCellMotion())
 			_, err := p.Run()
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&addr, "addr", "http://localhost:11192", "dalcenter API address")
+	cmd.Flags().StringVar(&addr, "addr", "", "dalcenter API address (default: $DALCENTER_TUI_ADDR or http://localhost:11192)")
 	return cmd
 }
 
@@ -130,6 +137,29 @@ func (d dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("k", "up"))):
 			if d.cursor > 0 {
 				d.cursor--
+			}
+		}
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress || msg.Action == tea.MouseActionMotion {
+			// Tab clicks (row 2, approximate column ranges)
+			if msg.Y == 2 {
+				if msg.X < 12 {
+					d.tab = tabDals
+					d.cursor = 0
+				} else if msg.X < 24 {
+					d.tab = tabTasks
+					d.cursor = 0
+				} else {
+					d.tab = tabEscalations
+					d.cursor = 0
+				}
+			}
+			// List item clicks (rows 5+, header is row 4)
+			if msg.Y >= 5 {
+				idx := msg.Y - 5
+				if idx < d.listLen() {
+					d.cursor = idx
+				}
 			}
 		}
 	case tea.WindowSizeMsg:
