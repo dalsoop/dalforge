@@ -18,6 +18,11 @@
 - ccw memory — 컨텍스트 메모리 관리
 - dalcli status / report
 
+## CCW
+- ccw tool update_module_claude — 모듈 문서 자동 생성
+- ccw tool detect_changed_modules — 변경 모듈 탐지
+- ccw memory — 컨텍스트 메모리 관리
+
 ## Rules
 - push 실패 시 재시도만. force push, reset 금지.
 - 병합 후 inbox 파일 삭제.
