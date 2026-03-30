@@ -149,8 +149,8 @@ func TestSetupBot_CreateFail_NoExisting(t *testing.T) {
 func TestGetTeamAndChannel_ExistingChannel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/api/v4/teams":
-			w.Write([]byte(`[{"id":"t1","name":"myteam"}]`))
+		case r.URL.Path == "/api/v4/teams/name/myteam":
+			w.Write([]byte(`{"id":"t1","name":"myteam"}`))
 		case r.URL.Path == "/api/v4/teams/t1/channels/name/mychannel":
 			w.Write([]byte(`{"id":"ch1","name":"mychannel"}`))
 		default:
