@@ -25,6 +25,9 @@ RUN mkdir -p /root/.claude/skills /root/.claude/hooks
 # Git credential helper
 RUN git config --global credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
 
+# Quorum — multi-agent consensus & orchestration
+RUN npm install -g quorum
+
 ENV DAL_ROLE=member
 ENV DAL_PLAYER=claude
 

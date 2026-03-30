@@ -10,10 +10,12 @@ func TestValidateValid(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
 
+	tpl := ResolveTemplateRoot(root)
+
 	// Create leader
 	p, _ := CreateDal(root, "leader", "claude")
 	// Set role to leader
-	dalCue := filepath.Join(root, "leader", "dal.cue")
+	dalCue := filepath.Join(tpl, "leader", "dal.cue")
 	pr, _ := ReadDalCue(dalCue, "leader")
 	pr.Role = "leader"
 	writeDalCue(dalCue, pr)
@@ -55,8 +57,10 @@ func TestValidateMissingSkill(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
 
+	tpl := ResolveTemplateRoot(root)
+
 	p, _ := CreateDal(root, "leader", "claude")
-	dalCue := filepath.Join(root, "leader", "dal.cue")
+	dalCue := filepath.Join(tpl, "leader", "dal.cue")
 	pr, _ := ReadDalCue(dalCue, "leader")
 	pr.Role = "leader"
 	pr.Skills = []string{"skills/nonexistent"}
@@ -79,7 +83,9 @@ func TestValidateInvalidPlayer(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
 
-	dalDir := filepath.Join(root, "bad")
+	tpl := ResolveTemplateRoot(root)
+
+	dalDir := filepath.Join(tpl, "bad")
 	os.MkdirAll(dalDir, 0755)
 	os.WriteFile(filepath.Join(dalDir, "dal.cue"), []byte(`
 uuid:    "test-uuid"
@@ -94,7 +100,7 @@ hooks:   []
 
 	// Also need a leader
 	CreateDal(root, "leader", "claude")
-	lCue := filepath.Join(root, "leader", "dal.cue")
+	lCue := filepath.Join(tpl, "leader", "dal.cue")
 	lp, _ := ReadDalCue(lCue, "leader")
 	lp.Role = "leader"
 	writeDalCue(lCue, lp)

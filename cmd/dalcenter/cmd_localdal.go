@@ -135,6 +135,7 @@ func newValidateCmd() *cobra.Command {
 
 func newWakeCmd() *cobra.Command {
 	var all bool
+	var issueID string
 	cmd := &cobra.Command{
 		Use:   "wake [dal]",
 		Short: "Wake a dal (start Docker container)",
@@ -151,7 +152,7 @@ func newWakeCmd() *cobra.Command {
 					return err
 				}
 				for _, d := range dals {
-					result, err := client.Wake(d.Name)
+					result, err := client.WakeWithIssue(d.Name, issueID)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "wake %s: %v\n", d.Name, err)
 						continue
@@ -167,7 +168,7 @@ func newWakeCmd() *cobra.Command {
 			if len(args) == 0 {
 				return fmt.Errorf("specify dal name or use --all")
 			}
-			result, err := client.Wake(args[0])
+			result, err := client.WakeWithIssue(args[0], issueID)
 			if err != nil {
 				return err
 			}
@@ -175,11 +176,16 @@ func newWakeCmd() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("unexpected response: missing container_id")
 			}
-			fmt.Printf("wake: %s → %s\n", args[0], cid)
+			if issueID != "" {
+				fmt.Printf("wake: %s → %s (issue-%s/%s)\n", args[0], cid, issueID, args[0])
+			} else {
+				fmt.Printf("wake: %s → %s\n", args[0], cid)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "Wake all dals")
+	cmd.Flags().StringVar(&issueID, "issue", "", "GitHub issue number (creates issue-{N}/{dal} branch)")
 	return cmd
 }
 

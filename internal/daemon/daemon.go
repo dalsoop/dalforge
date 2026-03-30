@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -133,6 +134,41 @@ func dalBotUsername(serviceRepo, name, _ string) string {
 	return containerBasePrefix + namePart + "-" + repoPart
 }
 
+const sessionNonceLen = 4
+
+// generateSessionNonce returns a random 4-char hex string for session-unique bot naming.
+func generateSessionNonce() string {
+	b := make([]byte, 2)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// dalSessionBotUsername returns a session-unique MM bot username.
+// Format: dal-{name}-{repoHash3}{nonce4}, kept within 22 chars.
+func dalSessionBotUsername(serviceRepo, name, sessionNonce string) string {
+	namePart := sanitizeMMUsernamePart(name)
+	if namePart == "" {
+		namePart = "bot"
+	}
+
+	// Budget: "dal-" (4) + name + "-" (1) + repoHash(3) + nonce(4) = 12 + name
+	repoHashLen := 3
+	overhead := len(containerBasePrefix) + 1 + repoHashLen + sessionNonceLen
+	maxNameLen := mattermostBotUsernameMaxLen - overhead
+	if maxNameLen < 1 {
+		maxNameLen = 1
+	}
+	if len(namePart) > maxNameLen {
+		namePart = namePart[:maxNameLen]
+	}
+
+	absPath, _ := filepath.Abs(serviceRepo)
+	sum := sha256.Sum256([]byte(absPath))
+	repoHash := hex.EncodeToString(sum[:])[:repoHashLen]
+
+	return containerBasePrefix + namePart + "-" + repoHash + sessionNonce
+}
+
 func repoBotNamespace(serviceRepo string, maxLen int) string {
 	if maxLen < 1 {
 		return "x"
@@ -210,6 +246,25 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// Start peer health watcher (dalcenter HA)
 	go d.startPeerWatcher(ctx)
+
+	// Start session bot GC (cleanup disabled bots every hour)
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if d.mm != nil && d.mm.URL != "" {
+					cleaned := talk.CleanupStaleBots(d.mm.URL, d.mm.AdminToken)
+					if cleaned > 0 {
+						log.Printf("[daemon] bot GC: cleaned %d stale session bots", cleaned)
+					}
+				}
+			}
+		}
+	}()
 
 	// Export MM URL for containers to use
 	if d.mm != nil && d.mm.URL != "" {
@@ -292,6 +347,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/wake/{name}", d.requireAuth(d.handleWake))
 	mux.HandleFunc("POST /api/sleep/{name}", d.requireAuth(d.handleSleep))
 	mux.HandleFunc("POST /api/restart/{name}", d.requireAuth(d.handleRestart))
+	mux.HandleFunc("POST /api/replace/{name}", d.requireAuth(d.handleReplace))
 	mux.HandleFunc("POST /api/sync", d.requireAuth(d.handleSync))
 	mux.HandleFunc("POST /api/message", d.requireAuth(d.handleMessage))
 	mux.HandleFunc("POST /api/activity/{name}", d.requireAuth(d.handleActivity))
@@ -461,10 +517,20 @@ func (d *Daemon) handleStatusOne(w http.ResponseWriter, r *http.Request) {
 
 func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	issueID := r.URL.Query().Get("issue")
+
 	dal, err := localdal.ReadDalCue(d.dalCuePath(name), name)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("dal %q not found: %v", name, err), 404)
 		return
+	}
+
+	// Prepare issue workspace if --issue is provided
+	if issueID != "" {
+		members := []string{name}
+		if _, err := localdal.PrepareIssue(d.localdalRoot, issueID, members); err != nil {
+			log.Printf("[daemon] prepare issue %s: %v (continuing)", issueID, err)
+		}
 	}
 
 	// Support multiple instances: dev, dev-2, dev-3, ...
@@ -493,17 +559,23 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Setup Mattermost bot for this dal
+	// Setup workspace: branch checkout + dependency install + quorum setup
+	if setupWarnings := setupWorkspace(containerID, dal, issueID); len(setupWarnings) > 0 {
+		warnings = append(warnings, setupWarnings...)
+	}
+
+	// Setup per-session Mattermost bot
+	sessionNonce := generateSessionNonce()
 	var botToken string
 	if d.mm != nil && d.mm.URL != "" && d.channelID != "" {
-		botUsername := dalBotUsername(d.serviceRepo, dal.Name, dal.UUID)
+		botUsername := dalSessionBotUsername(d.serviceRepo, dal.Name, sessionNonce)
 		teamID, _, _ := talk.GetTeamAndChannel(d.mm.URL, d.mm.AdminToken, d.mm.TeamName, filepath.Base(d.serviceRepo))
 		bot, err := talk.SetupBot(d.mm.URL, d.mm.AdminToken, teamID, d.channelID, botUsername, dal.Name, fmt.Sprintf("dal %s (%s)", dal.Name, dal.Role))
 		if err != nil {
 			log.Printf("[daemon] mattermost bot setup for %s: %v (continuing without)", name, err)
 		} else {
 			botToken = bot.Token
-			log.Printf("[daemon] mattermost bot: %s (user=%s)", botUsername, bot.UserID[:8])
+			log.Printf("[daemon] session bot: %s (user=%s, nonce=%s)", botUsername, bot.UserID[:8], sessionNonce)
 
 			// Leader → dal-leaders 공유 채널에도 자동 참여 (cross-project 소통)
 			if dal.Role == "leader" {
@@ -521,7 +593,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	if ws == "" {
 		ws = "shared"
 	}
-	botUser := dalBotUsername(d.serviceRepo, dal.Name, dal.UUID)
+	botUser := dalSessionBotUsername(d.serviceRepo, dal.Name, sessionNonce)
 	d.mu.Lock()
 	d.containers[instanceName] = &Container{
 		DalName:     instanceName,
@@ -584,13 +656,15 @@ func (d *Daemon) handleSleep(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove bot from channel + hide DM on sleep (prevent zombie bots)
+	// Teardown session bot: remove from channel, hide DM, disable + revoke tokens
 	if d.mm != nil && d.mm.URL != "" && d.channelID != "" && c.BotUsername != "" {
 		talk.RemoveBotFromChannel(d.mm.URL, d.mm.AdminToken, d.channelID, c.BotUsername)
 		teamID, _, _ := talk.GetTeamAndChannel(d.mm.URL, d.mm.AdminToken, d.mm.TeamName, filepath.Base(d.serviceRepo))
 		if teamID != "" {
 			talk.HideBotDMFromUsers(d.mm.URL, d.mm.AdminToken, teamID, c.BotUsername)
 		}
+		// Disable session bot (will be GC'd after 24h)
+		talk.TeardownBot(d.mm.URL, d.mm.AdminToken, c.BotUsername)
 	}
 
 	d.mu.Lock()
@@ -626,6 +700,77 @@ func (d *Daemon) handleRestart(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[daemon] restart: %s (clean wake)", name)
 	d.handleWake(w, r)
 }
+
+// handleReplace creates fresh replacement containers for a dal.
+// Used when quorum stagnation detection triggers a dal rotation.
+// Creates 2 new instances from template, then sleeps the original.
+func (d *Daemon) handleReplace(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	issueID := r.URL.Query().Get("issue")
+
+	d.mu.RLock()
+	original, exists := d.containers[name]
+	d.mu.RUnlock()
+
+	if !exists {
+		http.Error(w, fmt.Sprintf("dal %q is not awake", name), 404)
+		return
+	}
+
+	log.Printf("[daemon] replace triggered for %s (stagnation/rotation)", name)
+
+	// Wake 2 new instances from template
+	var newInstances []string
+	for i := 0; i < 2; i++ {
+		// Build a synthetic wake request
+		path := fmt.Sprintf("/api/wake/%s", name)
+		if issueID != "" {
+			path += "?issue=" + issueID
+		}
+		wakeReq, _ := http.NewRequest("POST", path, nil)
+		wakeReq.SetPathValue("name", name)
+		if issueID != "" {
+			q := wakeReq.URL.Query()
+			q.Set("issue", issueID)
+			wakeReq.URL.RawQuery = q.Encode()
+		}
+		rec := &discardResponseWriter{}
+		d.handleWake(rec, wakeReq)
+		if rec.code >= 400 {
+			log.Printf("[daemon] replace: failed to wake replacement %d for %s", i+1, name)
+			continue
+		}
+		newInstances = append(newInstances, fmt.Sprintf("%s-%d", name, i+2))
+	}
+
+	// Sleep the original
+	if original.ContainerID != "" {
+		dockerStop(original.ContainerID)
+		if d.mm != nil && d.mm.URL != "" && d.channelID != "" && original.BotUsername != "" {
+			talk.RemoveBotFromChannel(d.mm.URL, d.mm.AdminToken, d.channelID, original.BotUsername)
+			talk.TeardownBot(d.mm.URL, d.mm.AdminToken, original.BotUsername)
+		}
+		d.mu.Lock()
+		delete(d.containers, name)
+		d.mu.Unlock()
+		log.Printf("[daemon] replace: disposed original %s", name)
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":        "replaced",
+		"dal":           name,
+		"new_instances": newInstances,
+	})
+}
+
+// discardResponseWriter captures status code without writing to real response.
+type discardResponseWriter struct {
+	code int
+}
+
+func (d *discardResponseWriter) Header() http.Header        { return http.Header{} }
+func (d *discardResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (d *discardResponseWriter) WriteHeader(code int)        { d.code = code }
 
 func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
 	synced, restarted := d.runSync()
@@ -1277,5 +1422,6 @@ func (d *Daemon) refreshAgentBotToken(name string) (*Container, error) {
 }
 
 func (d *Daemon) dalCuePath(name string) string {
-	return fmt.Sprintf("%s/%s/dal.cue", d.localdalRoot, name)
+	tplRoot := localdal.ResolveTemplateRoot(d.localdalRoot)
+	return fmt.Sprintf("%s/%s/dal.cue", tplRoot, name)
 }

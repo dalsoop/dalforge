@@ -12,10 +12,11 @@ func TestInitCreatesStructure(t *testing.T) {
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "skills")); err != nil {
+	tpl := ResolveTemplateRoot(root)
+	if _, err := os.Stat(filepath.Join(tpl, "skills")); err != nil {
 		t.Fatal("skills dir missing")
 	}
-	if _, err := os.Stat(filepath.Join(root, "dal.spec.cue")); err != nil {
+	if _, err := os.Stat(filepath.Join(tpl, "dal.spec.cue")); err != nil {
 		t.Fatal("dal.spec.cue missing")
 	}
 }
@@ -25,7 +26,8 @@ func TestInitCreatesDecisionsMd(t *testing.T) {
 	if err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, "decisions.md")
+	tpl := ResolveTemplateRoot(root)
+	path := filepath.Join(tpl, "decisions.md")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal("decisions.md missing after init")
 	}
@@ -40,7 +42,8 @@ func TestInitDecisionsMdIdempotent(t *testing.T) {
 	Init(root)
 
 	// Write custom content
-	path := filepath.Join(root, "decisions.md")
+	tpl := ResolveTemplateRoot(root)
+	path := filepath.Join(tpl, "decisions.md")
 	os.WriteFile(path, []byte("# Custom decisions\n"), 0644)
 
 	// Re-init should not overwrite
@@ -149,7 +152,8 @@ func TestSkillCreateAddRemoveDelete(t *testing.T) {
 	if err := AddSkillToDal(root, "reviewer", "code-review"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := ReadDalCue(filepath.Join(root, "reviewer", "dal.cue"), "reviewer")
+	tpl := ResolveTemplateRoot(root)
+	p, _ := ReadDalCue(filepath.Join(tpl, "reviewer", "dal.cue"), "reviewer")
 	if len(p.Skills) != 1 || p.Skills[0] != "skills/code-review" {
 		t.Fatalf("skills = %v", p.Skills)
 	}
@@ -163,7 +167,7 @@ func TestSkillCreateAddRemoveDelete(t *testing.T) {
 	if err := RemoveSkillFromDal(root, "reviewer", "code-review"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ = ReadDalCue(filepath.Join(root, "reviewer", "dal.cue"), "reviewer")
+	p, _ = ReadDalCue(filepath.Join(tpl, "reviewer", "dal.cue"), "reviewer")
 	if len(p.Skills) != 0 {
 		t.Fatalf("skills should be empty: %v", p.Skills)
 	}

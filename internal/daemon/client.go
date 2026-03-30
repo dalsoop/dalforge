@@ -38,6 +38,24 @@ func (c *Client) Wake(name string) (map[string]any, error) {
 	return c.postAny(fmt.Sprintf("/api/wake/%s", name))
 }
 
+// WakeWithIssue sends a wake request with an optional issue ID for branch creation.
+func (c *Client) WakeWithIssue(name, issueID string) (map[string]any, error) {
+	path := fmt.Sprintf("/api/wake/%s", name)
+	if issueID != "" {
+		path += "?issue=" + issueID
+	}
+	return c.postAny(path)
+}
+
+// Replace triggers a dal replacement: creates 2 new instances, disposes the original.
+func (c *Client) Replace(name, issueID string) (map[string]any, error) {
+	path := fmt.Sprintf("/api/replace/%s", name)
+	if issueID != "" {
+		path += "?issue=" + issueID
+	}
+	return c.postAny(path)
+}
+
 // Sleep sends a sleep request.
 func (c *Client) Sleep(name string) (map[string]string, error) {
 	return c.postJSON(fmt.Sprintf("/api/sleep/%s", name))

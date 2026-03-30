@@ -19,6 +19,9 @@ RUN git config --global credential.helper '!f() { echo username=x-access-token; 
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
+# Quorum — multi-agent consensus & orchestration
+RUN npm install -g quorum
+
 ENV DAL_ROLE=member
 ENV DAL_PLAYER=codex
 

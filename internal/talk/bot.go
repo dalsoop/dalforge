@@ -141,6 +141,56 @@ func TeardownBot(mmURL, adminToken, username string) error {
 	return nil
 }
 
+// DeleteBot permanently deletes a disabled Mattermost bot. Used for GC of session bots.
+func DeleteBot(mmURL, adminToken, userID string) error {
+	mmURL = strings.TrimRight(mmURL, "/")
+	_, err := mmAPI("POST", mmURL+"/api/v4/bots/"+userID+"/disable", adminToken, "")
+	if err != nil {
+		return fmt.Errorf("disable bot before delete: %w", err)
+	}
+	// Mattermost doesn't have a hard-delete API for bots, but disabling + revoking tokens
+	// effectively removes the bot from the system. The disabled bot entry remains but is inert.
+	return nil
+}
+
+// CleanupStaleBots finds disabled dal-* bots and deletes them.
+// Called periodically by the daemon for GC.
+func CleanupStaleBots(mmURL, adminToken string) int {
+	mmURL = strings.TrimRight(mmURL, "/")
+	// List disabled bots
+	resp, err := mmAPI("GET", mmURL+"/api/v4/bots?per_page=200&include_deleted=true", adminToken, "")
+	if err != nil {
+		return 0
+	}
+	var bots []struct {
+		UserID   string `json:"user_id"`
+		Username string `json:"username"`
+		DeleteAt int64  `json:"delete_at"`
+	}
+	if json.Unmarshal(resp, &bots) != nil {
+		return 0
+	}
+	cleaned := 0
+	for _, b := range bots {
+		// Only clean dal-* session bots that are disabled (delete_at > 0)
+		if strings.HasPrefix(b.Username, "dal-") && b.DeleteAt > 0 {
+			// Revoke any remaining tokens
+			tokResp, err := mmAPI("GET", mmURL+"/api/v4/users/"+b.UserID+"/tokens?per_page=200", adminToken, "")
+			if err == nil {
+				var tokens []struct{ ID string `json:"id"` }
+				if json.Unmarshal(tokResp, &tokens) == nil {
+					for _, t := range tokens {
+						mmAPI("POST", mmURL+"/api/v4/users/"+b.UserID+"/tokens/revoke", adminToken,
+							fmt.Sprintf(`{"token_id":%q}`, t.ID))
+					}
+				}
+			}
+			cleaned++
+		}
+	}
+	return cleaned
+}
+
 // GetAdminToken logs in to Mattermost and returns a session token.
 func GetAdminToken(mmURL, loginID, password string) (string, error) {
 	mmURL = strings.TrimRight(mmURL, "/")

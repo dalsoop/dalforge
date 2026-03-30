@@ -15,6 +15,8 @@ func Validate(root string) []string {
 		return []string{fmt.Sprintf("localdal root not found: %s", root)}
 	}
 
+	tplRoot := ResolveTemplateRoot(root)
+
 	dals, err := ListDals(root)
 	if err != nil {
 		return []string{fmt.Sprintf("list dals: %v", err)}
@@ -56,7 +58,7 @@ func Validate(root string) []string {
 
 		// Check skill references exist
 		for _, skill := range d.Skills {
-			skillPath := filepath.Join(root, skill)
+			skillPath := filepath.Join(tplRoot, skill)
 			if _, err := os.Stat(skillPath); err != nil {
 				errors = append(errors, fmt.Sprintf("%s: skill %q not found", d.FolderName, skill))
 			}
@@ -64,14 +66,14 @@ func Validate(root string) []string {
 
 		// Check hook references exist
 		for _, hook := range d.Hooks {
-			hookPath := filepath.Join(root, hook)
+			hookPath := filepath.Join(tplRoot, hook)
 			if _, err := os.Stat(hookPath); err != nil {
 				errors = append(errors, fmt.Sprintf("%s: hook %q not found", d.FolderName, hook))
 			}
 		}
 
 		// Check charter.md exists
-		instrPath := filepath.Join(root, d.FolderName, "charter.md")
+		instrPath := filepath.Join(tplRoot, d.FolderName, "charter.md")
 		if _, err := os.Stat(instrPath); err != nil {
 			errors = append(errors, fmt.Sprintf("%s: charter.md not found", d.FolderName))
 		}

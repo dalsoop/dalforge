@@ -12,6 +12,36 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 )
 
+const (
+	// TemplateDir is the subdirectory under .dal/ that holds dal blueprints.
+	TemplateDir = "template"
+	// IssueDir is the subdirectory under .dal/ that holds per-issue workspaces.
+	IssueDir = "issue"
+)
+
+// TemplatePath returns the .dal/template/ path for a localdal root.
+func TemplatePath(dalRoot string) string {
+	return filepath.Join(dalRoot, TemplateDir)
+}
+
+// IssuePath returns the .dal/issue/{id}/ path for a localdal root.
+func IssuePath(dalRoot string, issueID string) string {
+	return filepath.Join(dalRoot, IssueDir, issueID)
+}
+
+// BranchConfig declares the base branch for issue-based branching.
+// The actual branch name (issue-{N}/{dal-name}) is determined at wake time via --issue.
+type BranchConfig struct {
+	Base string // base branch to create from (default: "main")
+}
+
+// SetupConfig declares commands to run after branch checkout to make the workspace ready-to-code.
+type SetupConfig struct {
+	Packages []string // apt packages to install (e.g. ["protobuf-compiler"])
+	Commands []string // shell commands in order (e.g. ["go mod download", "go build ./..."])
+	Timeout  string   // max time for all setup commands (default: "5m")
+}
+
 // DalProfile represents a dal read from dal.cue.
 type DalProfile struct {
 	UUID           string
@@ -37,10 +67,27 @@ type DalProfile struct {
 	// Auto task
 	AutoTask     string // periodic task prompt (empty = disabled)
 	AutoInterval string // interval like "1h", "30m" (default: disabled)
+	// Branch config
+	Branch BranchConfig
+	// Setup config (ready-to-code environment)
+	Setup SetupConfig
 }
 
 // Init initializes a localdal repository at the given path.
+// Creates .dal/template/ and .dal/issue/ structure.
 func Init(root string) error {
+	// Create template/ and issue/ subdirectories
+	tplRoot := TemplatePath(root)
+	issueRoot := filepath.Join(root, IssueDir)
+	for _, d := range []string{tplRoot, issueRoot} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return fmt.Errorf("create %s: %w", d, err)
+		}
+	}
+
+	// Use template root for all dal content
+	root = tplRoot
+
 	dirs := []string{
 		filepath.Join(root, "skills"),
 	}
@@ -237,9 +284,10 @@ const defaultWisdom = `# Wisdom
 피해야 할 것.
 `
 
-// CreateDal creates a new dal folder with dal.cue and charter.md.
+// CreateDal creates a new dal folder with dal.cue and charter.md under template/.
 func CreateDal(root, name, player string) (*DalProfile, error) {
-	dalDir := filepath.Join(root, name)
+	tplRoot := ResolveTemplateRoot(root)
+	dalDir := filepath.Join(tplRoot, name)
 	if _, err := os.Stat(dalDir); err == nil {
 		return nil, fmt.Errorf("dal %q already exists", name)
 	}
@@ -277,20 +325,72 @@ hooks:   []
 	}, nil
 }
 
-// DeleteDal removes a dal folder.
+// PrepareIssue creates an issue workspace by copying dal templates for specified members.
+// If the issue directory already exists, it is left unchanged.
+func PrepareIssue(dalRoot, issueID string, members []string) (string, error) {
+	issuePath := IssuePath(dalRoot, issueID)
+	if _, err := os.Stat(issuePath); err == nil {
+		return issuePath, nil // already exists
+	}
+	if err := os.MkdirAll(issuePath, 0755); err != nil {
+		return "", fmt.Errorf("create issue dir: %w", err)
+	}
+
+	tplRoot := ResolveTemplateRoot(dalRoot)
+
+	// Copy each member's dal.cue + charter.md from template
+	for _, name := range members {
+		srcDir := filepath.Join(tplRoot, name)
+		if _, err := os.Stat(filepath.Join(srcDir, "dal.cue")); err != nil {
+			continue // template not found, skip
+		}
+		dstDir := filepath.Join(issuePath, name)
+		if err := os.MkdirAll(dstDir, 0755); err != nil {
+			return "", fmt.Errorf("create %s: %w", dstDir, err)
+		}
+		// Copy dal.cue
+		if data, err := os.ReadFile(filepath.Join(srcDir, "dal.cue")); err == nil {
+			os.WriteFile(filepath.Join(dstDir, "dal.cue"), data, 0644)
+		}
+		// Copy charter.md (instructions)
+		if data, err := os.ReadFile(filepath.Join(srcDir, "charter.md")); err == nil {
+			os.WriteFile(filepath.Join(dstDir, "charter.md"), data, 0644)
+		}
+	}
+
+	// Create issue.md stub
+	issueMD := fmt.Sprintf("# Issue %s\n\n## 목표\n\n## 범위\n", issueID)
+	os.WriteFile(filepath.Join(issuePath, "issue.md"), []byte(issueMD), 0644)
+
+	return issuePath, nil
+}
+
+// DeleteDal removes a dal folder from template/.
 func DeleteDal(root, name string) error {
-	dalDir := filepath.Join(root, name)
+	tplRoot := ResolveTemplateRoot(root)
+	dalDir := filepath.Join(tplRoot, name)
 	if _, err := os.Stat(filepath.Join(dalDir, "dal.cue")); err != nil {
 		return fmt.Errorf("dal %q not found", name)
 	}
 	return os.RemoveAll(dalDir)
 }
 
-// ListDals scans the root for dal folders (containing dal.cue).
+// ResolveTemplateRoot returns the directory containing dal templates.
+// If .dal/template/ exists, use it. Otherwise fall back to .dal/ (legacy).
+func ResolveTemplateRoot(dalRoot string) string {
+	tpl := TemplatePath(dalRoot)
+	if info, err := os.Stat(tpl); err == nil && info.IsDir() {
+		return tpl
+	}
+	return dalRoot
+}
+
+// ListDals scans the template root for dal folders (containing dal.cue).
 func ListDals(root string) ([]DalProfile, error) {
-	entries, err := os.ReadDir(root)
+	scanRoot := ResolveTemplateRoot(root)
+	entries, err := os.ReadDir(scanRoot)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", root, err)
+		return nil, fmt.Errorf("read %s: %w", scanRoot, err)
 	}
 
 	var dals []DalProfile
@@ -298,7 +398,7 @@ func ListDals(root string) ([]DalProfile, error) {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-		dalCue := filepath.Join(root, entry.Name(), "dal.cue")
+		dalCue := filepath.Join(scanRoot, entry.Name(), "dal.cue")
 		if _, err := os.Stat(dalCue); err != nil {
 			continue
 		}
@@ -306,7 +406,7 @@ func ListDals(root string) ([]DalProfile, error) {
 		if err != nil {
 			continue
 		}
-		p.Path = filepath.Join(root, entry.Name())
+		p.Path = filepath.Join(scanRoot, entry.Name())
 		dals = append(dals, *p)
 	}
 	return dals, nil
@@ -404,6 +504,38 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	}
 	if v := val.LookupPath(cue.ParsePath("auto_interval")); v.Exists() {
 		p.AutoInterval, _ = v.String()
+	}
+	// Branch config
+	if v := val.LookupPath(cue.ParsePath("branch.base")); v.Exists() {
+		p.Branch.Base, _ = v.String()
+	}
+	if p.Branch.Base == "" {
+		p.Branch.Base = "main"
+	}
+	// Setup config
+	if v := val.LookupPath(cue.ParsePath("setup.packages")); v.Exists() {
+		if iter, err := v.List(); err == nil {
+			for iter.Next() {
+				if s, err := iter.Value().String(); err == nil {
+					p.Setup.Packages = append(p.Setup.Packages, s)
+				}
+			}
+		}
+	}
+	if v := val.LookupPath(cue.ParsePath("setup.commands")); v.Exists() {
+		if iter, err := v.List(); err == nil {
+			for iter.Next() {
+				if s, err := iter.Value().String(); err == nil {
+					p.Setup.Commands = append(p.Setup.Commands, s)
+				}
+			}
+		}
+	}
+	if v := val.LookupPath(cue.ParsePath("setup.timeout")); v.Exists() {
+		p.Setup.Timeout, _ = v.String()
+	}
+	if p.Setup.Timeout == "" {
+		p.Setup.Timeout = "5m"
 	}
 	return p, nil
 }
@@ -516,6 +648,16 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 #Player: "claude" | "codex" | "gemini"
 #Role:   "leader" | "member"
 
+#BranchConfig: {
+	base?: string | *"main"
+}
+
+#SetupConfig: {
+	packages?: [...string]
+	commands?: [...string]
+	timeout?:  string | *"5m"
+}
+
 #DalProfile: {
 	uuid!:           string & != ""
 	name!:           string & != ""
@@ -531,6 +673,8 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 	auto_task?:      string
 	auto_interval?:  string
 	workspace?:      string
+	branch?:         #BranchConfig
+	setup?:          #SetupConfig
 	git?: {
 		user?:         string
 		email?:        string

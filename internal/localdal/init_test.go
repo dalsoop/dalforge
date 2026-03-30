@@ -16,7 +16,8 @@ func TestInit_CreatesDecisionsArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(root, "decisions-archive.md")
+	tpl := ResolveTemplateRoot(root)
+	path := filepath.Join(tpl, "decisions-archive.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("decisions-archive.md not created: %v", err)
@@ -35,7 +36,7 @@ func TestInit_CreatesGitattributes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(tmp, ".gitattributes")
+	path := filepath.Join(root, ".gitattributes")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf(".gitattributes not created: %v", err)
@@ -56,7 +57,8 @@ func TestInit_Idempotent(t *testing.T) {
 	}
 
 	// Modify decisions.md
-	dpath := filepath.Join(root, "decisions.md")
+	tpl := ResolveTemplateRoot(root)
+	dpath := filepath.Join(tpl, "decisions.md")
 	os.WriteFile(dpath, []byte("custom content"), 0644)
 
 	// Second init should not overwrite
@@ -79,12 +81,13 @@ func TestInit_CreatesScribeDal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cue := filepath.Join(root, "scribe", "dal.cue")
+	tpl := ResolveTemplateRoot(root)
+	cue := filepath.Join(tpl, "scribe", "dal.cue")
 	if _, err := os.Stat(cue); err != nil {
 		t.Fatal("scribe/dal.cue not created")
 	}
 
-	instr := filepath.Join(root, "scribe", "charter.md")
+	instr := filepath.Join(tpl, "scribe", "charter.md")
 	if _, err := os.Stat(instr); err != nil {
 		t.Fatal("scribe/charter.md not created")
 	}
@@ -104,7 +107,8 @@ func TestInit_CreatesWisdomMd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "wisdom.md"))
+	tpl := ResolveTemplateRoot(root)
+	data, err := os.ReadFile(filepath.Join(tpl, "wisdom.md"))
 	if err != nil {
 		t.Fatal("wisdom.md not created")
 	}
@@ -122,9 +126,10 @@ func TestInit_CreatesOpsSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	tpl := ResolveTemplateRoot(root)
 	expected := []string{"inbox-protocol", "history-hygiene", "escalation", "pre-flight", "git-workflow", "reviewer-protocol"}
 	for _, name := range expected {
-		path := filepath.Join(root, "skills", name, "SKILL.md")
+		path := filepath.Join(tpl, "skills", name, "SKILL.md")
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("skill %s not created", name)
 		}
@@ -139,7 +144,8 @@ func TestInit_OpsSkillsIdempotent(t *testing.T) {
 	Init(root)
 
 	// Modify one skill
-	path := filepath.Join(root, "skills", "escalation", "SKILL.md")
+	tpl := ResolveTemplateRoot(root)
+	path := filepath.Join(tpl, "skills", "escalation", "SKILL.md")
 	os.WriteFile(path, []byte("custom"), 0644)
 
 	// Re-init should not overwrite
@@ -160,7 +166,8 @@ func TestInit_DecisionsTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "decisions.md"))
+	tpl := ResolveTemplateRoot(root)
+	data, err := os.ReadFile(filepath.Join(tpl, "decisions.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +189,8 @@ func TestInit_FullStructure(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	tpl := ResolveTemplateRoot(root)
+
 	// All expected files
 	expected := []string{
 		"dal.spec.cue",
@@ -202,16 +211,16 @@ func TestInit_FullStructure(t *testing.T) {
 		"skills/reviewer-protocol/SKILL.md",
 	}
 	for _, f := range expected {
-		path := filepath.Join(root, f)
+		path := filepath.Join(tpl, f)
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("missing: %s", f)
 		}
 	}
 
-	// .gitattributes in parent (service repo root)
-	gitattrs := filepath.Join(tmp, ".gitattributes")
+	// .gitattributes in parent of template dir (i.e. root itself)
+	gitattrs := filepath.Join(root, ".gitattributes")
 	if _, err := os.Stat(gitattrs); err != nil {
-		t.Error("missing .gitattributes in parent dir")
+		t.Error("missing .gitattributes in root dir")
 	}
 }
 
@@ -224,7 +233,8 @@ func TestInit_CreatesLeaderDal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cueFile := filepath.Join(root, "leader", "dal.cue")
+	tpl := ResolveTemplateRoot(root)
+	cueFile := filepath.Join(tpl, "leader", "dal.cue")
 	data, err := os.ReadFile(cueFile)
 	if err != nil {
 		t.Fatal("leader/dal.cue not created")
@@ -238,7 +248,7 @@ func TestInit_CreatesLeaderDal(t *testing.T) {
 		}
 	}
 
-	charter := filepath.Join(root, "leader", "charter.md")
+	charter := filepath.Join(tpl, "leader", "charter.md")
 	if _, err := os.Stat(charter); err != nil {
 		t.Fatal("leader/charter.md not created")
 	}
@@ -253,7 +263,8 @@ func TestInit_CreatesDevDal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cueFile := filepath.Join(root, "dev", "dal.cue")
+	tpl := ResolveTemplateRoot(root)
+	cueFile := filepath.Join(tpl, "dev", "dal.cue")
 	data, err := os.ReadFile(cueFile)
 	if err != nil {
 		t.Fatal("dev/dal.cue not created")
@@ -267,7 +278,7 @@ func TestInit_CreatesDevDal(t *testing.T) {
 		}
 	}
 
-	charter := filepath.Join(root, "dev", "charter.md")
+	charter := filepath.Join(tpl, "dev", "charter.md")
 	if _, err := os.Stat(charter); err != nil {
 		t.Fatal("dev/charter.md not created")
 	}
@@ -281,7 +292,8 @@ func TestInit_LeaderDevIdempotent(t *testing.T) {
 	Init(root)
 
 	// Modify leader charter
-	path := filepath.Join(root, "leader", "charter.md")
+	tpl := ResolveTemplateRoot(root)
+	path := filepath.Join(tpl, "leader", "charter.md")
 	os.WriteFile(path, []byte("custom leader"), 0644)
 
 	// Re-init should not overwrite
@@ -300,8 +312,9 @@ func TestInit_LeaderDevHaveUUIDs(t *testing.T) {
 
 	Init(root)
 
+	tpl := ResolveTemplateRoot(root)
 	for _, name := range []string{"leader", "dev"} {
-		data, _ := os.ReadFile(filepath.Join(root, name, "dal.cue"))
+		data, _ := os.ReadFile(filepath.Join(tpl, name, "dal.cue"))
 		content := string(data)
 		if !strings.Contains(content, "uuid:") {
 			t.Errorf("%s/dal.cue missing uuid field", name)
@@ -319,7 +332,8 @@ func TestInit_ScribeDalCueContent(t *testing.T) {
 	os.MkdirAll(root, 0755)
 	Init(root)
 
-	data, _ := os.ReadFile(filepath.Join(root, "scribe", "dal.cue"))
+	tpl := ResolveTemplateRoot(root)
+	data, _ := os.ReadFile(filepath.Join(tpl, "scribe", "dal.cue"))
 	content := string(data)
 
 	checks := []string{"scribe", "haiku", "auto_task", "30m", "dal-scribe", "GITHUB_TOKEN"}
@@ -336,7 +350,8 @@ func TestInit_WisdomTemplate(t *testing.T) {
 	os.MkdirAll(root, 0755)
 	Init(root)
 
-	data, _ := os.ReadFile(filepath.Join(root, "wisdom.md"))
+	tpl := ResolveTemplateRoot(root)
+	data, _ := os.ReadFile(filepath.Join(tpl, "wisdom.md"))
 	content := string(data)
 
 	if !strings.Contains(content, "Patterns") {
@@ -353,7 +368,7 @@ func TestInit_GitattributesContent(t *testing.T) {
 	os.MkdirAll(root, 0755)
 	Init(root)
 
-	data, _ := os.ReadFile(filepath.Join(tmp, ".gitattributes"))
+	data, _ := os.ReadFile(filepath.Join(root, ".gitattributes"))
 	content := string(data)
 
 	checks := []string{"decisions.md merge=union", "history.md merge=union", "wisdom.md merge=union"}

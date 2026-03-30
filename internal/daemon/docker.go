@@ -182,7 +182,8 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	}
 	image := fmt.Sprintf("%s%s:%s", imagePrefix, dal.Player, tag)
 
-	dalDir := filepath.Join(localdalRoot, dal.FolderName)
+	tplRoot := localdal.ResolveTemplateRoot(localdalRoot)
+	dalDir := filepath.Join(tplRoot, dal.FolderName)
 	home := playerHome(dal.Player)
 	hostHome, _ := os.UserHomeDir()
 
@@ -268,8 +269,8 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	// Mount skills: shared skills from .dal/skills/ + per-dal skills from dal.cue
 	mountedSkills := make(map[string]bool)
 
-	// 1. Always mount all shared skills from .dal/skills/
-	sharedSkillsDir := filepath.Join(localdalRoot, "skills")
+	// 1. Always mount all shared skills from .dal/template/skills/
+	sharedSkillsDir := filepath.Join(tplRoot, "skills")
 	if entries, err := os.ReadDir(sharedSkillsDir); err == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() {
@@ -289,7 +290,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 		if mountedSkills[skillBase] {
 			continue
 		}
-		skillPath := filepath.Join(localdalRoot, skill)
+		skillPath := filepath.Join(tplRoot, skill)
 		targetPath := filepath.Join(home, "skills", skillBase)
 		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", skillPath, targetPath))
 		mountedSkills[skillBase] = true
@@ -313,13 +314,20 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	}
 
 	// Mount decisions.md as shared team memory (read-only — scribe commits changes)
-	decisionsPath := filepath.Join(localdalRoot, "decisions.md")
+	// Check template root first, fall back to dal root (legacy)
+	decisionsPath := filepath.Join(tplRoot, "decisions.md")
+	if _, err := os.Stat(decisionsPath); err != nil {
+		decisionsPath = filepath.Join(localdalRoot, "decisions.md")
+	}
 	if _, err := os.Stat(decisionsPath); err == nil {
 		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", decisionsPath, filepath.Join(containerWorkDir, "decisions.md")))
 	}
 
 	// Mount decisions-archive.md (read-only for all)
-	archivePath := filepath.Join(localdalRoot, "decisions-archive.md")
+	archivePath := filepath.Join(tplRoot, "decisions-archive.md")
+	if _, err := os.Stat(archivePath); err != nil {
+		archivePath = filepath.Join(localdalRoot, "decisions-archive.md")
+	}
 	if _, err := os.Stat(archivePath); err == nil {
 		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", archivePath, filepath.Join(containerWorkDir, "decisions-archive.md")))
 	}
@@ -334,7 +342,10 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr string, dal *
 	}
 
 	// Mount wisdom.md (read-only for all)
-	wisdomPath := filepath.Join(localdalRoot, "wisdom.md")
+	wisdomPath := filepath.Join(tplRoot, "wisdom.md")
+	if _, err := os.Stat(wisdomPath); err != nil {
+		wisdomPath = filepath.Join(localdalRoot, "wisdom.md")
+	}
 	if _, err := os.Stat(wisdomPath); err == nil {
 		args = append(args, "-v", fmt.Sprintf("%s:%s:ro", wisdomPath, filepath.Join(containerWorkDir, "wisdom.md")))
 	}
@@ -565,6 +576,88 @@ func injectCli(containerID, role string) error {
 	return nil
 }
 
+// setupWorkspace prepares the workspace inside a running container:
+// 1. Branch checkout (if issueID is provided)
+// 2. Package installation (if setup.packages is non-empty)
+// 3. Setup commands (if setup.commands is non-empty)
+// Returns warnings for non-fatal failures.
+func setupWorkspace(containerID string, dal *localdal.DalProfile, issueID string) []string {
+	var warnings []string
+
+	// 1. Branch checkout: issue-{N}/{dal-name}
+	if issueID != "" {
+		branchName := fmt.Sprintf("issue-%s/%s", issueID, dal.Name)
+		base := dal.Branch.Base
+		if base == "" {
+			base = "main"
+		}
+		// Verify base branch exists; fallback to HEAD if not
+		verifyBase := exec.Command("docker", "exec", containerID,
+			"git", "-C", "/workspace", "rev-parse", "--verify", base)
+		if _, err := verifyBase.CombinedOutput(); err != nil {
+			log.Printf("[setup] base branch %q not found, using HEAD", base)
+			base = "HEAD"
+		}
+
+		// Try to checkout existing branch first, then create new
+		checkout := exec.Command("docker", "exec", containerID,
+			"git", "-C", "/workspace", "checkout", "-b", branchName, base)
+		if out, err := checkout.CombinedOutput(); err != nil {
+			// Branch might already exist — try just checkout
+			checkout2 := exec.Command("docker", "exec", containerID,
+				"git", "-C", "/workspace", "checkout", branchName)
+			if out2, err2 := checkout2.CombinedOutput(); err2 != nil {
+				warnings = append(warnings, fmt.Sprintf("branch checkout failed: %s / %s", strings.TrimSpace(string(out)), strings.TrimSpace(string(out2))))
+			} else {
+				log.Printf("[setup] checked out existing branch %s", branchName)
+			}
+		} else {
+			log.Printf("[setup] created branch %s from %s", branchName, base)
+			_ = out
+		}
+	}
+
+	// 2. Package installation
+	if len(dal.Setup.Packages) > 0 {
+		aptArgs := append([]string{"exec", containerID, "apt-get", "update", "-qq", "&&", "apt-get", "install", "-y", "-qq"}, dal.Setup.Packages...)
+		// Use bash -c for the compound command
+		shellCmd := "apt-get update -qq && apt-get install -y -qq " + strings.Join(dal.Setup.Packages, " ")
+		install := exec.Command("docker", "exec", containerID, "bash", "-c", shellCmd)
+		if out, err := install.CombinedOutput(); err != nil {
+			warnings = append(warnings, fmt.Sprintf("package install failed: %s", strings.TrimSpace(string(out))))
+		} else {
+			log.Printf("[setup] installed packages: %v", dal.Setup.Packages)
+		}
+		_ = aptArgs
+	}
+
+	// 3. Setup commands (with 1 retry on failure)
+	for _, cmd := range dal.Setup.Commands {
+		setupCmd := exec.Command("docker", "exec", "-w", "/workspace", containerID, "bash", "-c", cmd)
+		if out, err := setupCmd.CombinedOutput(); err != nil {
+			log.Printf("[setup] command failed (retrying): %s", cmd)
+			// Retry once
+			retry := exec.Command("docker", "exec", "-w", "/workspace", containerID, "bash", "-c", cmd)
+			if out2, err2 := retry.CombinedOutput(); err2 != nil {
+				warnings = append(warnings, fmt.Sprintf("setup command failed after retry: %q: %s", cmd, strings.TrimSpace(string(out2))))
+			} else {
+				log.Printf("[setup] command succeeded on retry: %s", cmd)
+				_ = out2
+			}
+			_ = out
+		} else {
+			log.Printf("[setup] command: %s", cmd)
+			_ = out
+		}
+	}
+
+	// 4. Quorum setup (if available)
+	quorumSetup := exec.Command("docker", "exec", "-w", "/workspace", containerID, "bash", "-c", "command -v quorum && quorum setup 2>/dev/null || true")
+	quorumSetup.Run()
+
+	return warnings
+}
+
 // dockerStop stops and removes a Docker container.
 func dockerStop(containerID string) error {
 	// Stop
@@ -627,9 +720,10 @@ func dockerNeedsRestart(localdalRoot, containerID string, dal *localdal.DalProfi
 		}
 	}
 
-	// Expected: shared skills from .dal/skills/ + unique per-dal skills
+	// Expected: shared skills from .dal/template/skills/ + unique per-dal skills
+	tplRoot := localdal.ResolveTemplateRoot(localdalRoot)
 	expectedSkills := make(map[string]bool)
-	sharedSkillsDir := filepath.Join(localdalRoot, "skills")
+	sharedSkillsDir := filepath.Join(tplRoot, "skills")
 	if entries, err := os.ReadDir(sharedSkillsDir); err == nil {
 		for _, entry := range entries {
 			if entry.IsDir() {

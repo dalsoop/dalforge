@@ -9,7 +9,8 @@ import (
 
 // CreateSkill creates a new skill folder with SKILL.md.
 func CreateSkill(root, name string) error {
-	skillDir := filepath.Join(root, "skills", name)
+	tplRoot := ResolveTemplateRoot(root)
+	skillDir := filepath.Join(tplRoot, "skills", name)
 	if _, err := os.Stat(skillDir); err == nil {
 		return fmt.Errorf("skill %q already exists", name)
 	}
@@ -39,7 +40,8 @@ func DeleteSkill(root, name string) error {
 		return fmt.Errorf("skill %q is used by: %s", name, strings.Join(users, ", "))
 	}
 
-	skillDir := filepath.Join(root, "skills", name)
+	tplRoot := ResolveTemplateRoot(root)
+	skillDir := filepath.Join(tplRoot, "skills", name)
 	if _, err := os.Stat(skillDir); err != nil {
 		return fmt.Errorf("skill %q not found", name)
 	}
@@ -48,7 +50,8 @@ func DeleteSkill(root, name string) error {
 
 // ListSkills returns all skill folder names.
 func ListSkills(root string) ([]string, error) {
-	skillsDir := filepath.Join(root, "skills")
+	tplRoot := ResolveTemplateRoot(root)
+	skillsDir := filepath.Join(tplRoot, "skills")
 	entries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -67,7 +70,8 @@ func ListSkills(root string) ([]string, error) {
 
 // AddSkillToDal adds a skill reference to a dal's dal.cue.
 func AddSkillToDal(root, dalName, skillName string) error {
-	dalCue := filepath.Join(root, dalName, "dal.cue")
+	tplRoot := ResolveTemplateRoot(root)
+	dalCue := filepath.Join(tplRoot, dalName, "dal.cue")
 	p, err := ReadDalCue(dalCue, dalName)
 	if err != nil {
 		return fmt.Errorf("read dal %q: %w", dalName, err)
@@ -75,7 +79,7 @@ func AddSkillToDal(root, dalName, skillName string) error {
 
 	skillRef := "skills/" + skillName
 	// Check skill exists
-	if _, err := os.Stat(filepath.Join(root, skillRef)); err != nil {
+	if _, err := os.Stat(filepath.Join(tplRoot, skillRef)); err != nil {
 		return fmt.Errorf("skill %q not found", skillName)
 	}
 	// Check not already added
@@ -91,7 +95,8 @@ func AddSkillToDal(root, dalName, skillName string) error {
 
 // RemoveSkillFromDal removes a skill reference from a dal's dal.cue.
 func RemoveSkillFromDal(root, dalName, skillName string) error {
-	dalCue := filepath.Join(root, dalName, "dal.cue")
+	tplRoot := ResolveTemplateRoot(root)
+	dalCue := filepath.Join(tplRoot, dalName, "dal.cue")
 	p, err := ReadDalCue(dalCue, dalName)
 	if err != nil {
 		return fmt.Errorf("read dal %q: %w", dalName, err)
