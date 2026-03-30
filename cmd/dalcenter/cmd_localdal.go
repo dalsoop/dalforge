@@ -27,7 +27,7 @@ func localdalRoot() string {
 // --- serve ---
 
 func newServeCmd() *cobra.Command {
-	var addr, serviceRepo, bridgeURL, bridgeConf string
+	var addr, serviceRepo, bridgeURL, bridgeConf, githubRepo string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run dalcenter daemon (HTTP API + Docker management)",
@@ -39,7 +39,7 @@ func newServeCmd() *cobra.Command {
 					root = repoRoot
 				}
 			}
-			d := daemon.New(addr, root, serviceRepo, bridgeURL, bridgeConf)
+			d := daemon.New(addr, root, serviceRepo, bridgeURL, bridgeConf, githubRepo)
 
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
@@ -51,6 +51,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&serviceRepo, "repo", os.Getenv("DALCENTER_REPO"), "Service repository path")
 	cmd.Flags().StringVar(&bridgeURL, "bridge-url", os.Getenv("DALCENTER_BRIDGE_URL"), "Matterbridge API URL (auto-set if --bridge-conf provided)")
 	cmd.Flags().StringVar(&bridgeConf, "bridge-conf", os.Getenv("DALCENTER_BRIDGE_CONF"), "Matterbridge config path (starts as child process)")
+	cmd.Flags().StringVar(&githubRepo, "github-repo", os.Getenv("DALCENTER_GITHUB_REPO"), "GitHub repo for issue polling (e.g., owner/repo)")
 	return cmd
 }
 

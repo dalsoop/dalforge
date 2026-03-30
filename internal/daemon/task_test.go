@@ -83,7 +83,7 @@ func TestTaskStore_Eviction(t *testing.T) {
 }
 
 func TestHandleTask_NoDal(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 	body := `{"dal":"nonexistent","task":"hello"}`
 	req := httptest.NewRequest("POST", "/api/task", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -94,7 +94,7 @@ func TestHandleTask_NoDal(t *testing.T) {
 }
 
 func TestHandleTask_MissingFields(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 	body := `{"dal":"","task":""}`
 	req := httptest.NewRequest("POST", "/api/task", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -105,7 +105,7 @@ func TestHandleTask_MissingFields(t *testing.T) {
 }
 
 func TestHandleTaskList_Empty(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 	req := httptest.NewRequest("GET", "/api/tasks", nil)
 	w := httptest.NewRecorder()
 	d.handleTaskList(w, req)
@@ -118,7 +118,7 @@ func TestHandleTaskList_Empty(t *testing.T) {
 }
 
 func TestHandleTaskStatus_NotFound(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 	req := httptest.NewRequest("GET", "/api/task/task-9999", nil)
 	req.SetPathValue("id", "task-9999")
 	w := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func TestHandleTaskStatus_NotFound(t *testing.T) {
 }
 
 func TestHandleTaskStartAndFinish(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 
 	startReq := httptest.NewRequest("POST", "/api/task/start", strings.NewReader(`{"dal":"leader","task":"triage issue"}`))
 	startW := httptest.NewRecorder()
@@ -175,7 +175,7 @@ func TestHandleTaskStartAndFinish(t *testing.T) {
 }
 
 func TestHandleTaskEvent(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 	tr := d.tasks.New("leader", "triage issue")
 
 	req := httptest.NewRequest("POST", "/api/task/"+tr.ID+"/event", strings.NewReader(`{"kind":"self_repair","message":"Retrying after fix"}`))
@@ -196,7 +196,7 @@ func TestHandleTaskEvent(t *testing.T) {
 }
 
 func TestHandleTaskMetadata(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 	tr := d.tasks.New("leader", "triage issue")
 
 	req := httptest.NewRequest("POST", "/api/task/"+tr.ID+"/metadata", strings.NewReader(`{"git_diff":"M README.md","git_changes":1,"verified":"yes","completion":{"build_ok":true,"test_ok":false,"duration":"1.2s"}}`))
@@ -276,7 +276,7 @@ func TestTaskResult_WithChanges(t *testing.T) {
 }
 
 func TestMessageFallback_NoMM(t *testing.T) {
-	d := New(":0", "/tmp/test", t.TempDir(), "", "")
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "")
 	// No MM configured, no running dals → should return 503
 	body := `{"from":"host","message":"test"}`
 	req := httptest.NewRequest("POST", "/api/message", strings.NewReader(body))
