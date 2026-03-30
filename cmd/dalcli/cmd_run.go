@@ -616,7 +616,7 @@ func runAgentLoop(dalName string) error {
 		isDM := false // matterbridge doesn't have DM concept
 
 		log.Printf("[agent] msg from=%s mention=%v(m=%q legacy=%q alt=%q) thread=%v dm=%v content=%s",
-			msg.From[:8], isDirectMention, mention, legacyMention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
+			truncate(msg.From, 30), isDirectMention, mention, legacyMention, altMention, isThreadReply, isDM, truncate(msg.Content, 60))
 
 		if shouldIgnoreDalBotMessage(msg, br, isDirectMention, isThreadReply, isDM) {
 			log.Printf("[agent] skipped dal-bot follow-up: %s", truncate(msg.Content, 60))
