@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -52,4 +53,23 @@ func matterbridgeAlreadyRunning() bool {
 	}
 	_ = conn.Close()
 	return true
+}
+
+// parseBridgePort reads the API BindAddress port from a matterbridge TOML config.
+func parseBridgePort(confPath string) string {
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "BindAddress") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				port := strings.Trim(parts[len(parts)-1], "\" ")
+				return port
+			}
+		}
+	}
+	return ""
 }

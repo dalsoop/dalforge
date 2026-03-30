@@ -146,9 +146,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 				mb.Process.Kill()
 				mb.Wait()
 			}()
-			// Auto-set bridgeURL if not explicitly provided
+			// Auto-set bridgeURL from config or default
 			if d.bridgeURL == "" {
-				d.bridgeURL = DefaultBridgeURL
+				if port := parseBridgePort(d.bridgeConf); port != "" {
+					d.bridgeURL = "http://localhost:" + port
+				} else {
+					d.bridgeURL = DefaultBridgeURL
+				}
 			}
 		}
 	}
