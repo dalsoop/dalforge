@@ -151,7 +151,11 @@ func newWakeCmd() *cobra.Command {
 						fmt.Fprintf(os.Stderr, "wake %s: %v\n", d.Name, err)
 						continue
 					}
-					fmt.Printf("wake: %s → %s\n", d.Name, result["container_id"][:12])
+					cid, _ := result["container_id"].(string)
+					if len(cid) > 12 {
+						cid = cid[:12]
+					}
+					fmt.Printf("wake: %s → %s\n", d.Name, cid)
 				}
 				return nil
 			}
@@ -162,7 +166,11 @@ func newWakeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("wake: %s → %s\n", args[0], result["container_id"])
+			cid, ok := result["container_id"].(string)
+			if !ok {
+				return fmt.Errorf("unexpected response: missing container_id")
+			}
+			fmt.Printf("wake: %s → %s\n", args[0], cid)
 			return nil
 		},
 	}

@@ -34,8 +34,8 @@ func NewClient() (*Client, error) {
 }
 
 // Wake sends a wake request.
-func (c *Client) Wake(name string) (map[string]string, error) {
-	return c.postJSON(fmt.Sprintf("/api/wake/%s", name))
+func (c *Client) Wake(name string) (map[string]any, error) {
+	return c.postAny(fmt.Sprintf("/api/wake/%s", name))
 }
 
 // Sleep sends a sleep request.
