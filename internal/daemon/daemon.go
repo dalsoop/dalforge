@@ -33,6 +33,7 @@ type Daemon struct {
 	serviceRepo  string // service repo path to mount as /workspace
 	bridgeURL    string // matterbridge API URL
 	bridgeConf   string // matterbridge config path (child process)
+	githubRepo   string // GitHub repo for issue polling (e.g., "owner/repo")
 	apiToken     string                // Bearer token for write endpoints (empty = no auth)
 	containers   map[string]*Container // dal name -> container
 	mu           sync.RWMutex
@@ -44,6 +45,7 @@ type Daemon struct {
 	tasks        *taskStore
 	feedback     *feedbackStore
 	costs        *costStore
+	issues       *issueStore
 	registry     *Registry
 	startTime    time.Time
 }
@@ -63,7 +65,7 @@ type Container struct {
 }
 
 // New creates a daemon.
-func New(addr, localdalRoot, serviceRepo, bridgeURL, bridgeConf string) *Daemon {
+func New(addr, localdalRoot, serviceRepo, bridgeURL, bridgeConf, githubRepo string) *Daemon {
 	token := os.Getenv("DALCENTER_TOKEN")
 	if token != "" {
 		log.Println("[daemon] API token auth enabled for write endpoints")
@@ -77,6 +79,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, bridgeConf string) *Daemon 
 		serviceRepo:  serviceRepo,
 		bridgeURL:    strings.TrimRight(bridgeURL, "/"),
 		bridgeConf:   bridgeConf,
+		githubRepo:   githubRepo,
 		apiToken:     token,
 		containers:   make(map[string]*Container),
 		escalations:  newEscalationStoreWithFile(filepath.Join(dataDir(serviceRepo), "escalations.json")),
@@ -84,6 +87,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, bridgeConf string) *Daemon 
 		tasks:        newTaskStoreWithFile(filepath.Join(dataDir(serviceRepo), "tasks.json")),
 		feedback:     newFeedbackStoreWithFile(filepath.Join(dataDir(serviceRepo), "feedback.json")),
 		costs:        newCostStoreWithFile(filepath.Join(dataDir(serviceRepo), "costs.json"), orchestrationLogDir(serviceRepo)),
+		issues:       newIssueStore(filepath.Join(dataDir(serviceRepo), "issues_seen.json")),
 		registry:     newRegistry(serviceRepo),
 		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
@@ -168,6 +172,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start peer health watcher (dalcenter HA)
 	go d.startPeerWatcher(ctx)
 
+	// Start GitHub issue watcher
+	go d.startIssueWatcher(ctx, d.githubRepo, defaultIssuePollInterval)
+
 	// Start leader health watcher (auto-recovery)
 	go d.startLeaderWatcher(ctx)
 
@@ -222,6 +229,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/escalate", d.requireAuth(d.handleEscalate))
 	mux.HandleFunc("GET /api/escalations", d.handleEscalations)
 	mux.HandleFunc("POST /api/escalations/{id}/resolve", d.requireAuth(d.handleResolveEscalation))
+	// GitHub issue tracking
+	mux.HandleFunc("GET /api/issues", d.handleIssues)
 	// A2A protocol endpoints
 	mux.HandleFunc("GET /api/provider-status", d.handleProviderStatus)
 	mux.HandleFunc("POST /api/provider-trip", d.handleProviderTrip)

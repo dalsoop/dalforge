@@ -43,7 +43,7 @@ hooks:   []
 `), 0644)
 	os.WriteFile(filepath.Join(devDir, "charter.md"), []byte("# Dev\n"), 0644)
 
-	d := New(":0", root, "", "", "")
+	d := New(":0", root, "", "", "", "")
 	return d, root
 }
 
