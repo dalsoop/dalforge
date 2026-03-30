@@ -214,6 +214,42 @@ func newImageListCmd() *cobra.Command {
 	}
 }
 
+func findDockerfilesDir() (string, error) {
+	// 1. DALCENTER_DOCKERFILES environment variable
+	if p := os.Getenv("DALCENTER_DOCKERFILES"); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+
+	// 2. Next to the dalcenter binary (<binary-dir>/dockerfiles/)
+	if exe, err := os.Executable(); err == nil {
+		binDir := filepath.Dir(exe)
+		candidate := filepath.Join(binDir, "dockerfiles")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	// 3. Current working directory (./dockerfiles/)
+	if wd, err := os.Getwd(); err == nil {
+		candidate := filepath.Join(wd, "dockerfiles")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	// 4. Relative to localdal root (repo-root/dockerfiles/)
+	root := localdalRoot()
+	repoRoot := filepath.Dir(root)
+	candidate := filepath.Join(repoRoot, "dockerfiles")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+
+	return "", fmt.Errorf("dockerfiles directory not found; searched: $DALCENTER_DOCKERFILES, <binary-dir>/dockerfiles, ./dockerfiles, %s", candidate)
+}
+
 func newImageBuildCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "build <dockerfile-tag>",
@@ -222,13 +258,10 @@ func newImageBuildCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tag := args[0]
 
-			// Find Dockerfile directory
-			root := localdalRoot()
-			// Look for dockerfiles relative to repo root (parent of .dal)
-			repoRoot := filepath.Dir(root)
-			dockerfilesDir := filepath.Join(repoRoot, "dockerfiles")
-			if _, err := os.Stat(dockerfilesDir); err != nil {
-				return fmt.Errorf("dockerfiles directory not found at %s", dockerfilesDir)
+			// Find Dockerfile directory using fallback chain
+			dockerfilesDir, err := findDockerfilesDir()
+			if err != nil {
+				return err
 			}
 
 			// Map tag to Dockerfile: "rust" → "claude-rust.Dockerfile"
