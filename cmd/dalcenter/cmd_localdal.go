@@ -166,7 +166,11 @@ func newWakeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("wake: %s → %s\n", args[0], result["container_id"].(string))
+			cid, ok := result["container_id"].(string)
+			if !ok {
+				return fmt.Errorf("unexpected response: missing container_id")
+			}
+			fmt.Printf("wake: %s → %s\n", args[0], cid)
 			return nil
 		},
 	}
