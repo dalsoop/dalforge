@@ -45,12 +45,37 @@ type TaskMetadataUpdate struct {
 
 // taskStore manages running and completed direct tasks.
 type taskStore struct {
-	mu    sync.RWMutex
-	tasks map[string]*taskResult
+	mu       sync.RWMutex
+	tasks    map[string]*taskResult
+	filePath string
 }
+
+const maxTasks = 50
 
 func newTaskStore() *taskStore {
 	return &taskStore{tasks: make(map[string]*taskResult)}
+}
+
+func newTaskStoreWithFile(path string) *taskStore {
+	s := &taskStore{tasks: make(map[string]*taskResult), filePath: path}
+	var items []*taskResult
+	if err := loadJSON(path, &items); err == nil {
+		for _, t := range items {
+			s.tasks[t.ID] = t
+		}
+	}
+	return s
+}
+
+func (s *taskStore) save() {
+	if s.filePath == "" {
+		return
+	}
+	items := make([]*taskResult, 0, len(s.tasks))
+	for _, t := range s.tasks {
+		items = append(items, t)
+	}
+	persistJSON(s.filePath, items, nil)
 }
 
 func (s *taskStore) New(dal, task string) *taskResult {
@@ -66,8 +91,8 @@ func (s *taskStore) New(dal, task string) *taskResult {
 	t.appendEvent("accepted", "Task accepted and running")
 	s.tasks[t.ID] = t
 
-	// Evict old tasks (keep last 50)
-	if len(s.tasks) > 50 {
+	// Evict old tasks (keep last maxTasks)
+	if len(s.tasks) > maxTasks {
 		var oldest string
 		var oldestTime time.Time
 		for id, t := range s.tasks {
@@ -81,6 +106,7 @@ func (s *taskStore) New(dal, task string) *taskResult {
 		}
 	}
 
+	s.save()
 	return t
 }
 
@@ -116,6 +142,7 @@ func (s *taskStore) Complete(id, status, output, errMsg string) *taskResult {
 	if message != "" {
 		tr.appendEvent(status, message)
 	}
+	s.save()
 	return tr
 }
 
@@ -127,6 +154,7 @@ func (s *taskStore) AddEvent(id, kind, message string) *taskResult {
 		return nil
 	}
 	tr.appendEvent(kind, message)
+	s.save()
 	return tr
 }
 
@@ -141,6 +169,7 @@ func (s *taskStore) UpdateMetadata(id string, update TaskMetadataUpdate) *taskRe
 	tr.GitChanges = update.GitChanges
 	tr.Verified = update.Verified
 	tr.Completion = update.Completion
+	s.save()
 	return tr
 }
 

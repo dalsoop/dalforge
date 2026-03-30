@@ -84,7 +84,7 @@ func New(addr, localdalRoot, serviceRepo string, mm *MattermostConfig) *Daemon {
 		containers:   make(map[string]*Container),
 		escalations:  newEscalationStoreWithFile(filepath.Join(dataDir(serviceRepo), "escalations.json")),
 		claims:       newClaimStoreWithFile(filepath.Join(dataDir(serviceRepo), "claims.json")),
-		tasks:        newTaskStore(),
+		tasks:        newTaskStoreWithFile(filepath.Join(dataDir(serviceRepo), "tasks.json")),
 		feedback:     newFeedbackStoreWithFile(filepath.Join(dataDir(serviceRepo), "feedback.json")),
 		costs:        newCostStoreWithFile(filepath.Join(dataDir(serviceRepo), "costs.json"), orchestrationLogDir(serviceRepo)),
 		registry:     newRegistry(serviceRepo),
