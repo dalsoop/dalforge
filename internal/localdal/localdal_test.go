@@ -78,9 +78,9 @@ func TestCreateAndListDal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Init() auto-creates scribe + leader + dev = 3, plus reviewer = 4
-	if len(dals) != 4 {
-		t.Fatalf("got %d dals, want 4 (scribe + leader + dev + reviewer)", len(dals))
+	// Init() auto-creates dalops + dal = 2, plus reviewer = 3
+	if len(dals) != 3 {
+		t.Fatalf("got %d dals, want 3 (dalops + dal + reviewer)", len(dals))
 	}
 	names := make(map[string]bool)
 	for _, d := range dals {
@@ -94,8 +94,8 @@ func TestCreateAndListDal(t *testing.T) {
 func TestCreateDalDuplicate(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
-	// dev is auto-created by Init(), so creating it again should fail
-	if _, err := CreateDal(root, "dev", "claude"); err == nil {
+	// dalops is auto-created by Init(), so creating it again should fail
+	if _, err := CreateDal(root, "dalops", "claude"); err == nil {
 		t.Fatal("expected error for duplicate")
 	}
 }
@@ -104,8 +104,8 @@ func TestDeleteDal(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
 
-	// dev is auto-created by Init()
-	if err := DeleteDal(root, "dev"); err != nil {
+	// dal is auto-created by Init()
+	if err := DeleteDal(root, "dal"); err != nil {
 		t.Fatal(err)
 	}
 	dals, _ := ListDals(root)
@@ -113,8 +113,8 @@ func TestDeleteDal(t *testing.T) {
 	for _, d := range dals {
 		names[d.Name] = true
 	}
-	if names["dev"] {
-		t.Fatal("dev dal should be deleted")
+	if names["dal"] {
+		t.Fatal("dal should be deleted")
 	}
 }
 

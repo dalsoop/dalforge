@@ -48,9 +48,9 @@ func Validate(root string) []string {
 			}
 		}
 		switch d.Role {
-		case "leader", "member":
+		case "leader", "member", "ops":
 		default:
-			errors = append(errors, fmt.Sprintf("%s: invalid role %q (must be leader or member)", d.FolderName, d.Role))
+			errors = append(errors, fmt.Sprintf("%s: invalid role %q (must be leader, member, or ops)", d.FolderName, d.Role))
 		}
 		if d.Role == "leader" {
 			leaderCount++
@@ -79,11 +79,9 @@ func Validate(root string) []string {
 		}
 	}
 
-	// Exactly one leader
-	if leaderCount == 0 {
-		errors = append(errors, "no leader dal found (exactly 1 required)")
-	} else if leaderCount > 1 {
-		errors = append(errors, fmt.Sprintf("found %d leaders (exactly 1 required)", leaderCount))
+	// At most one leader (ops-only teams don't require a leader)
+	if leaderCount > 1 {
+		errors = append(errors, fmt.Sprintf("found %d leaders (at most 1 allowed)", leaderCount))
 	}
 
 	return errors

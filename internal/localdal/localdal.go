@@ -127,49 +127,35 @@ func Init(root string) error {
 		}
 	}
 
-	// Auto-create scribe dal
-	scribeDir := filepath.Join(root, "scribe")
-	if _, err := os.Stat(scribeDir); err != nil {
-		if err := os.MkdirAll(scribeDir, 0755); err != nil {
-			return fmt.Errorf("create scribe dir: %w", err)
+	// Auto-create dalops (operations — CCW-based orchestration)
+	dalopsDir := filepath.Join(root, "dalops")
+	if _, err := os.Stat(dalopsDir); err != nil {
+		if err := os.MkdirAll(dalopsDir, 0755); err != nil {
+			return fmt.Errorf("create dalops dir: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(scribeDir, "dal.cue"), []byte(defaultScribeCue), 0644); err != nil {
-			return fmt.Errorf("write scribe dal.cue: %w", err)
+		dalopsUUID := generateUUID()
+		dalopsCue := fmt.Sprintf(defaultDalopsCueTemplate, dalopsUUID)
+		if err := os.WriteFile(filepath.Join(dalopsDir, "dal.cue"), []byte(dalopsCue), 0644); err != nil {
+			return fmt.Errorf("write dalops dal.cue: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(scribeDir, "charter.md"), []byte(defaultScribeInstructions), 0644); err != nil {
-			return fmt.Errorf("write scribe charter.md: %w", err)
-		}
-	}
-
-	// Auto-create leader dal
-	leaderDir := filepath.Join(root, "leader")
-	if _, err := os.Stat(leaderDir); err != nil {
-		if err := os.MkdirAll(leaderDir, 0755); err != nil {
-			return fmt.Errorf("create leader dir: %w", err)
-		}
-		leaderUUID := generateUUID()
-		leaderCue := fmt.Sprintf(defaultLeaderCueTemplate, leaderUUID)
-		if err := os.WriteFile(filepath.Join(leaderDir, "dal.cue"), []byte(leaderCue), 0644); err != nil {
-			return fmt.Errorf("write leader dal.cue: %w", err)
-		}
-		if err := os.WriteFile(filepath.Join(leaderDir, "charter.md"), []byte(defaultLeaderCharter), 0644); err != nil {
-			return fmt.Errorf("write leader charter.md: %w", err)
+		if err := os.WriteFile(filepath.Join(dalopsDir, "charter.md"), []byte(defaultDalopsCharter), 0644); err != nil {
+			return fmt.Errorf("write dalops charter.md: %w", err)
 		}
 	}
 
-	// Auto-create dev dal
-	devDir := filepath.Join(root, "dev")
-	if _, err := os.Stat(devDir); err != nil {
-		if err := os.MkdirAll(devDir, 0755); err != nil {
-			return fmt.Errorf("create dev dir: %w", err)
+	// Auto-create dal (document manager)
+	dalDir := filepath.Join(root, "dal")
+	if _, err := os.Stat(dalDir); err != nil {
+		if err := os.MkdirAll(dalDir, 0755); err != nil {
+			return fmt.Errorf("create dal dir: %w", err)
 		}
-		devUUID := generateUUID()
-		devCue := fmt.Sprintf(defaultDevCueTemplate, devUUID)
-		if err := os.WriteFile(filepath.Join(devDir, "dal.cue"), []byte(devCue), 0644); err != nil {
-			return fmt.Errorf("write dev dal.cue: %w", err)
+		dalUUID := generateUUID()
+		dalCue := fmt.Sprintf(defaultDalCueTemplate, dalUUID)
+		if err := os.WriteFile(filepath.Join(dalDir, "dal.cue"), []byte(dalCue), 0644); err != nil {
+			return fmt.Errorf("write dal dal.cue: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(devDir, "charter.md"), []byte(defaultDevCharter), 0644); err != nil {
-			return fmt.Errorf("write dev charter.md: %w", err)
+		if err := os.WriteFile(filepath.Join(dalDir, "charter.md"), []byte(defaultDalCharter), 0644); err != nil {
+			return fmt.Errorf("write dal charter.md: %w", err)
 		}
 	}
 
@@ -643,10 +629,103 @@ const defaultDevCharter = `# Dev Dal
 - 기존 코드 패턴 준수
 `
 
+// defaultDalopsCueTemplate has one %s placeholder for the UUID.
+const defaultDalopsCueTemplate = `uuid:    %q
+name:    "dalops"
+version: "1.0.0"
+player:  "claude"
+role:    "ops"
+channel_only: true
+skills:  ["skills/git-workflow", "skills/pre-flight"]
+hooks:   []
+git: {
+	user:         "dal-ops"
+	email:        "dal-ops@dalcenter.local"
+	github_token: "env:GITHUB_TOKEN"
+}
+`
+
+const defaultDalopsCharter = `# dalops — 운영자
+
+## Role
+CCW 기반 오케스트레이터. 코드 구현, 리뷰, 테스트를 워크플로우로 실행한다.
+
+## Tools
+- ccw cli --tool codex --mode review — Codex 코드 리뷰
+- ccw cli --tool codex --mode analysis — Codex 분석
+- ccw cli --tool gemini — Gemini 분석
+- quorum verify — 보안/시크릿/의존성 검사
+- dalcli status / ps / report
+
+## Workflows
+- workflow-lite-plan — 단일 모듈 기능 구현
+- workflow-tdd-plan — 테스트 주도 개발
+- workflow-multi-cli-plan — 멀티 CLI 협업 분석/리뷰
+- workflow-test-fix — 테스트 생성 및 수정 루프
+
+## Process
+1. 이슈/작업 수신
+2. CCW 워크플로우 선택 및 실행
+3. codex 리뷰 통과 확인
+4. quorum verify (보안 검사)
+5. 브랜치 → PR 생성
+6. dalcli report로 결과 보고
+
+## Rules
+- main 직접 커밋 금지
+- PR 생성 전 반드시 테스트 통과
+- ccw session으로 작업 컨텍스트 유지
+`
+
+// defaultDalCueTemplate has one %s placeholder for the UUID.
+const defaultDalCueTemplate = `uuid:    %q
+name:    "dal"
+version: "1.0.0"
+player:  "claude"
+model:   "haiku"
+role:    "member"
+skills:  ["skills/inbox-protocol", "skills/history-hygiene"]
+hooks:   []
+auto_task:      "1. /workspace/decisions/inbox/ → decisions.md 병합 (중복 제거 후 삭제). 2. /workspace/history-buffer/ → .dal/{name}/history.md 병합. 3. /workspace/wisdom-inbox/ → wisdom.md 병합. 4. history.md 12KB 초과 시 압축. 5. decisions.md 50KB 초과 시 30일+ 아카이브. 6. README.md, CLAUDE.md 갱신 필요 시 ccw tool update_module_claude로 자동 생성. 7. 변경 시 git add + commit + push."
+auto_interval:  "30m"
+git: {
+	user:         "dal-docs"
+	email:        "dal-docs@dalcenter.local"
+	github_token: "env:GITHUB_TOKEN"
+}
+`
+
+const defaultDalCharter = `# dal — 문서 관리자
+
+## Role
+팀 공유 기억의 유일한 writer + committer. 백그라운드 자동 실행.
+
+## Responsibilities
+1. decisions/inbox/ → decisions.md 병합 (중복 제거: By + What 기준)
+2. wisdom-inbox/ → wisdom.md 병합
+3. history-buffer/{name}.md → .dal/{name}/history.md 병합
+4. history.md 12KB 초과 시 Core Context 압축
+5. decisions.md 50KB 초과 시 30일+ 항목 → decisions-archive.md
+6. README.md / CLAUDE.md 갱신 (ccw tool update_module_claude)
+7. 변경 시 git add + commit + push
+
+## Tools
+- ccw tool update_module_claude — 모듈 문서 자동 생성
+- ccw tool detect_changed_modules — 변경 모듈 탐지
+- ccw memory — 컨텍스트 메모리 관리
+- dalcli status / report
+
+## Rules
+- push 실패 시 재시도만. force push, reset 금지.
+- 병합 후 inbox 파일 삭제.
+- history에는 최종 결과만. 중간 상태 금지.
+- 코드, 리뷰, 테스트 금지 — 문서만 담당.
+`
+
 const defaultSpec = `// dal.spec.cue — localdal schema
 
 #Player: "claude" | "codex" | "gemini"
-#Role:   "leader" | "member"
+#Role:   "leader" | "member" | "ops"
 
 #BranchConfig: {
 	base?: string | *"main"

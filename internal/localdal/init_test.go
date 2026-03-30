@@ -72,7 +72,7 @@ func TestInit_Idempotent(t *testing.T) {
 	}
 }
 
-func TestInit_CreatesScribeDal(t *testing.T) {
+func TestInit_CreatesDalDocManager(t *testing.T) {
 	tmp := t.TempDir()
 	root := filepath.Join(tmp, ".dal")
 	os.MkdirAll(root, 0755)
@@ -82,19 +82,19 @@ func TestInit_CreatesScribeDal(t *testing.T) {
 	}
 
 	tpl := ResolveTemplateRoot(root)
-	cue := filepath.Join(tpl, "scribe", "dal.cue")
+	cue := filepath.Join(tpl, "dal", "dal.cue")
 	if _, err := os.Stat(cue); err != nil {
-		t.Fatal("scribe/dal.cue not created")
+		t.Fatal("dal/dal.cue not created")
 	}
 
-	instr := filepath.Join(tpl, "scribe", "charter.md")
+	instr := filepath.Join(tpl, "dal", "charter.md")
 	if _, err := os.Stat(instr); err != nil {
-		t.Fatal("scribe/charter.md not created")
+		t.Fatal("dal/charter.md not created")
 	}
 
 	data, _ := os.ReadFile(cue)
-	if !strings.Contains(string(data), "scribe") {
-		t.Error("dal.cue should contain scribe")
+	if !strings.Contains(string(data), "dal") {
+		t.Error("dal.cue should contain dal")
 	}
 }
 
@@ -197,12 +197,10 @@ func TestInit_FullStructure(t *testing.T) {
 		"decisions.md",
 		"decisions-archive.md",
 		"wisdom.md",
-		"scribe/dal.cue",
-		"scribe/charter.md",
-		"leader/dal.cue",
-		"leader/charter.md",
-		"dev/dal.cue",
-		"dev/charter.md",
+		"dalops/dal.cue",
+		"dalops/charter.md",
+		"dal/dal.cue",
+		"dal/charter.md",
 		"skills/inbox-protocol/SKILL.md",
 		"skills/history-hygiene/SKILL.md",
 		"skills/escalation/SKILL.md",
@@ -224,7 +222,7 @@ func TestInit_FullStructure(t *testing.T) {
 	}
 }
 
-func TestInit_CreatesLeaderDal(t *testing.T) {
+func TestInit_CreatesDalopsDal(t *testing.T) {
 	tmp := t.TempDir()
 	root := filepath.Join(tmp, ".dal")
 	os.MkdirAll(root, 0755)
@@ -234,78 +232,48 @@ func TestInit_CreatesLeaderDal(t *testing.T) {
 	}
 
 	tpl := ResolveTemplateRoot(root)
-	cueFile := filepath.Join(tpl, "leader", "dal.cue")
+	cueFile := filepath.Join(tpl, "dalops", "dal.cue")
 	data, err := os.ReadFile(cueFile)
 	if err != nil {
-		t.Fatal("leader/dal.cue not created")
+		t.Fatal("dalops/dal.cue not created")
 	}
 	content := string(data)
 
-	checks := []string{"leader", "role:", "\"leader\"", "dal-leader", "GITHUB_TOKEN"}
+	checks := []string{"dalops", "\"ops\"", "dal-ops", "GITHUB_TOKEN"}
 	for _, check := range checks {
 		if !strings.Contains(content, check) {
-			t.Errorf("leader dal.cue missing: %q", check)
+			t.Errorf("dalops dal.cue missing: %q", check)
 		}
 	}
 
-	charter := filepath.Join(tpl, "leader", "charter.md")
+	charter := filepath.Join(tpl, "dalops", "charter.md")
 	if _, err := os.Stat(charter); err != nil {
-		t.Fatal("leader/charter.md not created")
+		t.Fatal("dalops/charter.md not created")
 	}
 }
 
-func TestInit_CreatesDevDal(t *testing.T) {
-	tmp := t.TempDir()
-	root := filepath.Join(tmp, ".dal")
-	os.MkdirAll(root, 0755)
-
-	if err := Init(root); err != nil {
-		t.Fatal(err)
-	}
-
-	tpl := ResolveTemplateRoot(root)
-	cueFile := filepath.Join(tpl, "dev", "dal.cue")
-	data, err := os.ReadFile(cueFile)
-	if err != nil {
-		t.Fatal("dev/dal.cue not created")
-	}
-	content := string(data)
-
-	checks := []string{"dev", "\"member\"", "dal-dev", "GITHUB_TOKEN"}
-	for _, check := range checks {
-		if !strings.Contains(content, check) {
-			t.Errorf("dev dal.cue missing: %q", check)
-		}
-	}
-
-	charter := filepath.Join(tpl, "dev", "charter.md")
-	if _, err := os.Stat(charter); err != nil {
-		t.Fatal("dev/charter.md not created")
-	}
-}
-
-func TestInit_LeaderDevIdempotent(t *testing.T) {
+func TestInit_DalopsDalIdempotent(t *testing.T) {
 	tmp := t.TempDir()
 	root := filepath.Join(tmp, ".dal")
 	os.MkdirAll(root, 0755)
 
 	Init(root)
 
-	// Modify leader charter
+	// Modify dalops charter
 	tpl := ResolveTemplateRoot(root)
-	path := filepath.Join(tpl, "leader", "charter.md")
-	os.WriteFile(path, []byte("custom leader"), 0644)
+	path := filepath.Join(tpl, "dalops", "charter.md")
+	os.WriteFile(path, []byte("custom dalops"), 0644)
 
 	// Re-init should not overwrite
 	Init(root)
 
 	data, _ := os.ReadFile(path)
-	if string(data) != "custom leader" {
-		t.Error("Init() overwrote existing leader/charter.md")
+	if string(data) != "custom dalops" {
+		t.Error("Init() overwrote existing dalops/charter.md")
 	}
 }
 
-func TestInit_LeaderDevHaveUUIDs(t *testing.T) {
+func TestInit_DalopsDalHaveUUIDs(t *testing.T) {
 	tmp := t.TempDir()
 	root := filepath.Join(tmp, ".dal")
 	os.MkdirAll(root, 0755)
@@ -313,33 +281,32 @@ func TestInit_LeaderDevHaveUUIDs(t *testing.T) {
 	Init(root)
 
 	tpl := ResolveTemplateRoot(root)
-	for _, name := range []string{"leader", "dev"} {
+	for _, name := range []string{"dalops", "dal"} {
 		data, _ := os.ReadFile(filepath.Join(tpl, name, "dal.cue"))
 		content := string(data)
 		if !strings.Contains(content, "uuid:") {
 			t.Errorf("%s/dal.cue missing uuid field", name)
 		}
-		// UUID should be non-empty (not just "uuid:")
 		if strings.Contains(content, `uuid:    ""`) {
 			t.Errorf("%s/dal.cue has empty uuid", name)
 		}
 	}
 }
 
-func TestInit_ScribeDalCueContent(t *testing.T) {
+func TestInit_DalDocManagerCueContent(t *testing.T) {
 	tmp := t.TempDir()
 	root := filepath.Join(tmp, ".dal")
 	os.MkdirAll(root, 0755)
 	Init(root)
 
 	tpl := ResolveTemplateRoot(root)
-	data, _ := os.ReadFile(filepath.Join(tpl, "scribe", "dal.cue"))
+	data, _ := os.ReadFile(filepath.Join(tpl, "dal", "dal.cue"))
 	content := string(data)
 
-	checks := []string{"scribe", "haiku", "auto_task", "30m", "dal-scribe", "GITHUB_TOKEN"}
+	checks := []string{"dal", "haiku", "auto_task", "30m", "dal-docs", "GITHUB_TOKEN"}
 	for _, check := range checks {
 		if !strings.Contains(content, check) {
-			t.Errorf("scribe dal.cue missing: %q", check)
+			t.Errorf("dal dal.cue missing: %q", check)
 		}
 	}
 }

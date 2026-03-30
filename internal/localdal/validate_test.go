@@ -34,22 +34,14 @@ func TestValidateValid(t *testing.T) {
 	_ = p
 }
 
-func TestValidateNoLeader(t *testing.T) {
+func TestValidateOpsOnlyTeamValid(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
 
-	// Init() auto-creates leader, so remove it to test the validation
-	DeleteDal(root, "leader")
-
+	// ops-only team (no leader) should be valid
 	errors := Validate(root)
-	found := false
-	for _, e := range errors {
-		if e == "no leader dal found (exactly 1 required)" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected 'no leader' error, got: %v", errors)
+	if len(errors) != 0 {
+		t.Fatalf("expected 0 errors for ops-only team, got: %v", errors)
 	}
 }
 
