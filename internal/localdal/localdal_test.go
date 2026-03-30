@@ -55,7 +55,8 @@ func TestCreateAndListDal(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
 
-	p, err := CreateDal(root, "dev", "claude")
+	// Init() auto-creates leader + dev + scribe, so use a different name
+	p, err := CreateDal(root, "reviewer", "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,23 +75,23 @@ func TestCreateAndListDal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Init() auto-creates scribe dal, so expect 2 (scribe + dev)
-	if len(dals) != 2 {
-		t.Fatalf("got %d dals, want 2 (scribe + dev)", len(dals))
+	// Init() auto-creates scribe + leader + dev = 3, plus reviewer = 4
+	if len(dals) != 4 {
+		t.Fatalf("got %d dals, want 4 (scribe + leader + dev + reviewer)", len(dals))
 	}
 	names := make(map[string]bool)
 	for _, d := range dals {
 		names[d.Name] = true
 	}
-	if !names["dev"] {
-		t.Fatal("dev dal not found")
+	if !names["reviewer"] {
+		t.Fatal("reviewer dal not found")
 	}
 }
 
 func TestCreateDalDuplicate(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
-	CreateDal(root, "dev", "claude")
+	// dev is auto-created by Init(), so creating it again should fail
 	if _, err := CreateDal(root, "dev", "claude"); err == nil {
 		t.Fatal("expected error for duplicate")
 	}
@@ -99,13 +100,12 @@ func TestCreateDalDuplicate(t *testing.T) {
 func TestDeleteDal(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
-	CreateDal(root, "dev", "claude")
 
+	// dev is auto-created by Init()
 	if err := DeleteDal(root, "dev"); err != nil {
 		t.Fatal(err)
 	}
 	dals, _ := ListDals(root)
-	// scribe remains after deleting dev
 	names := make(map[string]bool)
 	for _, d := range dals {
 		names[d.Name] = true
@@ -126,14 +126,15 @@ func TestDeleteDalNotFound(t *testing.T) {
 func TestSkillCreateAddRemoveDelete(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
-	CreateDal(root, "dev", "claude")
+
+	// Use a fresh dal (not auto-created dev which has default skills)
+	CreateDal(root, "reviewer", "claude")
 
 	// Create skill
 	if err := CreateSkill(root, "code-review"); err != nil {
 		t.Fatal(err)
 	}
 	skills, _ := ListSkills(root)
-	// Init() auto-creates 6 ops skills + we created code-review = 7
 	found := false
 	for _, s := range skills {
 		if s == "code-review" {
@@ -145,24 +146,24 @@ func TestSkillCreateAddRemoveDelete(t *testing.T) {
 	}
 
 	// Add to dal
-	if err := AddSkillToDal(root, "dev", "code-review"); err != nil {
+	if err := AddSkillToDal(root, "reviewer", "code-review"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ := ReadDalCue(filepath.Join(root, "dev", "dal.cue"), "dev")
+	p, _ := ReadDalCue(filepath.Join(root, "reviewer", "dal.cue"), "reviewer")
 	if len(p.Skills) != 1 || p.Skills[0] != "skills/code-review" {
 		t.Fatalf("skills = %v", p.Skills)
 	}
 
 	// Add duplicate
-	if err := AddSkillToDal(root, "dev", "code-review"); err == nil {
+	if err := AddSkillToDal(root, "reviewer", "code-review"); err == nil {
 		t.Fatal("expected error for duplicate skill")
 	}
 
 	// Remove from dal
-	if err := RemoveSkillFromDal(root, "dev", "code-review"); err != nil {
+	if err := RemoveSkillFromDal(root, "reviewer", "code-review"); err != nil {
 		t.Fatal(err)
 	}
-	p, _ = ReadDalCue(filepath.Join(root, "dev", "dal.cue"), "dev")
+	p, _ = ReadDalCue(filepath.Join(root, "reviewer", "dal.cue"), "reviewer")
 	if len(p.Skills) != 0 {
 		t.Fatalf("skills should be empty: %v", p.Skills)
 	}
@@ -182,9 +183,9 @@ func TestSkillCreateAddRemoveDelete(t *testing.T) {
 func TestDeleteSkillInUse(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
-	CreateDal(root, "dev", "claude")
+	CreateDal(root, "reviewer", "claude")
 	CreateSkill(root, "testing")
-	AddSkillToDal(root, "dev", "testing")
+	AddSkillToDal(root, "reviewer", "testing")
 
 	if err := DeleteSkill(root, "testing"); err == nil {
 		t.Fatal("expected error: skill in use")

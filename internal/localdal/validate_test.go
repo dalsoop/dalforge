@@ -35,7 +35,9 @@ func TestValidateValid(t *testing.T) {
 func TestValidateNoLeader(t *testing.T) {
 	root := t.TempDir()
 	Init(root)
-	CreateDal(root, "dev", "claude")
+
+	// Init() auto-creates leader, so remove it to test the validation
+	DeleteDal(root, "leader")
 
 	errors := Validate(root)
 	found := false
