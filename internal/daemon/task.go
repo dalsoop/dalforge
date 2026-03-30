@@ -250,6 +250,10 @@ func (d *Daemon) handleTaskFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
+
+	// Notify dalroot on external task finish
+	notifyTaskComplete(tr.Dal, tr, d.serviceRepo)
+
 	respondJSON(w, http.StatusOK, tr)
 }
 
@@ -449,10 +453,8 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 			Timestamp: now.Format(time.RFC3339),
 		})
 
-		// Notify dalroot if callback pane was specified
-		if tr.CallbackPane != "" {
-			notifyDalroot(c.DalName, tr, d.serviceRepo)
-		}
+		// Notify dalroot on failure
+		notifyTaskComplete(c.DalName, tr, d.serviceRepo)
 	} else {
 		tr.Status = "done"
 		tr.Output = stdout.String()
@@ -484,10 +486,8 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 			Timestamp:  now.Format(time.RFC3339),
 		})
 
-		// Notify dalroot if callback pane was specified
-		if tr.CallbackPane != "" {
-			notifyDalroot(c.DalName, tr, d.serviceRepo)
-		}
+		// Notify dalroot on completion
+		notifyTaskComplete(c.DalName, tr, d.serviceRepo)
 	}
 }
 
@@ -516,15 +516,6 @@ func verifyTaskChanges(containerID string, tr *taskResult) {
 				tr.GitChanges++
 			}
 		}
-	}
-}
-
-// notifyDalroot calls notify-dalroot to send a notification to the requesting pane.
-func notifyDalroot(dalName string, tr *taskResult, repo string) {
-	msg := fmt.Sprintf("[%s] task %s: %s", dalName, tr.Status, truncateStr(tr.Task, 80))
-	cmd := exec.Command("notify-dalroot", repo, msg, tr.CallbackPane)
-	if err := cmd.Run(); err != nil {
-		log.Printf("[notify] dalroot notification failed: %v", err)
 	}
 }
 
