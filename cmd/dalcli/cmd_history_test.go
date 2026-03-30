@@ -8,12 +8,8 @@ import (
 )
 
 func TestAppendHistoryBuffer_DirectCall(t *testing.T) {
-	if _, err := os.Stat("/workspace"); err != nil {
-		t.Skip("not in container environment")
-	}
-	bufDir := "/workspace/history-buffer"
-	os.MkdirAll(bufDir, 0755)
-	defer os.RemoveAll(bufDir)
+	bufDir := t.TempDir()
+	t.Setenv("DALCLI_HISTORY_BUFFER", bufDir)
 
 	appendHistoryBuffer("test-dal", "implement feature", "done", "완료")
 

@@ -8,15 +8,8 @@ import (
 )
 
 func TestProposeDecision_DirectCall(t *testing.T) {
-	// proposeDecision writes to /workspace/decisions/inbox
-	// We can't easily redirect, but we can test it if /workspace exists
-	// Skip if /workspace doesn't exist (not in container)
-	inboxDir := "/workspace/decisions/inbox"
-	if _, err := os.Stat("/workspace"); err != nil {
-		t.Skip("not in container environment")
-	}
-	os.MkdirAll(inboxDir, 0755)
-	defer os.RemoveAll(inboxDir)
+	inboxDir := t.TempDir()
+	t.Setenv("DALCLI_DECISIONS_INBOX", inboxDir)
 
 	err := proposeDecision("test-dal", "test title", "test body")
 	if err != nil {
