@@ -165,24 +165,15 @@ func GetAdminToken(mmURL, loginID, password string) (string, error) {
 func GetTeamAndChannel(mmURL, token, teamName, channelName string) (teamID, channelID string, err error) {
 	mmURL = strings.TrimRight(mmURL, "/")
 
-	// Get teams
-	teamsResp, err := mmAPI("GET", mmURL+"/api/v4/teams", token, "")
+	// Get team by name (direct lookup works with bot tokens)
+	if teamName == "" {
+		return "", "", fmt.Errorf("team name is required")
+	}
+	teamResp, err := mmAPI("GET", mmURL+"/api/v4/teams/name/"+teamName, token, "")
 	if err != nil {
-		return "", "", fmt.Errorf("list teams: %w", err)
+		return "", "", fmt.Errorf("get team %q: %w", teamName, err)
 	}
-	var teams []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal(teamsResp, &teams); err != nil {
-		return "", "", err
-	}
-	for _, t := range teams {
-		if teamName == "" || t.Name == teamName {
-			teamID = t.ID
-			break
-		}
-	}
+	teamID = jsonStr(teamResp, "id")
 	if teamID == "" {
 		return "", "", fmt.Errorf("team %q not found", teamName)
 	}
