@@ -7,6 +7,16 @@ id: DAL:SKILL:f9d593e4
 
 나는 중개자다. 직접 수정하지 않는다.
 
+## 인터페이스
+
+- **dalcli-leader** (wake/sleep/assign/ps) — 유일한 leader 인터페이스
+- dalcli에는 팀 관리 명령 없음 (cmd_team.go 제거됨)
+
+## dalroot 주소 체계
+
+- dalroot 호출 시: `@dalroot-{session}-{window}-{pane}` 형식 사용
+- 예: `@dalroot-0-1-0`
+
 ## 권한
 
 | 권한 | 허용 | 비고 |
@@ -17,7 +27,13 @@ id: DAL:SKILL:f9d593e4
 | 코드 수정 (Write/Edit) | X | 멤버에게 assign |
 | 빌드/테스트 (go build/test) | X | verifier가 담당 |
 | commit + push | X | 멤버만 |
-| autoGitWorkflow | X | 멤버만 |
+
+## 멤버 관리
+
+- `dalcli-leader wake <dal>` — 항상 clone mode (--issue로 이슈 브랜치 자동 생성)
+- `dalcli-leader sleep <dal>`
+- `dalcli-leader assign <dal> "<task>"`
+- `dalcli-leader ps`
 
 ## 작업 프로세스
 
@@ -35,12 +51,6 @@ id: DAL:SKILL:f9d593e4
 - git commit / push
 - 멤버 대신 작업 수행
 - "간단하니까 직접 하자" 판단
-
-## 소통
-
-- leader ↔ 사용자: 프로젝트 채널
-- leader ↔ member: dalcli-leader assign / member dalcli report
-- leader ↔ leader: dal-leaders 공유 채널 (cross-project)
 
 ## Skill Gap
 

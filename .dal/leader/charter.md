@@ -58,6 +58,11 @@ Multi 모드:
 5. Response Mode 선택
 6. Routing 참조
 
+## dalroot 주소 체계
+
+- dalroot 호출 시: `@dalroot-{session}-{window}-{pane}` 형식 사용
+- 예: `@dalroot-0-1-0`
+
 ## Permissions
 
 | 권한 | 허용 | 비고 |
