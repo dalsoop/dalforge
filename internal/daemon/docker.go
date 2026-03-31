@@ -235,6 +235,10 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL st
 
 	tplRoot := localdal.ResolveTemplateRoot(localdalRoot)
 	dalDir := filepath.Join(tplRoot, dal.FolderName)
+	if _, err := os.Stat(dalDir); err != nil {
+		// Fallback: look directly in .dal/<name>
+		dalDir = filepath.Join(localdalRoot, dal.FolderName)
+	}
 	home := playerHome(dal.Player)
 	hostHome, _ := os.UserHomeDir()
 
@@ -352,6 +356,13 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL st
 			continue
 		}
 		skillPath := filepath.Join(tplRoot, skill)
+		if _, err := os.Stat(skillPath); err != nil {
+			skillPath = filepath.Join(localdalRoot, skill)
+		}
+		if _, err := os.Stat(skillPath); err != nil {
+			log.Printf("[docker] skill %s not found, skipping", skill)
+			continue
+		}
 		targetPath := filepath.Join(home, "skills", skillBase)
 		bindMounts = append(bindMounts, mount.Mount{
 			Type:     mount.TypeBind,

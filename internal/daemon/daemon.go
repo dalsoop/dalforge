@@ -1138,7 +1138,12 @@ func (d *Daemon) agentConfigResponse(name string, c *Container) map[string]strin
 
 func (d *Daemon) dalCuePath(name string) string {
 	tplRoot := localdal.ResolveTemplateRoot(d.localdalRoot)
-	return fmt.Sprintf("%s/%s/dal.cue", tplRoot, name)
+	path := fmt.Sprintf("%s/%s/dal.cue", tplRoot, name)
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	// Fallback: look directly in .dal/<name>/dal.cue
+	return fmt.Sprintf("%s/%s/dal.cue", d.localdalRoot, name)
 }
 
 // validateMemberLimit checks the leader's max_members setting and rejects
