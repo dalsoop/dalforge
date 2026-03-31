@@ -20,11 +20,6 @@ func main() {
 
 	root.AddCommand(statusCmd(dalName), psCmd(), reportCmd(dalName), claimCmd(dalName), runCmd(dalName), proposeCmd(dalName), wisdomCmd(dalName))
 
-	// Leader-only commands
-	if os.Getenv("DAL_ROLE") == "leader" {
-		root.AddCommand(wakeCmd(), sleepCmd(), assignCmd(dalName))
-	}
-
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
