@@ -48,11 +48,12 @@ func statusCmd(dalName string) *cobra.Command {
 			}
 			for _, c := range containers {
 				if c.DalName == dalName {
-					fmt.Printf("name:      %s\n", c.DalName)
-					fmt.Printf("uuid:      %s\n", c.UUID)
-					fmt.Printf("player:    %s\n", c.Player)
-					fmt.Printf("role:      %s\n", c.Role)
-					fmt.Printf("status:    %s\n", c.Status)
+					fmt.Printf("name:        %s\n", c.DalName)
+					fmt.Printf("uuid:        %s\n", c.UUID)
+					fmt.Printf("instance_id: %s\n", c.InstanceID)
+					fmt.Printf("player:      %s\n", c.Player)
+					fmt.Printf("role:        %s\n", c.Role)
+					fmt.Printf("status:      %s\n", c.Status)
 					if c.IdleFor != "" {
 						fmt.Printf("idle:      %s\n", c.IdleFor)
 					}

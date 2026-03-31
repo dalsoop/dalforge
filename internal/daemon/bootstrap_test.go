@@ -493,6 +493,29 @@ func TestDalContainerName_WithHyphens(t *testing.T) {
 	}
 }
 
+// ── makeInstanceID 테스트 (#531) ─────────────────────────
+
+func TestMakeInstanceID_FirstInstance(t *testing.T) {
+	id := makeInstanceID("leader", "leader", "vk-leader-20260323")
+	if id != "vk-leader-20260323" {
+		t.Errorf("first instance should return base UUID, got %q", id)
+	}
+}
+
+func TestMakeInstanceID_SecondInstance(t *testing.T) {
+	id := makeInstanceID("leader", "leader-2", "vk-leader-20260323")
+	if id != "vk-leader-20260323-2" {
+		t.Errorf("second instance should append -2, got %q", id)
+	}
+}
+
+func TestMakeInstanceID_ThirdInstance(t *testing.T) {
+	id := makeInstanceID("dev", "dev-3", "dev-uuid-abc")
+	if id != "dev-uuid-abc-3" {
+		t.Errorf("third instance should append -3, got %q", id)
+	}
+}
+
 // ── persistJSON 테스트 ───────────────────────────────────
 
 func TestPersistJSON_WritesFile(t *testing.T) {

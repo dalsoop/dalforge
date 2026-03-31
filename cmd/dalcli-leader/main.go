@@ -133,11 +133,12 @@ func statusCmd() *cobra.Command {
 			}
 			for _, c := range containers {
 				if c.DalName == args[0] {
-					fmt.Printf("name:      %s\n", c.DalName)
-					fmt.Printf("uuid:      %s\n", c.UUID)
-					fmt.Printf("player:    %s\n", c.Player)
-					fmt.Printf("role:      %s\n", c.Role)
-					fmt.Printf("status:    %s\n", c.Status)
+					fmt.Printf("name:        %s\n", c.DalName)
+					fmt.Printf("uuid:        %s\n", c.UUID)
+					fmt.Printf("instance_id: %s\n", c.InstanceID)
+					fmt.Printf("player:      %s\n", c.Player)
+					fmt.Printf("role:        %s\n", c.Role)
+					fmt.Printf("status:      %s\n", c.Status)
 					if c.IdleFor != "" {
 						fmt.Printf("idle:      %s\n", c.IdleFor)
 					}
@@ -233,14 +234,18 @@ func assignCmd(dalName string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Find target dal's UUID from ps to construct mention
+			// Find target dal's instance ID from ps to construct mention
 			targetName := args[0]
 			var targetMention string
 			if containers, err := client.Ps(); err == nil {
 				for _, c := range containers {
-					if c.DalName == targetName && c.UUID != "" {
-						// uuidShort: 하이픈 제거 후 첫 6글자 (daemon.go와 동일)
-						clean := strings.ReplaceAll(c.UUID, "-", "")
+					if c.DalName == targetName {
+						// Use instance ID for unique mention (#531)
+						id := c.InstanceID
+						if id == "" {
+							id = c.UUID
+						}
+						clean := strings.ReplaceAll(id, "-", "")
 						short := clean
 						if len(clean) > 6 {
 							short = clean[:6]

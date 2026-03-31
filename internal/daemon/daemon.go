@@ -54,6 +54,7 @@ type Daemon struct {
 type Container struct {
 	DalName     string    `json:"dal_name"`
 	UUID        string    `json:"uuid"`
+	InstanceID  string    `json:"instance_id"`
 	Player      string    `json:"player"`
 	Role        string    `json:"role"`
 	ContainerID string    `json:"container_id"`
@@ -107,6 +108,18 @@ func uuidShort(uuid string) string {
 // dalContainerName returns the Docker container name: dal-{name}-{uuid[:6]}
 func dalContainerName(name, uuid string) string {
 	return containerBasePrefix + name + "-" + uuidShort(uuid)
+}
+
+// makeInstanceID returns a unique instance ID for a dal.
+// For the first instance it returns the base UUID unchanged.
+// For additional instances (instanceName differs from baseName) it appends the
+// instance suffix: "{uuid}-2", "{uuid}-3", etc.
+func makeInstanceID(baseName, instanceName, uuid string) string {
+	if instanceName == baseName {
+		return uuid
+	}
+	suffix := strings.TrimPrefix(instanceName, baseName+"-")
+	return uuid + "-" + suffix
 }
 
 
@@ -377,8 +390,14 @@ func (d *Daemon) handleStatusOne(w http.ResponseWriter, r *http.Request) {
 		containerID = c.ContainerID
 	}
 
+	instanceID := dal.UUID
+	if c != nil && c.InstanceID != "" {
+		instanceID = c.InstanceID
+	}
+
 	json.NewEncoder(w).Encode(map[string]any{
 		"uuid":         dal.UUID,
+		"instance_id":  instanceID,
 		"name":         dal.Name,
 		"player":       dal.Player,
 		"role":         dal.Role,
@@ -428,13 +447,16 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Unlock()
 
+	// Generate unique instance ID for multi-instance disambiguation (#531)
+	instanceID := makeInstanceID(name, instanceName, dal.UUID)
+
 	// Clean any stopped container with the same name (best-effort, #33)
-	targetContainerName := dalContainerName(instanceName, dal.UUID)
+	targetContainerName := dalContainerName(instanceName, instanceID)
 	if err := cleanStaleContainer(targetContainerName); err != nil {
 		log.Printf("[daemon] clean stale container %s: %v (continuing)", targetContainerName, err)
 	}
 
-	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, d.bridgeURL, dal)
+	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, d.bridgeURL, dal, instanceID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("wake failed: %v", err), 500)
 		return
@@ -453,6 +475,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	d.containers[instanceName] = &Container{
 		DalName:     instanceName,
 		UUID:        dal.UUID,
+		InstanceID:  instanceID,
 		Player:      dal.Player,
 		Role:        dal.Role,
 		ContainerID: containerID,
@@ -463,8 +486,8 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Unlock()
 
-	// Persist to registry
-	d.registry.Set(dal.UUID, RegistryEntry{
+	// Persist to registry keyed by instance ID (unique per instance, #531)
+	d.registry.Set(instanceID, RegistryEntry{
 		Name:        instanceName,
 		Repo:        d.serviceRepo,
 		ContainerID: containerID,
@@ -475,14 +498,15 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	if len(cid) > 12 {
 		cid = cid[:12]
 	}
-	uid := dal.UUID
-	if len(uid) > 8 {
-		uid = uid[:8]
+	iid := instanceID
+	if len(iid) > 8 {
+		iid = iid[:8]
 	}
-	log.Printf("[daemon] wake: %s (uuid=%s, container=%s)", instanceName, uid, cid)
+	log.Printf("[daemon] wake: %s (instance_id=%s, container=%s)", instanceName, iid, cid)
 	resp := map[string]any{
 		"status":       "awake",
 		"dal":          instanceName,
+		"instance_id":  instanceID,
 		"container_id": containerID,
 	}
 	if len(warnings) > 0 {
@@ -657,7 +681,12 @@ func (d *Daemon) runSync() (synced, restarted []string) {
 				log.Printf("[daemon] sync restart stop %s: %v", name, err)
 				continue
 			}
-			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, dal)
+			// Preserve existing instance ID on sync restart
+			instanceID := c.InstanceID
+			if instanceID == "" {
+				instanceID = dal.UUID
+			}
+			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, dal, instanceID)
 			if err != nil {
 				log.Printf("[daemon] sync restart run %s: %v", name, err)
 				d.mu.Lock()
@@ -669,6 +698,7 @@ func (d *Daemon) runSync() (synced, restarted []string) {
 			d.containers[name] = &Container{
 				DalName:     name,
 				UUID:        dal.UUID,
+				InstanceID:  instanceID,
 				Player:      dal.Player,
 				Role:        dal.Role,
 				ContainerID: newID,
@@ -1038,10 +1068,12 @@ func (d *Daemon) reconcile() {
 				continue
 			}
 
+			instanceID := makeInstanceID(dal.Name, instanceName, dal.UUID)
 			d.mu.Lock()
 			d.containers[instanceName] = &Container{
 				DalName:     instanceName,
 				UUID:        dal.UUID,
+				InstanceID:  instanceID,
 				Player:      dal.Player,
 				Role:        dal.Role,
 				ContainerID: c.ID,
@@ -1051,7 +1083,7 @@ func (d *Daemon) reconcile() {
 			}
 			d.mu.Unlock()
 			running++
-			log.Printf("[daemon] reconcile: restored %s (container=%s)", instanceName, c.ID[:12])
+			log.Printf("[daemon] reconcile: restored %s (instance_id=%s, container=%s)", instanceName, instanceID, c.ID[:12])
 		} else {
 			stopped++
 			log.Printf("[daemon] reconcile: stopped container %s (%s) — skipping", c.Name, c.ID[:12])
@@ -1115,8 +1147,9 @@ func (d *Daemon) agentContainer(name string) (*Container, bool) {
 
 func (d *Daemon) agentConfigResponse(name string, c *Container) map[string]string {
 	resp := map[string]string{
-		"dal_name":   c.DalName,
-		"uuid":       c.UUID,
+		"dal_name":    c.DalName,
+		"uuid":        c.UUID,
+		"instance_id": c.InstanceID,
 		"bridge_url": bridgeURLForContainer(d.bridgeURL),
 		"gateway":    "dal-team",
 	}

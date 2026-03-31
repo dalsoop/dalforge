@@ -217,7 +217,7 @@ func bridgeURLForContainer(bridgeURL string) string {
 
 // dockerRun creates and starts a Docker container for a dal.
 // It returns the container ID, any credential warnings, and an error.
-func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL string, dal *localdal.DalProfile) (string, []string, error) {
+func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL string, dal *localdal.DalProfile, instanceID string) (string, []string, error) {
 	var warnings []string
 	ctx := context.Background()
 
@@ -226,7 +226,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL st
 		return "", nil, fmt.Errorf("docker client: %w", err)
 	}
 
-	containerName := dalContainerName(instanceName, dal.UUID)
+	containerName := dalContainerName(instanceName, instanceID)
 	tag := "latest"
 	if dal.PlayerVersion != "" {
 		tag = dal.PlayerVersion
@@ -245,8 +245,9 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL st
 	// Build environment variables
 	envMap := map[string]string{
 		"DAL_NAME":               dal.Name,
-		"DAL_UUID_SHORT":         uuidShort(dal.UUID),
+		"DAL_UUID_SHORT":         uuidShort(instanceID),
 		"DAL_UUID":               dal.UUID,
+		"DAL_INSTANCE_ID":        instanceID,
 		"DAL_ROLE":               dal.Role,
 		"DAL_PLAYER":             dal.Player,
 		"DALCENTER_URL":          fmt.Sprintf("http://%s%s", dockerHostAlias, daemonAddr),
@@ -494,11 +495,11 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL st
 	// Git config from dal.cue or defaults
 	gitUser := dal.GitUser
 	if gitUser == "" {
-		gitUser = containerBasePrefix + dal.Name + "-" + uuidShort(dal.UUID)
+		gitUser = containerBasePrefix + dal.Name + "-" + uuidShort(instanceID)
 	}
 	gitEmail := dal.GitEmail
 	if gitEmail == "" {
-		gitEmail = fmt.Sprintf("%s%s-%s@%s", containerBasePrefix, dal.Name, uuidShort(dal.UUID), defaultGitEmailDomain)
+		gitEmail = fmt.Sprintf("%s%s-%s@%s", containerBasePrefix, dal.Name, uuidShort(instanceID), defaultGitEmailDomain)
 	}
 	envMap["GIT_AUTHOR_NAME"] = gitUser
 	envMap["GIT_AUTHOR_EMAIL"] = gitEmail
@@ -550,7 +551,8 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL st
 		sdkcontainer.WithName(containerName),
 		sdkcontainer.WithEnv(envMap),
 		sdkcontainer.WithLabels(map[string]string{
-			"dalcenter.uuid": dal.UUID,
+			"dalcenter.uuid":        dal.UUID,
+			"dalcenter.instance_id": instanceID,
 		}),
 		sdkcontainer.WithConfigModifier(func(cfg *apicontainer.Config) {
 			cfg.Hostname = dal.Name

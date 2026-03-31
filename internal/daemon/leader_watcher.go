@@ -168,7 +168,9 @@ func (d *Daemon) restartLeader(name string) error {
 		return fmt.Errorf("read dal.cue for %s: %w", name, err)
 	}
 
-	containerID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, dal)
+	// Leader watcher always restarts the base instance, so instanceID = UUID
+	instanceID := dal.UUID
+	containerID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, dal, instanceID)
 	if err != nil {
 		return fmt.Errorf("wake %s: %w", name, err)
 	}
@@ -181,6 +183,7 @@ func (d *Daemon) restartLeader(name string) error {
 	d.containers[name] = &Container{
 		DalName:     name,
 		UUID:        dal.UUID,
+		InstanceID:  instanceID,
 		Player:      dal.Player,
 		Role:        dal.Role,
 		ContainerID: containerID,
@@ -191,7 +194,7 @@ func (d *Daemon) restartLeader(name string) error {
 	}
 	d.mu.Unlock()
 
-	d.registry.Set(dal.UUID, RegistryEntry{
+	d.registry.Set(instanceID, RegistryEntry{
 		Name:        name,
 		Repo:        d.serviceRepo,
 		ContainerID: containerID,

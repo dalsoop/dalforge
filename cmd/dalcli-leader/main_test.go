@@ -17,8 +17,8 @@ func mockDaemon(t *testing.T) *httptest.Server {
 		switch {
 		case r.URL.Path == "/api/ps" && r.Method == "GET":
 			json.NewEncoder(w).Encode([]daemon.Container{
-				{DalName: "dev", UUID: "test-dev-uuid-1234", Player: "claude", Role: "member", Status: "running", ContainerID: "abc123def456ghi"},
-				{DalName: "leader", UUID: "test-leader-uuid-5678", Player: "claude", Role: "leader", Status: "running", ContainerID: "def456abc789jkl"},
+				{DalName: "dev", UUID: "test-dev-uuid-1234", InstanceID: "test-dev-uuid-1234", Player: "claude", Role: "member", Status: "running", ContainerID: "abc123def456ghi"},
+				{DalName: "leader", UUID: "test-leader-uuid-5678", InstanceID: "test-leader-uuid-5678", Player: "claude", Role: "leader", Status: "running", ContainerID: "def456abc789jkl"},
 			})
 		case r.URL.Path == "/api/wake/dev" && r.Method == "POST":
 			json.NewEncoder(w).Encode(map[string]string{"status": "awake", "container_id": "new-container-abc"})
