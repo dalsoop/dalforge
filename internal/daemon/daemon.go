@@ -983,7 +983,7 @@ func (d *Daemon) bridgePost(text, username string) error {
 	if d.bridgeURL == "" {
 		return fmt.Errorf("bridge URL not configured")
 	}
-	body := fmt.Sprintf(`{"text":%q,"username":%q,"gateway":"dal-team"}`, text, username)
+	body := fmt.Sprintf(`{"text":%q,"username":%q,"gateway":%q}`, text, username, "dal-"+filepath.Base(d.serviceRepo))
 	req, _ := http.NewRequest("POST", d.bridgeURL+"/api/message", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
@@ -1128,7 +1128,7 @@ func (d *Daemon) agentConfigResponse(name string, c *Container) map[string]strin
 		"dal_name":   c.DalName,
 		"uuid":       c.UUID,
 		"bridge_url": bridgeURLForContainer(d.bridgeURL),
-		"gateway":    "dal-team",
+		"gateway":    "dal-" + filepath.Base(d.serviceRepo),
 	}
 
 	// Inject team member names so leader can mention them correctly

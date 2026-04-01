@@ -9,6 +9,7 @@ import (
 func TestHandleAgentConfig_Found(t *testing.T) {
 	d := &Daemon{
 		bridgeURL: "http://bridge:4242",
+		serviceRepo: "/root/test-repo",
 		containers: map[string]*Container{
 			"story-checker": {
 				DalName: "story-checker",
@@ -35,7 +36,7 @@ func TestHandleAgentConfig_Found(t *testing.T) {
 	if resp["bridge_url"] != "http://bridge:4242" {
 		t.Errorf("bridge_url = %q", resp["bridge_url"])
 	}
-	if resp["gateway"] != "dal-team" {
+	if resp["gateway"] != "dal-test-repo" {
 		t.Errorf("gateway = %q", resp["gateway"])
 	}
 }
