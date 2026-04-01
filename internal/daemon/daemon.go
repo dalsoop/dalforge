@@ -145,7 +145,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// Start matterbridge as child process
 	if d.bridgeConf != "" {
-		if mb, err := startMatterbridge(ctx, d.bridgeConf); err != nil {
+		mb, err := startMatterbridge(ctx, d.bridgeConf)
+		if err != nil {
 			log.Printf("[daemon] matterbridge start failed: %v (continuing without)", err)
 		} else if mb != nil {
 			defer func() {
