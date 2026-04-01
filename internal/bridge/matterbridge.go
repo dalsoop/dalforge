@@ -148,7 +148,7 @@ func (mb *MatterbridgeBridge) stream() {
 // streamOnce opens a single streaming connection and reads messages until
 // the connection drops or done is closed.
 func (mb *MatterbridgeBridge) streamOnce() error {
-	req, err := http.NewRequest("GET", mb.URL+"/api/stream?gateway="+mb.Gateway, nil)
+	req, err := http.NewRequest("GET", mb.URL+"/stream?gateway="+mb.Gateway, nil)
 	if err != nil {
 		return err
 	}
@@ -202,6 +202,10 @@ func (mb *MatterbridgeBridge) streamOnce() error {
 			continue
 		}
 		if raw.Username == mb.BotUsername {
+			continue
+		}
+		// Client-side gateway filter — defense against server not filtering.
+		if raw.Gateway != "" && raw.Gateway != mb.Gateway {
 			continue
 		}
 

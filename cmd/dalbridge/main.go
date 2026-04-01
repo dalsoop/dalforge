@@ -143,6 +143,8 @@ func main() {
 			return
 		}
 
+		gatewayFilter := r.URL.Query().Get("gateway")
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -155,7 +157,7 @@ func main() {
 		fmt.Fprintf(w, "data: {\"event\":\"connected\"}\n\n")
 		flusher.Flush()
 
-		log.Printf("[stream] client connected (%d total)", b.clientCount())
+		log.Printf("[stream] client connected (gateway=%q, %d total)", gatewayFilter, b.clientCount())
 		defer func() {
 			log.Printf("[stream] client disconnected (%d remaining)", b.clientCount())
 		}()
@@ -168,6 +170,15 @@ func main() {
 			case data, ok := <-ch:
 				if !ok {
 					return
+				}
+				// gateway 필터링: 파라미터가 있으면 해당 채널만 전달
+				if gatewayFilter != "" {
+					var msg struct {
+						Channel string `json:"channel"`
+					}
+					if json.Unmarshal(data, &msg) == nil && msg.Channel != gatewayFilter {
+						continue
+					}
 				}
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				flusher.Flush()
