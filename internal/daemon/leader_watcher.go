@@ -168,7 +168,7 @@ func (d *Daemon) restartLeader(name string) error {
 		return fmt.Errorf("read dal.cue for %s: %w", name, err)
 	}
 
-	containerID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, dal)
+	containerID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, d.dalbridgeURL, dal)
 	if err != nil {
 		return fmt.Errorf("wake %s: %w", name, err)
 	}

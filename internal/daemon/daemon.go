@@ -31,8 +31,9 @@ type Daemon struct {
 	addr         string
 	localdalRoot string
 	serviceRepo  string // service repo path to mount as /workspace
-	bridgeURL    string // matterbridge API URL
-	bridgeConf   string // matterbridge config path (child process)
+	bridgeURL      string // matterbridge API URL (daemon→MM posting)
+	dalbridgeURL   string // dalbridge URL for dal containers (webhook stream)
+	bridgeConf     string // matterbridge config path (child process)
 	githubRepo   string // GitHub repo for issue polling (e.g., "owner/repo")
 	apiToken     string                // Bearer token for write endpoints (empty = no auth)
 	containers   map[string]*Container // dal name -> container
@@ -65,7 +66,7 @@ type Container struct {
 }
 
 // New creates a daemon.
-func New(addr, localdalRoot, serviceRepo, bridgeURL, bridgeConf, githubRepo string) *Daemon {
+func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, githubRepo string) *Daemon {
 	token := os.Getenv("DALCENTER_TOKEN")
 	if token != "" {
 		log.Println("[daemon] API token auth enabled for write endpoints")
@@ -78,6 +79,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, bridgeConf, githubRepo stri
 		localdalRoot: localdalRoot,
 		serviceRepo:  serviceRepo,
 		bridgeURL:    strings.TrimRight(bridgeURL, "/"),
+		dalbridgeURL: strings.TrimRight(dalbridgeURL, "/"),
 		bridgeConf:   bridgeConf,
 		githubRepo:   githubRepo,
 		apiToken:     token,
@@ -180,6 +182,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	if d.bridgeURL != "" {
 		log.Printf("[daemon] matterbridge URL: %s", d.bridgeURL)
+	}
+	if d.dalbridgeURL != "" {
+		log.Printf("[daemon] dalbridge URL: %s (containers)", d.dalbridgeURL)
 	}
 
 	// Reconcile existing containers from a previous daemon run
@@ -434,7 +439,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[daemon] clean stale container %s: %v (continuing)", targetContainerName, err)
 	}
 
-	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, d.bridgeURL, dal)
+	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, d.bridgeURL, d.dalbridgeURL, dal)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("wake failed: %v", err), 500)
 		return
@@ -657,7 +662,7 @@ func (d *Daemon) runSync() (synced, restarted []string) {
 				log.Printf("[daemon] sync restart stop %s: %v", name, err)
 				continue
 			}
-			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, dal)
+			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, d.dalbridgeURL, dal)
 			if err != nil {
 				log.Printf("[daemon] sync restart run %s: %v", name, err)
 				d.mu.Lock()

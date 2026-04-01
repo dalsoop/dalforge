@@ -207,6 +207,16 @@ func appendCredentialMounts(mounts []mount.Mount, hostHome string, players []str
 	return mounts
 }
 
+// containerBridgeURL returns the bridge URL for dal containers.
+// If dalbridgeURL is set, it is used directly (dalbridge uses a routable IP).
+// Otherwise, falls back to the matterbridge URL with localhost rewriting.
+func containerBridgeURL(dalbridgeURL, bridgeURL string) string {
+	if dalbridgeURL != "" {
+		return dalbridgeURL
+	}
+	return bridgeURLForContainer(bridgeURL)
+}
+
 // bridgeURLForContainer rewrites localhost URLs to host.docker.internal
 // so containers can reach the host's matterbridge.
 func bridgeURLForContainer(bridgeURL string) string {
@@ -217,7 +227,7 @@ func bridgeURLForContainer(bridgeURL string) string {
 
 // dockerRun creates and starts a Docker container for a dal.
 // It returns the container ID, any credential warnings, and an error.
-func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL string, dal *localdal.DalProfile) (string, []string, error) {
+func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL, dalbridgeURL string, dal *localdal.DalProfile) (string, []string, error) {
 	var warnings []string
 	ctx := context.Background()
 
@@ -250,7 +260,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL st
 		"DAL_ROLE":               dal.Role,
 		"DAL_PLAYER":             dal.Player,
 		"DALCENTER_URL":          fmt.Sprintf("http://%s%s", dockerHostAlias, daemonAddr),
-		"DALCENTER_BRIDGE_URL":   bridgeURLForContainer(bridgeURL),
+		"DALCENTER_BRIDGE_URL":   containerBridgeURL(dalbridgeURL, bridgeURL),
 		"VEILKEY_LOCALVAULT_URL": os.Getenv("VEILKEY_LOCALVAULT_URL"),
 	}
 	if shouldDisableContainerDM(dal) {
