@@ -885,10 +885,7 @@ func autoGitWorkflow(dalName string) string {
 		return strings.TrimSpace(string(out)), err
 	}
 
-	// 먼저 main으로 복귀 (이전 실행에서 다른 브랜치에 남아있을 수 있음)
-	run("git", "checkout", "main")
-
-	// Check changes
+	// Check changes (현재 브랜치에서 — checkout하면 변경사항이 날아감)
 	statusCmd := exec.Command("git", "status", "--porcelain")
 	statusCmd.Dir = "/workspace"
 	statusOut, err := statusCmd.Output()
