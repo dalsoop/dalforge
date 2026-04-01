@@ -9,14 +9,14 @@
 # 환경변수:
 #   MM_URL    — Mattermost URL (default: http://localhost:8065)
 #   MM_TOKEN  — Mattermost admin token (필수)
-#   MM_TEAM   — Team slug (default: prelik)
+#   MM_TEAM   — Team slug (default: dalsoop)
 
 set -euo pipefail
 
 CT_ID="${1:-202}"
 MM_URL="${MM_URL:-http://localhost:8065}"
 MM_TOKEN="${MM_TOKEN:-}"
-MM_TEAM="${MM_TEAM:-prelik}"
+MM_TEAM="${MM_TEAM:-dalsoop}"
 DALBRIDGE_CALLBACK="${DALBRIDGE_CALLBACK:-http://localhost:4280/webhook}"
 
 RED='\033[0;31m'
