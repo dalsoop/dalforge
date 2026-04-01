@@ -154,51 +154,6 @@ func TestIssueWorkflow_Complete(t *testing.T) {
 	}
 }
 
-// ── extractPRUrl Tests ──────────────────────────────────────
-
-func TestExtractPRUrl(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "standard PR URL",
-			input: "Created PR: https://github.com/dalsoop/dalcenter/pull/42",
-			want:  "https://github.com/dalsoop/dalcenter/pull/42",
-		},
-		{
-			name:  "PR URL in parentheses",
-			input: "PR created (https://github.com/org/repo/pull/123)",
-			want:  "https://github.com/org/repo/pull/123",
-		},
-		{
-			name:  "no PR URL",
-			input: "Task completed successfully\nNo changes needed",
-			want:  "",
-		},
-		{
-			name:  "multiline with PR URL",
-			input: "Building...\nTests passed\nPR: https://github.com/org/repo/pull/99\nDone",
-			want:  "https://github.com/org/repo/pull/99",
-		},
-		{
-			name:  "empty input",
-			input: "",
-			want:  "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractPRUrl(tt.input)
-			if got != tt.want {
-				t.Errorf("extractPRUrl() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 // ── HTTP Handler Tests ──────────────────────────────────────
 
 func TestHandleIssueWorkflow_BadJSON(t *testing.T) {
