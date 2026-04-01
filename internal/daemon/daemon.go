@@ -983,7 +983,7 @@ func (d *Daemon) bridgePost(text, username string) error {
 	if d.bridgeURL == "" {
 		return fmt.Errorf("bridge URL not configured")
 	}
-	body := fmt.Sprintf(`{"text":%q,"username":%q,"gateway":%q}`, text, username, "dal-"+filepath.Base(d.serviceRepo))
+	body := fmt.Sprintf(`{"text":%q,"username":%q,"gateway":%q}`, text, username, gatewayName(d.serviceRepo))
 	req, _ := http.NewRequest("POST", d.bridgeURL+"/api/message", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
@@ -996,6 +996,16 @@ func (d *Daemon) bridgePost(text, username string) error {
 		return fmt.Errorf("bridge %d: %s", resp.StatusCode, string(respBody))
 	}
 	return nil
+}
+
+// gatewayName returns the matterbridge gateway name for a service repo path.
+// It ensures exactly one "dal-" prefix even if the repo basename already starts with "dal-".
+func gatewayName(serviceRepo string) string {
+	base := filepath.Base(serviceRepo)
+	if strings.HasPrefix(base, "dal-") {
+		return base
+	}
+	return "dal-" + base
 }
 
 // reconcile discovers existing dal-* containers and restores daemon state.
@@ -1128,7 +1138,7 @@ func (d *Daemon) agentConfigResponse(name string, c *Container) map[string]strin
 		"dal_name":   c.DalName,
 		"uuid":       c.UUID,
 		"bridge_url": bridgeURLForContainer(d.bridgeURL),
-		"gateway":    "dal-" + filepath.Base(d.serviceRepo),
+		"gateway":    gatewayName(d.serviceRepo),
 	}
 
 	// Inject team member names so leader can mention them correctly

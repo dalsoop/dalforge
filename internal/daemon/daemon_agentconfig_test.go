@@ -57,6 +57,29 @@ func TestHandleAgentConfig_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandleAgentConfig_DalPrefixRepo(t *testing.T) {
+	d := &Daemon{
+		bridgeURL:   "http://bridge:4242",
+		serviceRepo: "/root/dal-proxmox-host-setup",
+		containers: map[string]*Container{
+			"dev": {DalName: "dev"},
+		},
+	}
+
+	req := httptest.NewRequest("GET", "/api/agent-config/dev", nil)
+	req.SetPathValue("name", "dev")
+	w := httptest.NewRecorder()
+
+	d.handleAgentConfig(w, req)
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if resp["gateway"] != "dal-proxmox-host-setup" {
+		t.Errorf("gateway = %q, want %q (should not double dal- prefix)", resp["gateway"], "dal-proxmox-host-setup")
+	}
+}
+
 func TestHandleAgentConfig_NoBridge(t *testing.T) {
 	d := &Daemon{
 		containers: map[string]*Container{
