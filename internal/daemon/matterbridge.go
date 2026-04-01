@@ -135,7 +135,7 @@ func (d *Daemon) resolveMMChannelID(mmURL, mmToken string) string {
 	// Resolve team ID first
 	mmTeam := os.Getenv("DALCENTER_MM_TEAM")
 	if mmTeam == "" {
-		mmTeam = "prelik"
+		mmTeam = "dalsoop"
 	}
 
 	url := fmt.Sprintf("%s/api/v4/teams/name/%s/channels/name/%s", strings.TrimRight(mmURL, "/"), mmTeam, channelName)
