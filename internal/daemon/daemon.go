@@ -191,6 +191,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start queue manager (task expiry + concurrency limits)
 	go d.startQueueManager(ctx)
 
+	// Start ops watcher (poll all teams, auto-wake empty teams)
+	if opsWatcherEnabled() {
+		go d.startOpsWatcher(ctx)
+	}
+
 	if d.bridgeURL != "" {
 		log.Printf("[daemon] matterbridge URL: %s", d.bridgeURL)
 	}
