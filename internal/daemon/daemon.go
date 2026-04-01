@@ -49,6 +49,7 @@ type Daemon struct {
 	issues         *issueStore
 	issueWorkflows *issueWorkflowStore
 	registry       *Registry
+	queueManager   *QueueManager
 	startTime      time.Time
 }
 
@@ -75,7 +76,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 	inboxDir(serviceRepo)
 	historyBufferDir(serviceRepo)
 	wisdomInboxDir(serviceRepo)
-	return &Daemon{
+	d := &Daemon{
 		addr:         addr,
 		localdalRoot: localdalRoot,
 		serviceRepo:  serviceRepo,
@@ -96,6 +97,8 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
 	}
+	d.queueManager = newQueueManager(d)
+	return d
 }
 
 // uuidShort returns a 6-char identifier from a UUID for resource naming.
@@ -183,6 +186,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start leader health watcher (auto-recovery)
 	go d.startLeaderWatcher(ctx)
 
+	// Start queue manager (stuck task detection, priority dispatch, leader bypass)
+	go d.queueManager.Start()
+
 	if d.bridgeURL != "" {
 		log.Printf("[daemon] matterbridge URL: %s", d.bridgeURL)
 	}
@@ -256,6 +262,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
+		d.queueManager.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {

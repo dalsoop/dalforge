@@ -239,23 +239,9 @@ func isPullRequest(issue ghIssue) bool {
 	return strings.Contains(issue.URL, "/pull/")
 }
 
-// dispatchIssueToLeader sends a task to the running leader container.
+// dispatchIssueToLeader enqueues an issue task via the queue manager.
+// The queue manager handles priority dispatch and leader bypass.
 func (d *Daemon) dispatchIssueToLeader(issue ghIssue) (string, error) {
-	// Find leader container
-	d.mu.RLock()
-	var leader *Container
-	for _, c := range d.containers {
-		if c.Role == "leader" && c.Status == "running" {
-			leader = c
-			break
-		}
-	}
-	d.mu.RUnlock()
-
-	if leader == nil {
-		return "", fmt.Errorf("no running leader container")
-	}
-
 	// Build task prompt for leader
 	labels := make([]string, 0, len(issue.Labels))
 	for _, l := range issue.Labels {
@@ -290,19 +276,27 @@ func (d *Daemon) dispatchIssueToLeader(issue ghIssue) (string, error) {
 		issue.Number, issue.Number,
 	)
 
-	// Dispatch as async task to leader
-	tr := d.tasks.New(leader.DalName, prompt)
-	go d.execTaskInContainer(leader, tr)
+	// Determine priority from labels
+	priority := PriorityNormal
+	for _, l := range issue.Labels {
+		if l.Name == "priority:high" || l.Name == "urgent" {
+			priority = PriorityHigh
+			break
+		}
+	}
+
+	// Enqueue via queue manager (dal="" means route to leader, with bypass support)
+	queueID := d.queueManager.Enqueue("", prompt, priority, "issue", issue.Number)
 
 	// Dispatch webhook notification
 	dispatchWebhook(WebhookEvent{
 		Event:     "issue_detected",
-		Dal:       leader.DalName,
+		Dal:       "queue-manager",
 		Task:      fmt.Sprintf("Issue #%d: %s", issue.Number, issue.Title),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	})
 
-	return tr.ID, nil
+	return queueID, nil
 }
 
 // handleIssues returns tracked GitHub issues.
