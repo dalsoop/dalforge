@@ -29,6 +29,7 @@
 	workspace?:      string
 	branch?:         #BranchConfig
 	setup?:          #SetupConfig
+	description?:    string
 	job?:            string // JOB UUID 참조
 	git?: {
 		user?:         string

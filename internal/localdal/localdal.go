@@ -46,6 +46,7 @@ type SetupConfig struct {
 type DalProfile struct {
 	UUID           string
 	Name           string
+	Description    string
 	Version        string
 	Player         string
 	FallbackPlayer string // fallback player when primary fails (empty = auto-detect)
@@ -427,6 +428,9 @@ func ReadDalCue(path, folderName string) (*DalProfile, error) {
 	if p.Name == "" {
 		p.Name = folderName
 	}
+	if v := val.LookupPath(cue.ParsePath("description")); v.Exists() {
+		p.Description, _ = v.String()
+	}
 	if v := val.LookupPath(cue.ParsePath("version")); v.Exists() {
 		p.Version, _ = v.String()
 	}
@@ -759,6 +763,7 @@ const defaultSpec = `// dal.spec.cue — localdal schema
 	workspace?:      string
 	branch?:         #BranchConfig
 	setup?:          #SetupConfig
+	description?:    string
 	max_members?:    int & >=0
 	git?: {
 		user?:         string

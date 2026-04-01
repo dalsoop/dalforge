@@ -183,6 +183,7 @@ func (d *Daemon) restartLeader(name string) error {
 		UUID:        dal.UUID,
 		Player:      dal.Player,
 		Role:        dal.Role,
+		Description: dal.Description,
 		ContainerID: containerID,
 		Status:      "running",
 		Workspace:   ws,

@@ -1,5 +1,6 @@
 uuid:    "99ab0934-07fb-423f-84e6-1ce8aef91919"
 name:    "dal"
+description: "문서 관리자 — inbox 병합, history 압축, 자동 커밋"
 version: "1.0.0"
 player:  "claude"
 model:   "haiku"

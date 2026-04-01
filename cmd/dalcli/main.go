@@ -81,7 +81,7 @@ func psCmd() *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tPLAYER\tROLE\tSTATUS\tIDLE\tLAST SEEN")
+			fmt.Fprintln(w, "NAME\tPLAYER\tROLE\tSTATUS\tIDLE\tLAST SEEN\tDESCRIPTION")
 			for _, c := range containers {
 				idle := c.IdleFor
 				if idle == "" {
@@ -91,7 +91,11 @@ func psCmd() *cobra.Command {
 				if !c.LastSeenAt.IsZero() {
 					lastSeen = c.LastSeenAt.Local().Format("2006-01-02 15:04:05")
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", c.DalName, c.Player, c.Role, c.Status, idle, lastSeen)
+				desc := c.Description
+				if desc == "" {
+					desc = "-"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", c.DalName, c.Player, c.Role, c.Status, idle, lastSeen, desc)
 			}
 			w.Flush()
 			return nil
