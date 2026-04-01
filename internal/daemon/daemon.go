@@ -46,10 +46,11 @@ type Daemon struct {
 	tasks        *taskStore
 	feedback     *feedbackStore
 	costs          *costStore
-	issues         *issueStore
-	issueWorkflows *issueWorkflowStore
-	registry       *Registry
-	startTime      time.Time
+	issues           *issueStore
+	issueWorkflows   *issueWorkflowStore
+	dalrootNotifier  *dalrootNotifier
+	registry         *Registry
+	startTime        time.Time
 }
 
 // Container tracks a running dal Docker container.
@@ -179,6 +180,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	// Start GitHub issue watcher
 	go d.startIssueWatcher(ctx, d.githubRepo, defaultIssuePollInterval)
+
+	// Start dalroot notifier (issue close → dalroot alert + reminders)
+	go d.startDalrootNotifier(ctx, d.githubRepo, defaultNotifyPollInterval)
 
 	// Start leader health watcher (auto-recovery)
 	go d.startLeaderWatcher(ctx)
