@@ -215,4 +215,146 @@ func TestNewTellCmd_IssueFlag(t *testing.T) {
 	if f == nil {
 		t.Fatal("--direct flag not found")
 	}
+	f = cmd.Flags().Lookup("member")
+	if f == nil {
+		t.Fatal("--member flag not found")
+	}
+}
+
+func TestTriggerIssueWorkflow(t *testing.T) {
+	var received struct {
+		IssueID string `json:"issue_id"`
+		Member  string `json:"member"`
+		Task    string `json:"task"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/issue-workflow" {
+			if r.Method != http.MethodPost {
+				t.Errorf("method = %s, want POST", r.Method)
+			}
+			json.NewDecoder(r.Body).Decode(&received)
+			w.WriteHeader(http.StatusAccepted)
+			json.NewEncoder(w).Encode(map[string]string{
+				"workflow_id": "iwf-test-123",
+				"status":      "pending",
+			})
+			return
+		}
+		// /api/message handler for sendViaDalcenter
+		json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "myteam="+srv.URL)
+
+	err := triggerIssueWorkflow("myteam", 608, "dev", "[issue #608] implement feature")
+	if err != nil {
+		t.Fatalf("triggerIssueWorkflow: %v", err)
+	}
+	if received.IssueID != "608" {
+		t.Errorf("issue_id = %q, want %q", received.IssueID, "608")
+	}
+	if received.Member != "dev" {
+		t.Errorf("member = %q, want %q", received.Member, "dev")
+	}
+	if received.Task != "[issue #608] implement feature" {
+		t.Errorf("task = %q, want %q", received.Task, "[issue #608] implement feature")
+	}
+}
+
+func TestTriggerIssueWorkflow_WithAuth(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{
+			"workflow_id": "iwf-test",
+			"status":      "pending",
+		})
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "team1="+srv.URL)
+	t.Setenv("DALCENTER_TOKEN", "secret123")
+
+	err := triggerIssueWorkflow("team1", 100, "dev", "task")
+	if err != nil {
+		t.Fatalf("triggerIssueWorkflow: %v", err)
+	}
+	if gotAuth != "Bearer secret123" {
+		t.Errorf("auth = %q, want %q", gotAuth, "Bearer secret123")
+	}
+}
+
+func TestTriggerIssueWorkflow_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "conflict", http.StatusConflict)
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "errteam="+srv.URL)
+
+	err := triggerIssueWorkflow("errteam", 100, "dev", "task")
+	if err == nil {
+		t.Fatal("expected error for 409 response")
+	}
+}
+
+func TestTellCmd_IssueTriggersWorkflow(t *testing.T) {
+	var messageReceived, workflowReceived bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/message":
+			messageReceived = true
+			json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+		case "/api/issue-workflow":
+			workflowReceived = true
+			w.WriteHeader(http.StatusAccepted)
+			json.NewEncoder(w).Encode(map[string]string{
+				"workflow_id": "iwf-test",
+				"status":      "pending",
+			})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "target="+srv.URL)
+
+	cmd := newTellCmd()
+	cmd.SetArgs([]string{"target", "do the thing", "--issue", "608", "--member", "dev"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
+	}
+
+	if !messageReceived {
+		t.Error("expected /api/message to be called")
+	}
+	if !workflowReceived {
+		t.Error("expected /api/issue-workflow to be called")
+	}
+}
+
+func TestTellCmd_NoIssue_NoWorkflow(t *testing.T) {
+	var workflowCalled bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/issue-workflow" {
+			workflowCalled = true
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "target="+srv.URL)
+
+	cmd := newTellCmd()
+	cmd.SetArgs([]string{"target", "hello"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
+	}
+
+	if workflowCalled {
+		t.Error("expected /api/issue-workflow NOT to be called without --issue")
+	}
 }

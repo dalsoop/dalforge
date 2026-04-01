@@ -17,6 +17,7 @@ import (
 func newTellCmd() *cobra.Command {
 	var issueNum int
 	var direct bool
+	var member string
 
 	cmd := &cobra.Command{
 		Use:   "tell <team> <message>",
@@ -25,7 +26,8 @@ func newTellCmd() *cobra.Command {
 
 By default, messages are routed through the target dalcenter's /api/message endpoint.
 Use --direct to send directly to the team's matterbridge API (bypassing dalcenter).
-Use --issue to include a GitHub issue reference in the message.`,
+Use --issue to include a GitHub issue reference in the message.
+Use --member with --issue to also trigger the issue-workflow pipeline on the target dalcenter.`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			team := args[0]
@@ -38,12 +40,25 @@ Use --issue to include a GitHub issue reference in the message.`,
 			if direct {
 				return sendViaBridge(team, message)
 			}
-			return sendViaDalcenter(team, message)
+
+			if err := sendViaDalcenter(team, message); err != nil {
+				return err
+			}
+
+			// Trigger issue-workflow if --issue is specified
+			if issueNum > 0 {
+				if err := triggerIssueWorkflow(team, issueNum, member, message); err != nil {
+					return fmt.Errorf("issue-workflow trigger: %w", err)
+				}
+			}
+
+			return nil
 		},
 	}
 
 	cmd.Flags().IntVar(&issueNum, "issue", 0, "Attach GitHub issue number to the message")
 	cmd.Flags().BoolVar(&direct, "direct", false, "Send directly to matterbridge (bypass dalcenter)")
+	cmd.Flags().StringVar(&member, "member", "", "Target member for issue-workflow (used with --issue)")
 
 	return cmd
 }
@@ -93,6 +108,58 @@ func sendViaDalcenter(team, message string) error {
 	} else {
 		fmt.Printf("[tell] message sent to %s (status=%s)\n", team, result.Status)
 	}
+	return nil
+}
+
+// triggerIssueWorkflow calls the target dalcenter's /api/issue-workflow endpoint.
+func triggerIssueWorkflow(team string, issueNum int, member, task string) error {
+	targetURL, err := resolveRepoURL(team)
+	if err != nil {
+		return fmt.Errorf("resolve repo URL: %w", err)
+	}
+
+	payload := struct {
+		IssueID string `json:"issue_id"`
+		Member  string `json:"member"`
+		Task    string `json:"task"`
+	}{
+		IssueID: fmt.Sprintf("%d", issueNum),
+		Member:  member,
+		Task:    task,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequest(http.MethodPost, targetURL+"/api/issue-workflow", strings.NewReader(string(body)))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	if token := os.Getenv("DALCENTER_TOKEN"); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("issue-workflow failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	var result struct {
+		WorkflowID string `json:"workflow_id"`
+		Status     string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+
+	fmt.Printf("[tell] issue-workflow triggered on %s (workflow_id=%s, status=%s)\n", team, result.WorkflowID, result.Status)
 	return nil
 }
 
