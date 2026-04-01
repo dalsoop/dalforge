@@ -1,0 +1,15 @@
+[Unit]
+Description=dalroot notification listener — dalbridge SSE stream subscriber
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dalroot-listener
+Restart=always
+RestartSec=5
+Environment=DALROOT_INBOX_BASE=/var/lib/dalroot/inbox
+Environment=DALBRIDGE_URL=http://10.50.0.202:4280/stream
+
+[Install]
+WantedBy=multi-user.target

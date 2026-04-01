@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# dalroot-id — Claude Code 프로세스 역추적으로 고유 ID 생성
+# Output: dalroot-{session}-{window}-{pane}
+#
+# Claude Code가 실행 중인 tmux pane을 역추적하여 고유 식별자를 생성한다.
+# 이 ID는 inbox 경로, MM 멘션, task 라우팅에 사용된다.
+
+set -euo pipefail
+
+# 현재 프로세스에서 tmux pane까지 역추적
+find_tmux_pane() {
+    local pid=$$
+    # 최대 20 레벨까지 부모 추적
+    for _ in $(seq 1 20); do
+        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+        [ -z "$pid" ] || [ "$pid" = "1" ] && break
+
+        # tmux pane 환경변수 확인
+        local env_file="/proc/$pid/environ"
+        if [ -r "$env_file" ]; then
+            local tmux_pane
+            tmux_pane=$(tr '\0' '\n' < "$env_file" | grep '^TMUX_PANE=' | head -1 | cut -d= -f2-)
+            if [ -n "$tmux_pane" ]; then
+                echo "$tmux_pane"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+# tmux pane ID에서 session, window, pane 번호 추출
+resolve_tmux_ids() {
+    local pane_id="$1"
+    # tmux list-panes로 session:window.pane 형식 조회
+    tmux list-panes -a -F '#{pane_id} #{session_name} #{window_index} #{pane_index}' 2>/dev/null \
+        | grep "^${pane_id} " | head -1 | awk '{print $2, $3, $4}'
+}
+
+main() {
+    local tmux_pane
+    tmux_pane=$(find_tmux_pane) || {
+        # tmux 밖이면 PID 기반 fallback
+        echo "dalroot-nontmux-$$-0"
+        exit 0
+    }
+
+    local ids
+    ids=$(resolve_tmux_ids "$tmux_pane")
+    if [ -z "$ids" ]; then
+        echo "dalroot-unknown-0-0"
+        exit 0
+    fi
+
+    local session window pane
+    read -r session window pane <<< "$ids"
+    echo "dalroot-${session}-${window}-${pane}"
+}
+
+main

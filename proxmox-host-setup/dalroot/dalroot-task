@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# dalroot-task — dalcenter task 래퍼 (팀 라우팅 + dalroot-id)
+#
+# Usage: dalroot-task <team> <task-description>
+# Example: dalroot-task dalcenter "이슈 현황 보고해"
+#
+# dalcenter task API를 호출하되, 콜백 pane을 dalroot-id로 설정하여
+# 완료 알림이 올바른 inbox로 라우팅되도록 한다.
+
+set -euo pipefail
+
+DALCENTER_CT="${DALCENTER_CT:-105}"
+
+if [ $# -lt 2 ]; then
+    echo "Usage: dalroot-task <team> <task-description>" >&2
+    exit 1
+fi
+
+TEAM="$1"
+shift
+TASK="$*"
+
+# dalroot-id 획득
+DALROOT_ID=$(dalroot-id 2>/dev/null) || DALROOT_ID="dalroot-unknown-0-0"
+
+# dalcenter API로 해당 팀의 포트 조회
+get_team_port() {
+    local team="$1"
+    case "$team" in
+        dalcenter)              echo 11192 ;;
+        veilkey-v2)             echo 11193 ;;
+        veilkey-selfhosted)     echo 11190 ;;
+        bridge-of-gaya-script)  echo 11191 ;;
+        dal-qa-team)            echo 11194 ;;
+        *)
+            echo "[dalroot-task] unknown team: $team" >&2
+            return 1
+            ;;
+    esac
+}
+
+PORT=$(get_team_port "$TEAM") || exit 1
+
+# task 실행 (callback_pane으로 dalroot-id 전달)
+if command -v pct >/dev/null 2>&1; then
+    pct exec "$DALCENTER_CT" -- \
+        curl -s -X POST "http://localhost:${PORT}/api/task" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $(cat /etc/dalcenter/token 2>/dev/null || echo '')" \
+        -d "{\"task\":\"${TASK}\",\"callback_pane\":\"${DALROOT_ID}\"}"
+else
+    echo "[dalroot-task] pct not available" >&2
+    exit 1
+fi

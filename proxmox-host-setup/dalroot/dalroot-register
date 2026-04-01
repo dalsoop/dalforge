@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# dalroot-register — SessionStart hook: inbox 생성 + MM 온라인 등록
+#
+# Claude Code SessionStart 이벤트에서 호출된다.
+# 1. dalroot-id 기반 inbox 디렉토리 생성
+# 2. Mattermost에 온라인 상태 등록 (dalcenter API 경유)
+
+set -euo pipefail
+
+DALROOT_INBOX_BASE="${DALROOT_INBOX_BASE:-/var/lib/dalroot/inbox}"
+DALCENTER_CT="${DALCENTER_CT:-105}"
+DALCENTER_MM_CHANNEL="${DALCENTER_MM_CHANNEL:-host}"
+
+# dalroot-id 획득
+DALROOT_ID=$(dalroot-id 2>/dev/null) || {
+    echo "[dalroot-register] failed to get dalroot-id" >&2
+    exit 1
+}
+
+# 1. inbox 디렉토리 생성
+INBOX_DIR="${DALROOT_INBOX_BASE}/${DALROOT_ID}"
+mkdir -p "$INBOX_DIR"
+
+# 2. Mattermost 온라인 등록
+# dalcenter API를 통해 호스트 채널에 등록 메시지 전송
+if command -v pct >/dev/null 2>&1; then
+    pct exec "$DALCENTER_CT" -- dalcenter tell dalcenter \
+        "[register] ${DALROOT_ID} online" 2>/dev/null || true
+fi
+
+echo "[dalroot-register] ${DALROOT_ID} registered (inbox: ${INBOX_DIR})"

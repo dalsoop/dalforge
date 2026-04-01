@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# dalroot-check-notifications — dalroot-id 기반 inbox에서 unread 알림 읽기
+#
+# Claude Code hook (UserPromptSubmit, Notification)에서 호출된다.
+# inbox 디렉토리에서 미읽은 알림 파일을 읽고 삭제한다.
+
+set -euo pipefail
+
+DALROOT_INBOX_BASE="${DALROOT_INBOX_BASE:-/var/lib/dalroot/inbox}"
+
+# dalroot-id 획득
+DALROOT_ID=$(dalroot-id 2>/dev/null) || DALROOT_ID="dalroot-unknown-0-0"
+INBOX_DIR="${DALROOT_INBOX_BASE}/${DALROOT_ID}"
+
+if [ ! -d "$INBOX_DIR" ]; then
+    exit 0
+fi
+
+# unread 알림 파일 처리 (시간순)
+shopt -s nullglob
+files=("$INBOX_DIR"/*.msg)
+shopt -u nullglob
+
+if [ ${#files[@]} -eq 0 ]; then
+    exit 0
+fi
+
+for f in "${files[@]}"; do
+    cat "$f"
+    echo ""
+    rm -f "$f"
+done

@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# dalroot-listener — dalbridge stream에서 @dalroot-N-N-N 멘션 감지 → inbox 전달
+#
+# CT 202의 dalbridge SSE stream을 구독하고,
+# @dalroot-{session}-{window}-{pane} 패턴 멘션을 감지하면
+# 해당 dalroot의 inbox에 알림 파일을 생성한다.
+#
+# systemd 서비스로 실행: dalroot-listener.service
+
+set -euo pipefail
+
+DALROOT_INBOX_BASE="${DALROOT_INBOX_BASE:-/var/lib/dalroot/inbox}"
+DALBRIDGE_URL="${DALBRIDGE_URL:-http://10.50.0.202:4280/stream}"
+RECONNECT_DELAY=5
+
+log() { echo "[dalroot-listener] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
+
+deliver_to_inbox() {
+    local dalroot_id="$1"
+    local message="$2"
+    local inbox_dir="${DALROOT_INBOX_BASE}/${dalroot_id}"
+
+    if [ ! -d "$inbox_dir" ]; then
+        log "inbox not found for ${dalroot_id}, skipping"
+        return
+    fi
+
+    local timestamp
+    timestamp=$(date '+%s%N')
+    echo "$message" > "${inbox_dir}/${timestamp}.msg"
+    log "delivered to ${dalroot_id}"
+}
+
+process_line() {
+    local line="$1"
+
+    # JSON 파싱 (jq 사용)
+    local text username channel
+    text=$(echo "$line" | jq -r '.text // empty' 2>/dev/null) || return
+    username=$(echo "$line" | jq -r '.username // empty' 2>/dev/null) || return
+    channel=$(echo "$line" | jq -r '.channel // empty' 2>/dev/null) || return
+
+    [ -z "$text" ] && return
+
+    # @dalroot-{session}-{window}-{pane} 멘션 패턴 감지
+    local mentions
+    mentions=$(echo "$text" | grep -oP '@dalroot-\S+' || true)
+
+    if [ -z "$mentions" ]; then
+        # @dalroot (세션 미지정) — 모든 활성 inbox에 전달
+        if echo "$text" | grep -qP '@dalroot\b'; then
+            for inbox_dir in "${DALROOT_INBOX_BASE}"/dalroot-*/; do
+                [ -d "$inbox_dir" ] || continue
+                local id
+                id=$(basename "$inbox_dir")
+                deliver_to_inbox "$id" "[${channel}] ${username}: ${text}"
+            done
+        fi
+        return
+    fi
+
+    # 특정 dalroot 인스턴스에 전달
+    for mention in $mentions; do
+        local dalroot_id="${mention#@}"
+        deliver_to_inbox "$dalroot_id" "[${channel}] ${username}: ${text}"
+    done
+}
+
+main() {
+    log "starting (bridge: ${DALBRIDGE_URL})"
+    mkdir -p "$DALROOT_INBOX_BASE"
+
+    while true; do
+        log "connecting to dalbridge..."
+        # curl SSE stream — 각 줄이 JSON 메시지
+        curl -sN "$DALBRIDGE_URL" 2>/dev/null | while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            # SSE data: 접두사 제거
+            line="${line#data: }"
+            process_line "$line"
+        done
+
+        log "disconnected, reconnecting in ${RECONNECT_DELAY}s..."
+        sleep "$RECONNECT_DELAY"
+    done
+}
+
+main

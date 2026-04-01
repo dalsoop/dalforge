@@ -1,0 +1,15 @@
+[Unit]
+Description=dalbridge — Mattermost outgoing webhook to SSE stream relay
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dalbridge
+Restart=always
+RestartSec=5
+Environment=DALBRIDGE_LISTEN=:4280
+EnvironmentFile=-/etc/dalbridge.env
+
+[Install]
+WantedBy=multi-user.target
