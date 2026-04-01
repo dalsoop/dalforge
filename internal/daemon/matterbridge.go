@@ -1,54 +1,38 @@
 package daemon
 
 import (
-	"context"
-	"log"
-	"net"
-	"os"
-	"os/exec"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-// startMatterbridge starts matterbridge as a child process.
-// Returns nil if binary not found or config not present (non-fatal).
-func startMatterbridge(ctx context.Context, confPath string) (*exec.Cmd, error) {
+// ensureMatterbridge checks that the matterbridge systemd service is running
+// for the given team. It does not start matterbridge as a child process;
+// lifecycle is managed by systemd (matterbridge@<team>.service).
+// Returns true if matterbridge is reachable.
+func ensureMatterbridge(confPath string) bool {
 	if confPath == "" {
-		return nil, nil
+		return matterbridgeAlreadyRunning()
 	}
 	if _, err := os.Stat(confPath); err != nil {
 		log.Printf("[matterbridge] config not found: %s (skipping)", confPath)
-		return nil, nil
-	}
-
-	bin, err := exec.LookPath("matterbridge")
-	if err != nil {
-		log.Printf("[matterbridge] binary not found (skipping)")
-		return nil, nil
+		return false
 	}
 
 	if matterbridgeAlreadyRunning() {
-		log.Printf("[matterbridge] existing instance detected, skipping")
-		return nil, nil
+		log.Printf("[matterbridge] service is running (port reachable)")
+		return true
 	}
 
-	cmd := exec.CommandContext(ctx, bin, "-conf", confPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	time.Sleep(2 * time.Second)
-	log.Printf("[matterbridge] started (pid=%d, conf=%s)", cmd.Process.Pid, confPath)
-
-	return cmd, nil
+	log.Printf("[matterbridge] service not reachable — check matterbridge@ systemd service")
+	return false
 }
 
 func matterbridgeAlreadyRunning() bool {

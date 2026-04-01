@@ -141,22 +141,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}()
 	}
 
-	// Start matterbridge as child process
-	if d.bridgeConf != "" {
-		if mb, err := startMatterbridge(ctx, d.bridgeConf); err != nil {
-			log.Printf("[daemon] matterbridge start failed: %v (continuing without)", err)
-		} else if mb != nil {
-			defer func() {
-				mb.Process.Kill()
-				mb.Wait()
-			}()
-			// Auto-set bridgeURL from config or default
-			if d.bridgeURL == "" {
+	// Check matterbridge systemd service (lifecycle managed by matterbridge@.service)
+	if ensureMatterbridge(d.bridgeConf) {
+		if d.bridgeURL == "" {
+			if d.bridgeConf != "" {
 				if port := parseBridgePort(d.bridgeConf); port != "" {
 					d.bridgeURL = "http://localhost:" + port
 				} else {
 					d.bridgeURL = DefaultBridgeURL
 				}
+			} else {
+				d.bridgeURL = DefaultBridgeURL
 			}
 		}
 	}

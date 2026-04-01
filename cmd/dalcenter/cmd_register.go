@@ -146,10 +146,61 @@ func nextAvailablePort() int {
 	}
 }
 
+// installMatterbridgeService writes and enables the matterbridge@ systemd template
+// service, then enables the instance for the given repoName.
+func installMatterbridgeService(repoName string) error {
+	templatePath := "/etc/systemd/system/matterbridge@.service"
+
+	// Only write the template once (shared across all teams)
+	if _, err := os.Stat(templatePath); err != nil {
+		mbBin, _ := exec.LookPath("matterbridge")
+		if mbBin == "" {
+			mbBin = "/usr/local/bin/matterbridge"
+		}
+		confDir := paths.ConfigDir()
+
+		unit := fmt.Sprintf(`[Unit]
+Description=Matterbridge — %%i
+After=network.target
+ConditionPathExists=%s/matterbridge-%%i.toml
+
+[Service]
+Type=simple
+ExecStart=%s -conf %s/matterbridge-%%i.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`, confDir, mbBin, confDir)
+
+		if err := os.WriteFile(templatePath, []byte(unit), 0644); err != nil {
+			return fmt.Errorf("write matterbridge@ template: %w", err)
+		}
+	}
+
+	// Enable the instance for this team
+	instanceName := "matterbridge@" + repoName
+	if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
+		return fmt.Errorf("daemon-reload: %s: %w", string(out), err)
+	}
+	if out, err := exec.Command("systemctl", "enable", instanceName).CombinedOutput(); err != nil {
+		return fmt.Errorf("enable %s: %s: %w", instanceName, string(out), err)
+	}
+
+	return nil
+}
+
 // installSystemdService writes and enables a dalcenter systemd service file.
 func installSystemdService(serviceName, repoPath, addr, bridgeURL string) error {
 	repoName := filepath.Base(repoPath)
 	unitPath := filepath.Join("/etc/systemd/system", serviceName+".service")
+
+	// Install matterbridge@ template service and enable for this team
+	if err := installMatterbridgeService(repoName); err != nil {
+		// Non-fatal: matterbridge may not be needed for all teams
+		fmt.Fprintf(os.Stderr, "warning: matterbridge@ service: %v\n", err)
+	}
 
 	// Build ExecStart
 	execStart := fmt.Sprintf("%s serve --addr %s --repo %s", paths.BinaryPath(), addr, repoPath)
@@ -157,23 +208,27 @@ func installSystemdService(serviceName, repoPath, addr, bridgeURL string) error 
 		execStart += fmt.Sprintf(" --bridge-url %s", bridgeURL)
 	}
 
+	mbInstance := "matterbridge@" + repoName + ".service"
+
 	unit := fmt.Sprintf(`[Unit]
 Description=DalCenter Daemon — %s
-After=network.target docker.service
+After=network.target docker.service %s
 Requires=docker.service
+Wants=%s
 
 [Service]
 Type=simple
 Environment=PATH=/usr/local/bin:/usr/local/go/bin:/root/go/bin:/usr/bin:/bin
 Environment=HOME=/root
 Environment=DALCENTER_LOCALDAL_PATH=%s/.dal
+ExecStartPre=/bin/bash -c "docker ps -aq --filter 'name=dal-.*-%s' --filter 'status=exited' | xargs -r docker rm"
 ExecStart=%s
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-`, repoName, repoPath, execStart)
+`, repoName, mbInstance, mbInstance, repoPath, repoName, execStart)
 
 	if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
 		return fmt.Errorf("write %s: %w", unitPath, err)
