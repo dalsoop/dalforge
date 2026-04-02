@@ -129,9 +129,9 @@ func TestGitRevParse(t *testing.T) {
 func TestFetchAndPull_NoRemoteChanges(t *testing.T) {
 	_, cloneDir := initBareAndClone(t)
 
-	changed := fetchAndPull(cloneDir)
-	if changed {
-		t.Error("expected no changes when repo is up to date")
+	result := fetchAndPull(cloneDir)
+	if result.pulled {
+		t.Error("expected no pull when repo is up to date")
 	}
 }
 
@@ -141,9 +141,9 @@ func TestFetchAndPull_DalChanged(t *testing.T) {
 	// Push a .dal/ change via another clone
 	pushToBare(t, bareDir, ".dal/leader/charter.md", "# Leader v2 — updated\n")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
-		t.Error("expected changes detected after .dal/ update")
+	result := fetchAndPull(cloneDir)
+	if !result.dalChanged {
+		t.Error("expected dalChanged after .dal/ update")
 	}
 
 	// Verify file was pulled
@@ -159,9 +159,12 @@ func TestFetchAndPull_NonDalChanged(t *testing.T) {
 	// Push a change outside .dal/
 	pushToBare(t, bareDir, "README.md", "# Updated readme\n")
 
-	changed := fetchAndPull(cloneDir)
-	if changed {
-		t.Error("expected no sync trigger when .dal/ not affected")
+	result := fetchAndPull(cloneDir)
+	if result.dalChanged {
+		t.Error("expected no dalChanged when .dal/ not affected")
+	}
+	if !result.pulled {
+		t.Error("expected pulled=true for non-dal change")
 	}
 
 	// Verify the pull still happened
@@ -173,9 +176,9 @@ func TestFetchAndPull_NonDalChanged(t *testing.T) {
 
 func TestFetchAndPull_NotGitRepo(t *testing.T) {
 	dir := t.TempDir()
-	changed := fetchAndPull(dir)
-	if changed {
-		t.Error("expected false for non-git dir")
+	result := fetchAndPull(dir)
+	if result.pulled {
+		t.Error("expected not pulled for non-git dir")
 	}
 }
 
@@ -197,8 +200,8 @@ func TestFetchAndPull_MultipleCommits(t *testing.T) {
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "add dev dal")
 	run(t, pushDir, "git", "push")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
+	result := fetchAndPull(cloneDir)
+	if !result.dalChanged {
 		t.Error("expected .dal/ change detected across multiple commits")
 	}
 }
@@ -209,13 +212,15 @@ func TestFetchAndPull_Idempotent(t *testing.T) {
 	pushToBare(t, bareDir, ".dal/leader/charter.md", "# Leader v2\n")
 
 	// First call: should detect change
-	if !fetchAndPull(cloneDir) {
-		t.Fatal("first call should detect changes")
+	r1 := fetchAndPull(cloneDir)
+	if !r1.dalChanged {
+		t.Fatal("first call should detect dal changes")
 	}
 
 	// Second call: already up to date
-	if fetchAndPull(cloneDir) {
-		t.Error("second call should return false (already pulled)")
+	r2 := fetchAndPull(cloneDir)
+	if r2.pulled {
+		t.Error("second call should not pull (already up to date)")
 	}
 }
 
@@ -231,9 +236,9 @@ func TestFetchAndPull_DalFileDeleted(t *testing.T) {
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "delete instructions")
 	run(t, pushDir, "git", "push")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
-		t.Error("expected change detected when .dal/ file deleted")
+	result := fetchAndPull(cloneDir)
+	if !result.dalChanged {
+		t.Error("expected dalChanged when .dal/ file deleted")
 	}
 
 	// Verify file is gone
@@ -247,9 +252,9 @@ func TestFetchAndPull_SkillsChanged(t *testing.T) {
 
 	pushToBare(t, bareDir, ".dal/skills/go-review/SKILL.md", "# Go Review Skill\nReview Go code.\n")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
-		t.Error("expected change detected for .dal/skills/ update")
+	result := fetchAndPull(cloneDir)
+	if !result.dalChanged {
+		t.Error("expected dalChanged for .dal/skills/ update")
 	}
 
 	content, _ := os.ReadFile(filepath.Join(cloneDir, ".dal", "skills", "go-review", "SKILL.md"))
@@ -263,9 +268,9 @@ func TestFetchAndPull_DalCueChanged(t *testing.T) {
 
 	pushToBare(t, bareDir, ".dal/leader/dal.cue", "uuid: \"leader-v2\"\nname: \"leader\"\n")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
-		t.Error("expected change detected for dal.cue update")
+	result := fetchAndPull(cloneDir)
+	if !result.dalChanged {
+		t.Error("expected dalChanged for dal.cue update")
 	}
 }
 
@@ -281,9 +286,9 @@ func TestFetchAndPull_LocalDirtyFails(t *testing.T) {
 	pushToBare(t, bareDir, "remote-only.txt", "remote\n")
 
 	// ff-only should fail (diverged history)
-	changed := fetchAndPull(cloneDir)
-	if changed {
-		t.Error("expected false when ff-only fails due to diverged history")
+	result := fetchAndPull(cloneDir)
+	if result.pulled {
+		t.Error("expected not pulled when ff-only fails due to diverged history")
 	}
 }
 
@@ -302,9 +307,24 @@ func TestFetchAndPull_MixedDalAndNonDal(t *testing.T) {
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "mixed")
 	run(t, pushDir, "git", "push")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
-		t.Error("expected change when commit touches both .dal/ and other files")
+	result := fetchAndPull(cloneDir)
+	if !result.dalChanged {
+		t.Error("expected dalChanged when commit touches both .dal/ and other files")
+	}
+}
+
+func TestFetchAndPull_GoChanged(t *testing.T) {
+	bareDir, cloneDir := initBareAndClone(t)
+
+	// Push a .go file change
+	pushToBare(t, bareDir, "main.go", "package main\n")
+
+	result := fetchAndPull(cloneDir)
+	if !result.goChanged {
+		t.Error("expected goChanged after .go file update")
+	}
+	if result.dalChanged {
+		t.Error("expected no dalChanged for Go-only change")
 	}
 }
 
