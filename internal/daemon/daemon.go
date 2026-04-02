@@ -52,6 +52,7 @@ type Daemon struct {
 	messages         *messageStore
 	registry         *Registry
 	pipeline         *DalrootPipeline
+	ha               *haState
 	startTime        time.Time
 }
 
@@ -99,6 +100,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 		messages:       newMessageStore(filepath.Join(stateDir(serviceRepo), "messages.json")),
 		registry:       newRegistry(serviceRepo),
 		pipeline:       newDalrootPipeline(serviceRepo),
+		ha:            initHA(),
 		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
 	}
@@ -132,6 +134,21 @@ func (d *Daemon) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		token := strings.TrimPrefix(auth, "Bearer ")
 		if auth == "" || token == auth || token != d.apiToken {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// requireActive is middleware that rejects container-management requests
+// when this instance is a standby that has not been promoted.
+func (d *Daemon) requireActive(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !d.ha.isActive() {
+			respondJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"error": "standby instance — not managing containers",
+				"role":  d.ha.effectiveRole(),
+			})
 			return
 		}
 		next(w, r)
@@ -227,8 +244,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		log.Printf("[daemon] dalbridge URL: %s (containers)", d.dalbridgeURL)
 	}
 
-	// Reconcile existing containers from a previous daemon run
-	d.reconcile()
+	// Reconcile existing containers from a previous daemon run.
+	// Standby instances skip reconciliation until promoted.
+	if d.ha.isActive() {
+		d.reconcile()
+	} else {
+		log.Printf("[daemon] standby mode — skipping reconcile until promotion")
+	}
 
 	mux := http.NewServeMux()
 
@@ -240,11 +262,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/validate", d.handleValidate)
 	mux.HandleFunc("GET /api/logs/{name}", d.handleLogs)
 	mux.HandleFunc("GET /runs/{id}", d.handleRunPage)
-	// Write endpoints — require auth when DALCENTER_TOKEN is set
-	mux.HandleFunc("POST /api/wake/{name}", d.requireAuth(d.handleWake))
-	mux.HandleFunc("POST /api/sleep/{name}", d.requireAuth(d.handleSleep))
-	mux.HandleFunc("POST /api/restart/{name}", d.requireAuth(d.handleRestart))
-	mux.HandleFunc("POST /api/replace/{name}", d.requireAuth(d.handleReplace))
+	// Write endpoints — require auth when DALCENTER_TOKEN is set.
+	// Container management endpoints also require active role (not standby).
+	mux.HandleFunc("POST /api/wake/{name}", d.requireAuth(d.requireActive(d.handleWake)))
+	mux.HandleFunc("POST /api/sleep/{name}", d.requireAuth(d.requireActive(d.handleSleep)))
+	mux.HandleFunc("POST /api/restart/{name}", d.requireAuth(d.requireActive(d.handleRestart)))
+	mux.HandleFunc("POST /api/replace/{name}", d.requireAuth(d.requireActive(d.handleReplace)))
 	mux.HandleFunc("POST /api/sync", d.requireAuth(d.handleSync))
 	mux.HandleFunc("POST /api/message", d.requireAuth(d.handleMessage))
 	mux.HandleFunc("POST /api/activity/{name}", d.requireAuth(d.handleActivity))
@@ -346,13 +369,18 @@ func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	dals, _ := localdal.ListDals(d.localdalRoot)
 
-	respondJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"status":        "ok",
 		"uptime":        time.Since(d.startTime).Truncate(time.Second).String(),
 		"dals_running":  dalsRunning,
 		"repo_count":    len(dals),
 		"leader_status": leaderStatus,
-	})
+		"role":          d.ha.effectiveRole(),
+	}
+	if d.ha.role == RoleStandby && d.ha.promoted.Load() {
+		resp["promoted_at"] = d.ha.promotedAt.Format(time.RFC3339)
+	}
+	respondJSON(w, http.StatusOK, resp)
 }
 
 func (d *Daemon) handlePs(w http.ResponseWriter, r *http.Request) {

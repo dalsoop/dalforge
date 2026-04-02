@@ -18,6 +18,8 @@ const (
 
 // startPeerWatcher periodically checks the peer dalcenter's health endpoint.
 // After peerFailThreshold consecutive failures, it sends a bridge alert.
+// If this instance is a standby, it auto-promotes on peer (primary) failure
+// and auto-demotes when the primary recovers.
 func (d *Daemon) startPeerWatcher(ctx context.Context) {
 	peerURL := os.Getenv("DALCENTER_PEER_URL")
 	if peerURL == "" {
@@ -26,8 +28,8 @@ func (d *Daemon) startPeerWatcher(ctx context.Context) {
 	}
 	peerURL = strings.TrimRight(peerURL, "/")
 
-	log.Printf("[peer-watcher] started (peer=%s, interval=%s, threshold=%d)",
-		peerURL, peerCheckInterval, peerFailThreshold)
+	log.Printf("[peer-watcher] started (peer=%s, interval=%s, threshold=%d, role=%s)",
+		peerURL, peerCheckInterval, peerFailThreshold, d.ha.effectiveRole())
 
 	client := &http.Client{Timeout: peerCheckTimeout}
 	healthURL := peerURL + "/api/health"
@@ -52,17 +54,54 @@ func (d *Daemon) startPeerWatcher(ctx context.Context) {
 				if consecutiveFails >= peerFailThreshold && !alerted {
 					d.notifyPeerDown(peerURL, err)
 					alerted = true
+
+					// Auto-promote standby when primary is confirmed down
+					if d.ha.role == RoleStandby && !d.ha.promoted.Load() {
+						d.promoteStandby(peerURL)
+					}
 				}
 			} else {
 				if alerted {
 					log.Printf("[peer-watcher] peer recovered after alert")
 					d.notifyPeerRecovered(peerURL)
+
+					// Auto-demote if we were a promoted standby
+					if d.ha.role == RoleStandby && d.ha.promoted.Load() {
+						d.demoteStandby(peerURL)
+					}
 				}
 				consecutiveFails = 0
 				alerted = false
 			}
 		}
 	}
+}
+
+// promoteStandby promotes this standby instance to active and starts
+// managing dal containers.
+func (d *Daemon) promoteStandby(peerURL string) {
+	if err := d.ha.promote(); err != nil {
+		log.Printf("[peer-watcher] promotion failed: %v", err)
+		return
+	}
+
+	// Reconcile containers — discover and adopt running dals
+	d.reconcile()
+
+	msg := fmt.Sprintf(":rotating_light: **standby promoted** — primary `%s` is down, this instance is now active", peerURL)
+	d.postAlert(msg)
+}
+
+// demoteStandby demotes this standby instance back to passive mode.
+// Existing containers continue running but new management is deferred to primary.
+func (d *Daemon) demoteStandby(peerURL string) {
+	if err := d.ha.demote(); err != nil {
+		log.Printf("[peer-watcher] demotion failed: %v", err)
+		return
+	}
+
+	msg := fmt.Sprintf(":white_check_mark: **standby demoted** — primary `%s` recovered, yielding control", peerURL)
+	d.postAlert(msg)
 }
 
 // checkPeerHealth sends a GET to the peer's /api/health and expects 200.
