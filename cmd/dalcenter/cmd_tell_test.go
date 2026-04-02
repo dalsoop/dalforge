@@ -495,3 +495,56 @@ func TestTellCmd_NoIssue_NoWorkflow(t *testing.T) {
 		t.Error("expected /api/issue-workflow NOT to be called without --issue")
 	}
 }
+
+func TestSendViaDalcenter_LeaderMention(t *testing.T) {
+	var received struct {
+		From    string `json:"from"`
+		Message string `json:"message"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "team1="+srv.URL)
+
+	msgs := []string{"test message", "another one", "issue #123 fix"}
+	for _, msg := range msgs {
+		_, err := sendViaDalcenter("team1", msg, "")
+		if err != nil {
+			t.Fatalf("sendViaDalcenter(%q): %v", msg, err)
+		}
+		want := "@dal-leader " + msg
+		if received.Message != want {
+			t.Errorf("sendViaDalcenter(%q): message = %q, want %q", msg, received.Message, want)
+		}
+	}
+}
+
+func TestSendViaBridge_LeaderMention(t *testing.T) {
+	var received struct {
+		Text     string `json:"text"`
+		Username string `json:"username"`
+		Gateway  string `json:"gateway"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_BRIDGE_URLS", "team1="+srv.URL)
+
+	msgs := []string{"bridge message", "hello world", "urgent task"}
+	for _, msg := range msgs {
+		err := sendViaBridge("team1", msg, "")
+		if err != nil {
+			t.Fatalf("sendViaBridge(%q): %v", msg, err)
+		}
+		want := "@dal-leader " + msg
+		if received.Text != want {
+			t.Errorf("sendViaBridge(%q): text = %q, want %q", msg, received.Text, want)
+		}
+	}
+}
