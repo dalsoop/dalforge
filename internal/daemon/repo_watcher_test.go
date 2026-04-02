@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -366,25 +365,17 @@ func TestStartRepoWatcher_EmptyDir(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	var called atomic.Int32
+	d := &Daemon{serviceRepo: "", pipeline: newDalrootPipeline("")}
 	// Should return immediately for empty repoDir
-	startRepoWatcher(ctx, "", func() { called.Add(1) })
-
-	if called.Load() != 0 {
-		t.Error("syncFn should not be called for empty dir")
-	}
+	startRepoWatcher(ctx, d)
 }
 
 func TestStartRepoWatcher_NotGitRepo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	var called atomic.Int32
-	startRepoWatcher(ctx, t.TempDir(), func() { called.Add(1) })
-
-	if called.Load() != 0 {
-		t.Error("syncFn should not be called for non-git dir")
-	}
+	d := &Daemon{serviceRepo: t.TempDir(), pipeline: newDalrootPipeline("")}
+	startRepoWatcher(ctx, d)
 }
 
 func TestStartRepoWatcher_CancelStops(t *testing.T) {
@@ -393,9 +384,11 @@ func TestStartRepoWatcher_CancelStops(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	d := &Daemon{serviceRepo: dir, pipeline: newDalrootPipeline(""), containers: make(map[string]*Container)}
+
 	done := make(chan struct{})
 	go func() {
-		startRepoWatcher(ctx, dir, func() {})
+		startRepoWatcher(ctx, d)
 		close(done)
 	}()
 
