@@ -175,10 +175,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start credential watcher
 	go startCredentialWatcher(ctx, d)
 
-	// Start repo watcher (git fetch/pull → sync on .dal/ changes)
-	go startRepoWatcher(ctx, d.serviceRepo, func() {
-		d.runSync()
-	})
+	// Start repo watcher (git fetch/pull → sync on .dal/ changes, Go rebuild notification)
+	go startRepoWatcher(ctx, d)
 
 	// Start peer health watcher (dalcenter HA)
 	go d.startPeerWatcher(ctx)

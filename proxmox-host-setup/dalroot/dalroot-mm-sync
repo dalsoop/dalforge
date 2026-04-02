@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# dalroot-mm-sync — UserPromptSubmit hook
+# Replaces: dalroot-log, dalroot-listener, dalroot-check-notifications
+#
+# Usage: Add to Claude Code settings.json as a UserPromptSubmit hook:
+#   "hooks": {
+#     "UserPromptSubmit": [{ "command": "dalroot-mm-sync \"$PROMPT\"" }]
+#   }
+#
+# Environment:
+#   DALROOT_PANE_ID   — tmux pane identifier (required)
+#   DALCENTER_URL     — dalcenter API base URL (required)
+#   DALCENTER_TOKEN   — API auth token (optional)
+
+set -euo pipefail
+
+PANE_ID="${DALROOT_PANE_ID:-}"
+if [ -z "$PANE_ID" ]; then
+    # Auto-detect from tmux
+    PANE_ID="${TMUX_PANE:-}"
+    PANE_ID="${PANE_ID#%}"  # Strip % prefix
+fi
+
+if [ -z "$PANE_ID" ]; then
+    exit 0  # Not in a tracked pane, silently skip
+fi
+
+USER_MESSAGE="${1:-}"
+
+# Run pipeline sync: posts user message to MM + fetches unread
+# This single call replaces dalroot-log (send) + dalroot-listener (receive)
+output=$(dalcenter pipeline sync --pane "$PANE_ID" "$USER_MESSAGE" 2>/dev/null) || true
+
+if [ -n "$output" ]; then
+    echo "$output"
+fi

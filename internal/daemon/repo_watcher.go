@@ -10,9 +10,21 @@ import (
 
 const repoWatchInterval = 2 * time.Minute
 
+// pullResult describes what changed after a git pull.
+type pullResult struct {
+	pulled      bool
+	dalChanged  bool
+	goChanged   bool
+	beforeHash  string
+	afterHash   string
+	changedFiles []string
+}
+
 // startRepoWatcher periodically fetches the remote and pulls if behind.
 // When .dal/ files change, it triggers a sync to propagate updates to running containers.
-func startRepoWatcher(ctx context.Context, repoDir string, syncFn func()) {
+// When Go files change, it broadcasts a rebuild notification via pipeline.
+func startRepoWatcher(ctx context.Context, d *Daemon) {
+	repoDir := d.serviceRepo
 	if repoDir == "" {
 		return
 	}
@@ -34,9 +46,25 @@ func startRepoWatcher(ctx context.Context, repoDir string, syncFn func()) {
 			log.Printf("[repo-watcher] stopped")
 			return
 		case <-ticker.C:
-			if changed := fetchAndPull(repoDir); changed {
-				log.Printf("[repo-watcher] changes pulled, triggering sync")
-				syncFn()
+			result := fetchAndPull(repoDir)
+			if !result.pulled {
+				continue
+			}
+
+			log.Printf("[repo-watcher] pulled %s → %s", short(result.beforeHash), short(result.afterHash))
+
+			if result.dalChanged {
+				log.Printf("[repo-watcher] .dal/ changed, triggering sync")
+				d.runSync()
+			}
+
+			if result.goChanged {
+				log.Printf("[repo-watcher] Go files changed, broadcasting rebuild notification")
+				d.pipeline.Broadcast("[repo-watcher] Go files updated on main — rebuild recommended: " + short(result.beforeHash) + " → " + short(result.afterHash))
+			}
+
+			if !result.dalChanged && !result.goChanged {
+				log.Printf("[repo-watcher] pulled but no .dal/ or Go changes")
 			}
 		}
 	}
@@ -49,8 +77,8 @@ func isGitRepo(dir string) bool {
 }
 
 // fetchAndPull fetches origin and fast-forward pulls if behind.
-// Returns true if .dal/ files were updated.
-func fetchAndPull(repoDir string) bool {
+// Returns a pullResult describing what changed.
+func fetchAndPull(repoDir string) pullResult {
 	// Get current HEAD before pull
 	beforeHash := gitRevParse(repoDir, "HEAD")
 
@@ -59,14 +87,14 @@ func fetchAndPull(repoDir string) bool {
 	fetch.Dir = repoDir
 	if err := fetch.Run(); err != nil {
 		log.Printf("[repo-watcher] fetch failed: %v", err)
-		return false
+		return pullResult{}
 	}
 
 	// Check if behind
 	local := gitRevParse(repoDir, "HEAD")
 	remote := gitRevParse(repoDir, "@{u}")
 	if local == "" || remote == "" || local == remote {
-		return false
+		return pullResult{}
 	}
 
 	// Fast-forward pull only (no merge conflicts)
@@ -74,33 +102,42 @@ func fetchAndPull(repoDir string) bool {
 	pull.Dir = repoDir
 	if out, err := pull.CombinedOutput(); err != nil {
 		log.Printf("[repo-watcher] pull failed: %v: %s", err, string(out))
-		return false
+		return pullResult{}
 	}
 
 	afterHash := gitRevParse(repoDir, "HEAD")
 	if beforeHash == afterHash {
-		return false
+		return pullResult{}
 	}
 
-	log.Printf("[repo-watcher] pulled %s → %s", short(beforeHash), short(afterHash))
-
-	// Check if .dal/ was affected
-	diff := exec.Command("git", "diff", "--name-only", beforeHash, afterHash, "--", ".dal/")
+	// Get all changed files
+	diff := exec.Command("git", "diff", "--name-only", beforeHash, afterHash)
 	diff.Dir = repoDir
 	out, err := diff.Output()
 	if err != nil {
-		// If diff fails, assume changed to be safe
-		return true
+		// If diff fails, assume both changed to be safe
+		return pullResult{pulled: true, dalChanged: true, goChanged: true, beforeHash: beforeHash, afterHash: afterHash}
 	}
 
-	changed := strings.TrimSpace(string(out))
-	if changed != "" {
-		log.Printf("[repo-watcher] .dal/ changed:\n%s", changed)
-		return true
+	files := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var dalChanged, goChanged bool
+	for _, f := range files {
+		if strings.HasPrefix(f, ".dal/") {
+			dalChanged = true
+		}
+		if strings.HasSuffix(f, ".go") {
+			goChanged = true
+		}
 	}
 
-	log.Printf("[repo-watcher] pulled but .dal/ not affected")
-	return false
+	return pullResult{
+		pulled:       true,
+		dalChanged:   dalChanged,
+		goChanged:    goChanged,
+		beforeHash:   beforeHash,
+		afterHash:    afterHash,
+		changedFiles: files,
+	}
 }
 
 func gitRevParse(dir, ref string) string {
