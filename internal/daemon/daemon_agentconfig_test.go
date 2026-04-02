@@ -80,6 +80,30 @@ func TestHandleAgentConfig_DalPrefixRepo(t *testing.T) {
 	}
 }
 
+func TestHandleAgentConfig_DalbridgeURL(t *testing.T) {
+	d := &Daemon{
+		bridgeURL:    "http://old-matterbridge:4242",
+		dalbridgeURL: "http://10.50.0.202:4280",
+		serviceRepo:  "/root/test-repo",
+		containers: map[string]*Container{
+			"dev": {DalName: "dev"},
+		},
+	}
+
+	req := httptest.NewRequest("GET", "/api/agent-config/dev", nil)
+	req.SetPathValue("name", "dev")
+	w := httptest.NewRecorder()
+
+	d.handleAgentConfig(w, req)
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+
+	if resp["bridge_url"] != "http://10.50.0.202:4280" {
+		t.Errorf("bridge_url = %q, want dalbridge URL when dalbridgeURL is set", resp["bridge_url"])
+	}
+}
+
 func TestHandleAgentConfig_NoBridge(t *testing.T) {
 	d := &Daemon{
 		containers: map[string]*Container{

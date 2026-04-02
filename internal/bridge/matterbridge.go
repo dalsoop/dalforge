@@ -182,6 +182,8 @@ func (mb *MatterbridgeBridge) streamOnce() error {
 		if line == "" {
 			continue
 		}
+		// SSE data: 접두사 제거
+		line = strings.TrimPrefix(line, "data: ")
 
 		var raw struct {
 			Text      string `json:"text"`
@@ -197,7 +199,7 @@ func (mb *MatterbridgeBridge) streamOnce() error {
 		}
 
 		// Skip connection events and own messages.
-		if raw.Event == "api_connected" {
+		if raw.Event == "api_connected" || raw.Event == "connected" {
 			log.Printf("[matterbridge] stream connected")
 			continue
 		}

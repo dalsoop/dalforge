@@ -16,6 +16,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,6 +37,7 @@ type streamMessage struct {
 	Text      string `json:"text"`
 	Username  string `json:"username"`
 	Channel   string `json:"channel"`
+	Gateway   string `json:"gateway,omitempty"`
 	PostID    string `json:"post_id"`
 	Timestamp string `json:"timestamp"`
 }
@@ -100,9 +103,27 @@ func main() {
 		}
 
 		var payload webhookPayload
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, "invalid json", http.StatusBadRequest)
-			return
+		ct := r.Header.Get("Content-Type")
+		switch {
+		case strings.HasPrefix(ct, "application/json"):
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+		default:
+			// MM outgoing webhook 기본값: application/x-www-form-urlencoded
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "invalid form", http.StatusBadRequest)
+				return
+			}
+			payload.Token = r.FormValue("token")
+			payload.ChannelName = r.FormValue("channel_name")
+			payload.UserName = r.FormValue("user_name")
+			payload.Text = r.FormValue("text")
+			payload.PostID = r.FormValue("post_id")
+			if ts := r.FormValue("timestamp"); ts != "" {
+				payload.Timestamp, _ = strconv.ParseInt(ts, 10, 64)
+			}
 		}
 
 		// 토큰 검증 (설정된 경우)
@@ -153,8 +174,8 @@ func main() {
 		ch := b.subscribe()
 		defer b.unsubscribe(ch)
 
-		// 연결 확인 메시지
-		fmt.Fprintf(w, "data: {\"event\":\"connected\"}\n\n")
+		// 연결 확인 메시지 (api_connected: matterbridge 호환)
+		fmt.Fprintf(w, "data: {\"event\":\"api_connected\"}\n\n")
 		flusher.Flush()
 
 		log.Printf("[stream] client connected (gateway=%q, %d total)", gatewayFilter, b.clientCount())
@@ -171,12 +192,12 @@ func main() {
 				if !ok {
 					return
 				}
-				// gateway 필터링: 파라미터가 있으면 해당 채널만 전달
+				// gateway 필터링: 파라미터가 있으면 해당 gateway만 전달
 				if gatewayFilter != "" {
 					var msg struct {
-						Channel string `json:"channel"`
+						Gateway string `json:"gateway"`
 					}
-					if json.Unmarshal(data, &msg) == nil && msg.Channel != gatewayFilter {
+					if json.Unmarshal(data, &msg) == nil && msg.Gateway != gatewayFilter {
 						continue
 					}
 				}
@@ -184,6 +205,46 @@ func main() {
 				flusher.Flush()
 			}
 		}
+	})
+
+	// POST /api/message — dal → stream 메시지 릴레이
+	// dalcli-leader, daemon bridgePost 등에서 사용
+	mux.HandleFunc("/api/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var payload struct {
+			Text     string `json:"text"`
+			Username string `json:"username"`
+			Gateway  string `json:"gateway"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+
+		msg := streamMessage{
+			Text:      payload.Text,
+			Username:  payload.Username,
+			Gateway:   payload.Gateway,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		}
+
+		data, err := json.Marshal(msg)
+		if err != nil {
+			http.Error(w, "marshal error", http.StatusInternalServerError)
+			return
+		}
+
+		b.broadcast(data)
+		log.Printf("[message] %s@%s: %s (%d clients)",
+			payload.Username, payload.Gateway,
+			truncate(payload.Text, 80), b.clientCount())
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok"}`)
 	})
 
 	// GET /health — 헬스 체크
