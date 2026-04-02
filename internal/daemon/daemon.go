@@ -52,6 +52,7 @@ type Daemon struct {
 	messages         *messageStore
 	registry         *Registry
 	pipeline         *DalrootPipeline
+	hostops          *HostOpsClient
 	startTime        time.Time
 }
 
@@ -101,6 +102,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 		registry:       newRegistry(serviceRepo),
 		pipeline:       newDalrootPipeline(serviceRepo),
 		credSyncLast: newCredentialSyncMap(),
+		hostops:      newHostOpsClient(),
 		startTime:    time.Now(),
 	}
 }
@@ -299,6 +301,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/pipeline/sync", d.requireAuth(d.handlePipelineSync))
 	mux.HandleFunc("GET /api/pipeline/health", d.handlePipelineHealth)
 	mux.HandleFunc("GET /api/pipeline/list", d.handlePipelineList)
+
+	// Host ops — LXC 101 gateway proxy
+	mux.HandleFunc("POST /api/hostops", d.requireAuth(d.handleHostOps))
 
 	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
 	mux.HandleFunc("POST /rpc", d.requireAuth(d.handleA2ARPC))
