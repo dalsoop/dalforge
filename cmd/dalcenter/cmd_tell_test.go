@@ -28,7 +28,7 @@ func TestSendViaDalcenter(t *testing.T) {
 
 	t.Setenv("DALCENTER_URLS", "myteam="+srv.URL)
 
-	err := sendViaDalcenter("myteam", "hello leader")
+	err := sendViaDalcenter("myteam", "hello leader", "")
 	if err != nil {
 		t.Fatalf("sendViaDalcenter: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestSendViaDalcenterWithAuth(t *testing.T) {
 	t.Setenv("DALCENTER_URLS", "team1="+srv.URL)
 	t.Setenv("DALCENTER_TOKEN", "secret123")
 
-	err := sendViaDalcenter("team1", "msg")
+	err := sendViaDalcenter("team1", "msg", "")
 	if err != nil {
 		t.Fatalf("sendViaDalcenter: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSendViaBridge(t *testing.T) {
 
 	t.Setenv("DALCENTER_BRIDGE_URLS", "teamA="+srv.URL)
 
-	err := sendViaBridge("teamA", "direct message")
+	err := sendViaBridge("teamA", "direct message", "")
 	if err != nil {
 		t.Fatalf("sendViaBridge: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestSendViaBridgeWithToken(t *testing.T) {
 	t.Setenv("DALCENTER_BRIDGE_URLS", "teamB="+srv.URL)
 	t.Setenv("MATTERBRIDGE_TOKEN", "bridge-secret")
 
-	err := sendViaBridge("teamB", "msg")
+	err := sendViaBridge("teamB", "msg", "")
 	if err != nil {
 		t.Fatalf("sendViaBridge: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestSendViaDalcenter_ServerError(t *testing.T) {
 
 	t.Setenv("DALCENTER_URLS", "errteam="+srv.URL)
 
-	err := sendViaDalcenter("errteam", "msg")
+	err := sendViaDalcenter("errteam", "msg", "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -197,7 +197,7 @@ func TestSendViaBridge_ServerError(t *testing.T) {
 
 	t.Setenv("DALCENTER_BRIDGE_URLS", "errteam="+srv.URL)
 
-	err := sendViaBridge("errteam", "msg")
+	err := sendViaBridge("errteam", "msg", "")
 	if err == nil {
 		t.Fatal("expected error for 401 response")
 	}
