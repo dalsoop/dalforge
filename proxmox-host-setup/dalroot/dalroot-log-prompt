@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# dalroot-log-prompt — UserPromptSubmit hook: 사용자 메시지를 dalroot-log에 기록
+#
+# Claude Code UserPromptSubmit hook에서 호출된다.
+# stdin으로 hook JSON을 받아 사용자 메시지를 추출하고 dalroot-log에 포스팅한다.
+#
+# hook JSON 스키마: {"session_id": "...", "prompt": "사용자 메시지"}
+
+set -euo pipefail
+
+# stdin에서 hook JSON 읽기
+HOOK_INPUT=$(cat)
+
+# prompt 추출
+PROMPT=$(echo "$HOOK_INPUT" | jq -r '.prompt // empty' 2>/dev/null) || true
+
+if [ -z "$PROMPT" ]; then
+    exit 0
+fi
+
+# 메시지 길이 제한 (MM 포스트 크기 관리)
+MAX_LEN=500
+if [ ${#PROMPT} -gt $MAX_LEN ]; then
+    PROMPT="${PROMPT:0:$MAX_LEN}..."
+fi
+
+# dalroot-log에 포스팅 (비동기, 실패해도 hook 자체는 성공)
+dalroot-log "사용자: \"${PROMPT}\"" &

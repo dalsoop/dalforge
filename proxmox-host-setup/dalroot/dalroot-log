@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# dalroot-log — dalroot-log MM 채널에 메시지 포스팅
+#
+# Usage: dalroot-log <message>
+#        echo "message" | dalroot-log
+#
+# 환경변수:
+#   DALCENTER_MM_URL    — Mattermost URL (필수)
+#   DALCENTER_MM_TOKEN  — Mattermost bot token (필수)
+#   DALROOT_ID          — dalroot 인스턴스 ID (자동 감지)
+#
+# dalroot-log 채널(fiodmif9yfn6jq34qz6e6n5usc)에 메시지를 포스팅한다.
+
+set -euo pipefail
+
+DALROOT_LOG_CHANNEL_ID="fiodmif9yfn6jq34qz6e6n5usc"
+
+# MM 환경변수 확인
+if [ -z "${DALCENTER_MM_URL:-}" ] || [ -z "${DALCENTER_MM_TOKEN:-}" ]; then
+    exit 0
+fi
+
+# dalroot-id 획득
+if [ -n "${DALROOT_ID:-}" ]; then
+    ID="$DALROOT_ID"
+else
+    ID=$(dalroot-id 2>/dev/null) || ID="dalroot-unknown-0-0"
+fi
+
+# 메시지 획득: 인자 또는 stdin
+if [ $# -gt 0 ]; then
+    MESSAGE="$*"
+else
+    MESSAGE=$(cat)
+fi
+
+if [ -z "$MESSAGE" ]; then
+    exit 0
+fi
+
+FULL_MESSAGE="[${ID}] ${MESSAGE}"
+
+# MM API 포스팅
+MM_URL="${DALCENTER_MM_URL%/}"
+PAYLOAD=$(jq -n --arg ch "$DALROOT_LOG_CHANNEL_ID" --arg msg "$FULL_MESSAGE" \
+    '{channel_id: $ch, message: $msg}')
+
+curl -s -o /dev/null -w '' \
+    -X POST "${MM_URL}/api/v4/posts" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${DALCENTER_MM_TOKEN}" \
+    -d "$PAYLOAD" 2>/dev/null || true
