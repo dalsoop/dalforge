@@ -12,6 +12,9 @@ set -euo pipefail
 DALROOT_INBOX_BASE="${DALROOT_INBOX_BASE:-/var/lib/dalroot/inbox}"
 DALBRIDGE_URL="${DALBRIDGE_URL:-http://10.50.0.202:4280/stream}"
 RECONNECT_DELAY=5
+# self-message 필터: dalroot 자신의 메시지만 무시
+# devops는 MM outgoing webhook 봇 계정이므로 무시하면 안 됨
+IGNORE_USERS="${IGNORE_USERS:-dalroot}"
 
 log() { echo "[dalroot-listener] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
@@ -41,6 +44,13 @@ process_line() {
     channel=$(echo "$line" | jq -r '.channel // empty' 2>/dev/null) || return
 
     [ -z "$text" ] && return
+
+    # self-message 필터링: IGNORE_USERS에 포함된 username은 무시
+    for ignore_user in $IGNORE_USERS; do
+        if [ "$username" = "$ignore_user" ]; then
+            return
+        fi
+    done
 
     # @dalroot-{session}-{window}-{pane} 멘션 패턴 감지
     local mentions
