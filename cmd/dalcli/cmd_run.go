@@ -877,6 +877,7 @@ func isOnlyArtifacts(porcelainOutput string) bool {
 // Gate 2: artifacts only → skip
 // Gate 3: no real code files (*.go, *.rs, *.md in .dal/) → skip
 // Gate 4: PR 생성 전 diff 재확인 — 빈 PR 방지
+// Gate 5: 동일 브랜치로 기존 PR 존재 시 중복 생성 방지
 func autoGitWorkflow(dalName string) string {
 	run := func(args ...string) (string, error) {
 		cmd := exec.Command(args[0], args[1:]...)
@@ -972,6 +973,14 @@ func autoGitWorkflow(dalName string) string {
 	if _, err := run("git", "push", "-u", "origin", branch); err != nil {
 		run("git", "checkout", "main")
 		return fmt.Sprintf("⚠️ 푸시 실패: %v", err)
+	}
+
+	// Gate 5: 동일 브랜치로 이미 open/merged PR이 있으면 중복 생성 방지
+	existingPR, _ := run("gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state", "--jq", ".[0].number")
+	if existingPR != "" {
+		log.Printf("[git] gate5: PR already exists for branch %s (#%s) — skip PR creation", branch, existingPR)
+		run("git", "checkout", "main")
+		return fmt.Sprintf("✅ 커밋+푸시 완료 (`%s`)\n⚠️ 중복 PR 방지: #%s 이미 존재", branch, existingPR)
 	}
 
 	// Create PR
