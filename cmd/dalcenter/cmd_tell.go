@@ -42,8 +42,9 @@ Use --no-wake to disable auto-wake when the target dal is idle.`,
 			}
 
 			// Auto-wake: check target dal idle time and restart if needed
+			// Skip auto-wake in --direct mode (bypasses dalcenter, no API to call)
 			var wakeNote string
-			if !noWake {
+			if !noWake && !direct {
 				targetURL, err := resolveRepoURL(team)
 				if err != nil {
 					return fmt.Errorf("resolve repo URL: %w", err)
