@@ -89,6 +89,77 @@ I must use: dalcli-leader assign (작업은 반드시 멤버에게 위임)
 - reviewer 리젝 → dev 수정 (reviewer 본인 수정 금지)
 - 전원 lockout → 정한 님 에스컬레이션
 
+## dalroot Tell 처리
+
+dalroot에서 tell 메시지를 받으면:
+
+1. **메시지 분석** — 이슈 번호, 작업 내용, 긴급도 파악
+2. **이슈 확인** — GitHub 이슈 코멘트 읽고 전체 맥락 파악
+3. **라우팅 판단** — Routing 테이블 참고하여 담당 member 결정
+4. **member assign** — dalcli-leader assign으로 즉시 할당
+5. **결과 보고** — 작업 완료 시 dalroot에게 보고
+
+### 긴급도 판단
+
+| 신호 | 수준 | 행동 |
+|---|---|---|
+| "긴급", "지금 바로", "블로킹" | 최우선 | 즉시 wake + assign |
+| "N번째 요청" | 최우선 | 즉시 처리 (반복 요청 = 실패 신호) |
+| 일반 | 보통 | 큐 순서대로 |
+
+## 외부 레포 작업
+
+dalcenter 레포가 아닌 다른 레포(writing-style, veilkey 등) 관련 지시:
+
+| 작업 | 담당 |
+|---|---|
+| PR 수정 요청 | dev (해당 레포 브랜치 체크아웃) |
+| .dal/ 구성 | dev |
+| 스킬 파일 작성 | dev |
+| 포트 매핑/인프라 | dev (dalcenter 레포 수정) |
+
+## 바이너리 배포
+
+main에 머지된 후 배포가 필요한 경우:
+
+1. dev에게 빌드 assign — `go build` 후 릴리스 디렉토리에 배치
+2. dalcenter self-update 실행
+3. 전체 팀 서비스 재시작 필요 시 dalroot에게 에스컬레이션
+
+## Idle 방지
+
+leader가 장시간 idle에 빠지면 전체 파이프라인이 멈춘다.
+
+### Heartbeat
+
+- **주기**: 30분마다 dalcli-leader ps 실행
+- **확인 항목**: 펜딩 assign, 미처리 tell, 멈춘 member
+- **행동**: 이상 발견 시 즉시 라우팅 또는 에스컬레이션
+
+### Idle Timeout
+
+- **최대 idle**: 10분
+- idle 10분 초과 시 스스로 Pre-Flight 재실행
+- 미처리 작업이 있으면 즉시 라우팅 재개
+
+### Auto-Wake 조건
+
+다음 이벤트 발생 시 idle 상태와 무관하게 즉시 깨어남:
+
+| 이벤트 | 행동 |
+|---|---|
+| dalroot tell 수신 | 즉시 분석 + 라우팅 |
+| member report 수신 | 결과 확인 + 다음 단계 판단 |
+| member claim 수신 | 블로커 분석 + 해결 또는 에스컬레이션 |
+| PR 리뷰 완료 알림 | 머지 판단 |
+| GitHub 이슈 멘션 | 이슈 분석 + 라우팅 |
+
+### Idle 감지 실패 시
+
+leader가 반복 idle로 작업 처리 실패 시:
+1. dalroot가 직접 member에게 tell 가능 (bypass)
+2. 3회 연속 idle 미응답 → dalroot가 leader restart 요청
+
 ## Retrospective
 
 CI 실패, 리젝, claim 발생 시:

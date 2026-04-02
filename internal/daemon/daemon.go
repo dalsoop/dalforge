@@ -49,6 +49,7 @@ type Daemon struct {
 	issues           *issueStore
 	issueWorkflows   *issueWorkflowStore
 	dalrootNotifier  *dalrootNotifier
+	messages         *messageStore
 	registry         *Registry
 	startTime        time.Time
 }
@@ -94,6 +95,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 		costs:          newCostStoreWithFile(filepath.Join(dataDir(serviceRepo), "costs.json"), orchestrationLogDir(serviceRepo)),
 		issues:         newIssueStore(filepath.Join(dataDir(serviceRepo), "issues_seen.json")),
 		issueWorkflows: newIssueWorkflowStore(),
+		messages:       newMessageStore(filepath.Join(stateDir(serviceRepo), "messages.json")),
 		registry:       newRegistry(serviceRepo),
 		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
@@ -191,6 +193,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Start queue manager (task expiry + concurrency limits)
 	go d.startQueueManager(ctx)
 
+	// Start heartbeat pinger (keep leader sessions alive)
+	go d.startHeartbeat(ctx)
+
+	// Start message watchdog (detect timed-out messages, retry)
+	go d.startMessageWatchdog(ctx)
+
 	// Start ops watcher (poll all teams, auto-wake empty teams)
 	if opsWatcherEnabled() {
 		go d.startOpsWatcher(ctx)
@@ -260,6 +268,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// A2A protocol endpoints
 	mux.HandleFunc("GET /api/provider-status", d.handleProviderStatus)
 	mux.HandleFunc("POST /api/provider-trip", d.handleProviderTrip)
+
+	// Message ACK + buffering
+	mux.HandleFunc("POST /api/ack/{id}", d.handleACK)
+	mux.HandleFunc("GET /api/messages", d.handleMessageList)
+	mux.HandleFunc("GET /api/messages/{id}", d.handleMessageStatus)
 
 	// Issue workflow — full orchestration endpoints
 	mux.HandleFunc("POST /api/issue-workflow", d.requireAuth(d.handleIssueWorkflow))
