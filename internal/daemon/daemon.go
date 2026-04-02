@@ -196,6 +196,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		go d.startOpsWatcher(ctx)
 	}
 
+	// Start scheduled dalroot (pipeline surveillance)
+	if scheduledDalrootEnabled() {
+		go d.startScheduledDalroot(ctx, d.githubRepo)
+	}
+
 	if d.bridgeURL != "" {
 		log.Printf("[daemon] matterbridge URL: %s", d.bridgeURL)
 	}
