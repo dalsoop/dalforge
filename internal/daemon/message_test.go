@@ -85,12 +85,15 @@ func TestHandleMessage_ReturnsStatusSent(t *testing.T) {
 	}))
 	defer bridgeSrv.Close()
 
+	ms := testMessageStore(t)
+	defer ms.Flush()
+
 	d := &Daemon{
 		bridgeURL: bridgeSrv.URL,
 		containers: map[string]*Container{
 			"dev": {DalName: "dev", Role: "member", Status: "running"},
 		},
-		messages: testMessageStore(t),
+		messages: ms,
 	}
 
 	body := `{"from":"dev","message":"hello"}`

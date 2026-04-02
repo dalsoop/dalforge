@@ -49,6 +49,7 @@ func TestMessageStore_MarkSent(t *testing.T) {
 func TestMessageStore_MarkAcked(t *testing.T) {
 	dir := t.TempDir()
 	s := newMessageStore(filepath.Join(dir, "messages.json"))
+	defer s.Flush()
 
 	m := s.New("a", "b", "msg")
 	s.MarkSent(m.ID)
@@ -194,9 +195,7 @@ func TestMessageStore_Persistence(t *testing.T) {
 	m := s1.New("a", "b", "persistent msg")
 	s1.MarkSent(m.ID)
 	s1.MarkAcked(m.ID)
-
-	// Wait for async persist
-	time.Sleep(100 * time.Millisecond)
+	s1.Flush()
 
 	// Load from disk
 	s2 := newMessageStore(file)
@@ -219,7 +218,7 @@ func TestMessageStore_SeqRestore(t *testing.T) {
 	s1 := newMessageStore(file)
 	s1.New("a", "b", "m1")
 	s1.New("a", "b", "m2")
-	time.Sleep(100 * time.Millisecond)
+	s1.Flush()
 
 	s2 := newMessageStore(file)
 	m := s2.New("a", "b", "m3")

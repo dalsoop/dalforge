@@ -48,6 +48,7 @@ type BufferedMessage struct {
 // messageStore persists buffered messages to disk.
 type messageStore struct {
 	mu       sync.RWMutex
+	wg       sync.WaitGroup
 	messages []*BufferedMessage
 	file     string
 	seq      int
@@ -84,7 +85,7 @@ func (s *messageStore) New(from, to, message string) *BufferedMessage {
 	}
 	s.messages = append(s.messages, m)
 	s.evictLocked()
-	go persistJSON(s.file, s.messages, &s.mu)
+	s.persistAsync()
 	return m
 }
 
@@ -96,7 +97,7 @@ func (s *messageStore) MarkSent(id string) {
 		now := time.Now().UTC()
 		m.Status = MessageSent
 		m.SentAt = &now
-		go persistJSON(s.file, s.messages, &s.mu)
+		s.persistAsync()
 	}
 }
 
@@ -122,7 +123,7 @@ func (s *messageStore) MarkFailed(id, errMsg string) {
 	if m := s.findLocked(id); m != nil {
 		m.Status = MessageFailed
 		m.Error = errMsg
-		go persistJSON(s.file, s.messages, &s.mu)
+		s.persistAsync()
 	}
 }
 
@@ -175,7 +176,7 @@ func (s *messageStore) TimedOut() []*BufferedMessage {
 		}
 	}
 	if len(result) > 0 {
-		go persistJSON(s.file, s.messages, &s.mu)
+		s.persistAsync()
 	}
 	return result
 }
@@ -189,6 +190,21 @@ func (s *messageStore) List() []*BufferedMessage {
 		result[len(s.messages)-1-i] = m
 	}
 	return result
+}
+
+// persistAsync writes messages to disk in a background goroutine.
+// Must be called with s.mu held.
+func (s *messageStore) persistAsync() {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		persistJSON(s.file, s.messages, &s.mu)
+	}()
+}
+
+// Flush waits for all in-flight persistence operations to complete.
+func (s *messageStore) Flush() {
+	s.wg.Wait()
 }
 
 func (s *messageStore) findLocked(id string) *BufferedMessage {
