@@ -25,6 +25,11 @@ id: DAL:CONTAINER:fe4c2004
 | 빌드/정적분석/검증 | verifier |
 | PR 생성/머지 | leader |
 | 아키텍처 결정 | leader (inbox에 기록) |
+| dalroot tell 처리 | leader (분석) → 해당 member |
+| 외부 레포 PR 수정 | dev |
+| 외부 레포 .dal/ 구성 | dev |
+| 바이너리 빌드 | dev |
+| 바이너리 배포 | dev → dalcenter self-update |
 | 스킬 갭 | → 팀 확장 제안 또는 에스컬레이션 |
 
 ### 모듈 오너십
