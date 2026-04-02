@@ -52,6 +52,7 @@ type Daemon struct {
 	messages         *messageStore
 	registry         *Registry
 	pipeline         *DalrootPipeline
+	ha               *HAState
 	startTime        time.Time
 }
 
@@ -101,6 +102,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 		registry:       newRegistry(serviceRepo),
 		pipeline:       newDalrootPipeline(serviceRepo),
 		credSyncLast: newCredentialSyncMap(),
+		ha:           newHAState(),
 		startTime:    time.Now(),
 	}
 }
@@ -184,41 +186,17 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
-	// Start credential watcher
-	go startCredentialWatcher(ctx, d)
+	// HA: log role at startup
+	log.Printf("[daemon] HA role=%s, state=%s", d.ha.Role(), d.ha.State())
 
-	// Start repo watcher (git fetch/pull → sync on .dal/ changes, Go rebuild notification)
-	go startRepoWatcher(ctx, d)
-
-	// Start peer health watcher (dalcenter HA)
+	// Start peer health watcher (dalcenter HA — runs in all modes)
 	go d.startPeerWatcher(ctx)
 
-	// Start GitHub issue watcher
-	go d.startIssueWatcher(ctx, d.githubRepo, defaultIssuePollInterval)
-
-	// Start dalroot notifier (issue close → dalroot alert + reminders)
-	go d.startDalrootNotifier(ctx, d.githubRepo, defaultNotifyPollInterval)
-
-	// Start leader health watcher (auto-recovery)
-	go d.startLeaderWatcher(ctx)
-
-	// Start queue manager (task expiry + concurrency limits)
-	go d.startQueueManager(ctx)
-
-	// Start heartbeat pinger (keep leader sessions alive)
-	go d.startHeartbeat(ctx)
-
-	// Start message watchdog (detect timed-out messages, retry)
-	go d.startMessageWatchdog(ctx)
-
-	// Start ops watcher (poll all teams, auto-wake empty teams)
-	if opsWatcherEnabled() {
-		go d.startOpsWatcher(ctx)
-	}
-
-	// Start scheduled dalroot (pipeline surveillance)
-	if scheduledDalrootEnabled() {
-		go d.startScheduledDalroot(ctx, d.githubRepo)
+	// Standby mode: only run peer watcher + read-only API
+	if d.ha.IsStandby() {
+		log.Printf("[daemon] standby mode — skipping container management, watchers deferred until promotion")
+	} else {
+		d.startPrimaryWatchers(ctx)
 	}
 
 	if d.bridgeURL != "" {
@@ -228,8 +206,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 		log.Printf("[daemon] dalbridge URL: %s (containers)", d.dalbridgeURL)
 	}
 
-	// Reconcile existing containers from a previous daemon run
-	d.reconcile()
+	// Reconcile existing containers from a previous daemon run (primary only)
+	if d.ha.IsPrimary() {
+		d.reconcile()
+	}
 
 	mux := http.NewServeMux()
 
@@ -321,6 +301,26 @@ func (d *Daemon) Run(ctx context.Context) error {
 	return nil
 }
 
+// startPrimaryWatchers launches all background goroutines that require
+// container management capability. Called at startup for primary instances
+// and after promotion for standby-turned-active instances.
+func (d *Daemon) startPrimaryWatchers(ctx context.Context) {
+	go startCredentialWatcher(ctx, d)
+	go startRepoWatcher(ctx, d)
+	go d.startIssueWatcher(ctx, d.githubRepo, defaultIssuePollInterval)
+	go d.startDalrootNotifier(ctx, d.githubRepo, defaultNotifyPollInterval)
+	go d.startLeaderWatcher(ctx)
+	go d.startQueueManager(ctx)
+	go d.startHeartbeat(ctx)
+	go d.startMessageWatchdog(ctx)
+	if opsWatcherEnabled() {
+		go d.startOpsWatcher(ctx)
+	}
+	if scheduledDalrootEnabled() {
+		go d.startScheduledDalroot(ctx, d.githubRepo)
+	}
+}
+
 func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 	d.mu.RLock()
 	dalsRunning := len(d.containers)
@@ -353,6 +353,7 @@ func (d *Daemon) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"dals_running":  dalsRunning,
 		"repo_count":    len(dals),
 		"leader_status": leaderStatus,
+		"ha":            d.ha.Info(),
 	})
 }
 
@@ -463,6 +464,10 @@ func (d *Daemon) handleStatusOne(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
+	if d.ha.IsStandby() {
+		http.Error(w, "standby instance — cannot manage containers", http.StatusServiceUnavailable)
+		return
+	}
 	name := r.PathValue("name")
 	issueID := r.URL.Query().Get("issue")
 
@@ -566,6 +571,10 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) handleSleep(w http.ResponseWriter, r *http.Request) {
+	if d.ha.IsStandby() {
+		http.Error(w, "standby instance — cannot manage containers", http.StatusServiceUnavailable)
+		return
+	}
 	name := r.PathValue("name")
 
 	d.mu.Lock()
@@ -596,6 +605,10 @@ func (d *Daemon) handleSleep(w http.ResponseWriter, r *http.Request) {
 
 // handleRestart stops a dal, removes container, and wakes fresh (with new bot token).
 func (d *Daemon) handleRestart(w http.ResponseWriter, r *http.Request) {
+	if d.ha.IsStandby() {
+		http.Error(w, "standby instance — cannot manage containers", http.StatusServiceUnavailable)
+		return
+	}
 	name := r.PathValue("name")
 
 	d.mu.RLock()
@@ -617,6 +630,10 @@ func (d *Daemon) handleRestart(w http.ResponseWriter, r *http.Request) {
 // Used when stagnation detection triggers a dal rotation.
 // Creates 2 new instances from template, then sleeps the original.
 func (d *Daemon) handleReplace(w http.ResponseWriter, r *http.Request) {
+	if d.ha.IsStandby() {
+		http.Error(w, "standby instance — cannot manage containers", http.StatusServiceUnavailable)
+		return
+	}
 	name := r.PathValue("name")
 	issueID := r.URL.Query().Get("issue")
 
@@ -681,6 +698,10 @@ func (d *discardResponseWriter) Write(b []byte) (int, error) { return len(b), ni
 func (d *discardResponseWriter) WriteHeader(code int)        { d.code = code }
 
 func (d *Daemon) handleSync(w http.ResponseWriter, r *http.Request) {
+	if d.ha.IsStandby() {
+		http.Error(w, "standby instance — cannot manage containers", http.StatusServiceUnavailable)
+		return
+	}
 	synced, restarted := d.runSync()
 
 	if w == nil {

@@ -5,29 +5,30 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
 
 const (
-	peerCheckInterval  = 30 * time.Second
-	peerCheckTimeout   = 10 * time.Second
-	peerFailThreshold  = 3
+	peerCheckInterval = 30 * time.Second
+	peerCheckTimeout  = 10 * time.Second
+	peerFailThreshold = 3
 )
 
 // startPeerWatcher periodically checks the peer dalcenter's health endpoint.
-// After peerFailThreshold consecutive failures, it sends a bridge alert.
+// For standby instances: after peerFailThreshold consecutive failures, triggers
+// automatic promotion (active-standby failover).
+// For primary instances: sends a bridge alert on peer failure.
 func (d *Daemon) startPeerWatcher(ctx context.Context) {
-	peerURL := os.Getenv("DALCENTER_PEER_URL")
+	peerURL := d.ha.PeerURL()
 	if peerURL == "" {
 		log.Printf("[peer-watcher] DALCENTER_PEER_URL not set — skipping")
 		return
 	}
 	peerURL = strings.TrimRight(peerURL, "/")
 
-	log.Printf("[peer-watcher] started (peer=%s, interval=%s, threshold=%d)",
-		peerURL, peerCheckInterval, peerFailThreshold)
+	log.Printf("[peer-watcher] started (peer=%s, interval=%s, threshold=%d, role=%s)",
+		peerURL, peerCheckInterval, peerFailThreshold, d.ha.Role())
 
 	client := &http.Client{Timeout: peerCheckTimeout}
 	healthURL := peerURL + "/api/health"
@@ -52,17 +53,80 @@ func (d *Daemon) startPeerWatcher(ctx context.Context) {
 				if consecutiveFails >= peerFailThreshold && !alerted {
 					d.notifyPeerDown(peerURL, err)
 					alerted = true
+
+					// Standby auto-promotion: take over when primary is down
+					if d.ha.IsStandby() {
+						d.promoteToActive(ctx)
+					}
 				}
 			} else {
 				if alerted {
 					log.Printf("[peer-watcher] peer recovered after alert")
 					d.notifyPeerRecovered(peerURL)
+
+					// If we were promoted because peer was down, demote back
+					if d.ha.State() == StatePromoted {
+						d.demoteToStandby(ctx)
+					}
 				}
 				consecutiveFails = 0
 				alerted = false
 			}
 		}
 	}
+}
+
+// promoteToActive transitions this standby instance to active, taking over
+// container management from the failed primary.
+func (d *Daemon) promoteToActive(ctx context.Context) {
+	if err := d.ha.Promote(); err != nil {
+		log.Printf("[peer-watcher] promotion failed: %v", err)
+		return
+	}
+
+	msg := ":arrow_up: **dalcenter 승격** — standby가 primary 역할을 인수합니다"
+	d.postAlert(msg)
+
+	dispatchWebhook(WebhookEvent{
+		Event:     "ha_promoted",
+		Dal:       "dalcenter",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Reconcile existing containers (takeover from failed primary)
+	d.reconcile()
+
+	// Start background watchers that were skipped in standby mode
+	go d.startLeaderWatcher(ctx)
+	go d.startHeartbeat(ctx)
+	go d.startMessageWatchdog(ctx)
+
+	log.Printf("[peer-watcher] promotion complete — now managing containers")
+}
+
+// demoteToStandby transitions this promoted instance back to standby when
+// the original primary recovers.
+func (d *Daemon) demoteToStandby(ctx context.Context) {
+	if err := d.ha.Demote(); err != nil {
+		log.Printf("[peer-watcher] demotion failed: %v", err)
+		return
+	}
+
+	msg := ":arrow_down: **dalcenter 강등** — primary 복구 감지, standby로 전환합니다"
+	d.postAlert(msg)
+
+	dispatchWebhook(WebhookEvent{
+		Event:     "ha_demoted",
+		Dal:       "dalcenter",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Release containers — primary will reconcile them
+	d.mu.Lock()
+	d.containers = make(map[string]*Container)
+	d.mu.Unlock()
+
+	log.Printf("[peer-watcher] demotion complete — released container management")
 }
 
 // checkPeerHealth sends a GET to the peer's /api/health and expects 200.
