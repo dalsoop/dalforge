@@ -16,6 +16,7 @@ type taskResult struct {
 	ID        string      `json:"id"`
 	Dal       string      `json:"dal"`
 	Task      string      `json:"task"`
+	Repo      string      `json:"repo,omitempty"` // cross-repo target (e.g. "dalsoop/landing-prelik")
 	Output    string      `json:"output"`
 	Error     string      `json:"error,omitempty"`
 	Status    string      `json:"status"` // "running", "done", "failed", "blocked", "noop"
@@ -317,8 +318,9 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Dal   string `json:"dal"`
-		Task  string `json:"task"`
+		Dal          string `json:"dal"`
+		Task         string `json:"task"`
+		Repo         string `json:"repo,omitempty"` // cross-repo target (e.g. "dalsoop/landing-prelik")
 		Async        bool   `json:"async"`
 		CallbackPane string `json:"callback_pane,omitempty"`
 	}
@@ -352,6 +354,7 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tr := d.tasks.New(req.Dal, req.Task)
+	tr.Repo = req.Repo
 	tr.CallbackPane = req.CallbackPane
 
 	if req.Async {
@@ -395,6 +398,23 @@ func (d *Daemon) handleTaskList(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 	log.Printf("[task] executing %s on %s: %s", tr.ID, c.DalName, truncateStr(tr.Task, 80))
 
+	// Cross-repo: clone target repo into container before execution
+	workDir := containerWorkDir
+	if tr.Repo != "" {
+		log.Printf("[task] cross-repo mode: %s → %s", tr.ID, tr.Repo)
+		cloneDir, err := setupCrossRepo(c.ContainerID, tr.Repo)
+		if err != nil {
+			now := time.Now().UTC()
+			tr.DoneAt = &now
+			tr.Status = "failed"
+			tr.Error = fmt.Sprintf("cross-repo setup: %v", err)
+			log.Printf("[task] %s cross-repo setup failed: %v", tr.ID, err)
+			return
+		}
+		workDir = cloneDir
+		defer cleanupCrossRepo(c.ContainerID)
+	}
+
 	// Build docker exec command that pipes task via stdin.
 	// Claude's -p flag requires stdin input (not positional args).
 	var cmdArgs []string
@@ -404,7 +424,7 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 			"docker", "exec", c.ContainerID,
 			"codex", "exec",
 			"--dangerously-bypass-approvals-and-sandbox",
-			"-C", containerWorkDir,
+			"-C", workDir,
 			tr.Task,
 		}
 	default: // claude
@@ -417,7 +437,7 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 				`TOOLS="Bash Read Write Glob Grep Edit"; `+
 				`else TOOLS="Bash(git:*,gh:*) Read Write Glob Grep Edit"; fi && `+
 				`claude -p --allowedTools "$TOOLS"`,
-			containerWorkDir)
+			workDir)
 		cmdArgs = []string{
 			"docker", "exec",
 			"-i",
@@ -475,7 +495,7 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 		tr.Output = stdout.String()
 
 		// Post-task verification: check git diff in workspace
-		verifyTaskChanges(c.ContainerID, tr)
+		verifyTaskChanges(c.ContainerID, workDir, tr)
 
 		// Post-task completion: run go build + go test
 		runCompletion(c.ContainerID, tr)
@@ -507,9 +527,9 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 }
 
 // verifyTaskChanges runs git diff inside the container to verify actual file changes.
-func verifyTaskChanges(containerID string, tr *taskResult) {
+func verifyTaskChanges(containerID, workDir string, tr *taskResult) {
 	diffCmd := exec.Command("docker", "exec", containerID,
-		"bash", "-c", fmt.Sprintf("cd %s && git diff --stat HEAD 2>/dev/null; git diff --stat --cached HEAD 2>/dev/null; git status --porcelain 2>/dev/null", containerWorkDir))
+		"bash", "-c", fmt.Sprintf("cd %s && git diff --stat HEAD 2>/dev/null; git diff --stat --cached HEAD 2>/dev/null; git status --porcelain 2>/dev/null", workDir))
 	diffOut, err := diffCmd.Output()
 	if err != nil {
 		tr.Verified = "skipped"
