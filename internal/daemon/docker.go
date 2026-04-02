@@ -634,6 +634,34 @@ func cloneRepoInContainer(ctx context.Context, ctr *sdkcontainer.Container, repo
 	return nil
 }
 
+// crossRepoDir is the path inside the container where cross-repo clones are stored.
+const crossRepoDir = "/tmp/cross-repo"
+
+// setupCrossRepo clones a target repo inside the container for cross-repo task execution.
+// Returns the working directory path inside the container.
+func setupCrossRepo(containerID, repo string) (string, error) {
+	// Clone using gh repo clone (handles auth via GH_TOKEN already in container env)
+	script := fmt.Sprintf(
+		`rm -rf %s && gh repo clone %s %s -- --depth=50`,
+		crossRepoDir, repo, crossRepoDir,
+	)
+	cmd := exec.Command("docker", "exec", containerID, "bash", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("cross-repo clone %s: %v: %s", repo, err, strings.TrimSpace(string(out)))
+	}
+	log.Printf("[cross-repo] cloned %s into %s:%s", repo, containerID[:12], crossRepoDir)
+	return crossRepoDir, nil
+}
+
+// cleanupCrossRepo removes the cross-repo clone from the container.
+func cleanupCrossRepo(containerID string) {
+	cmd := exec.Command("docker", "exec", containerID, "rm", "-rf", crossRepoDir)
+	if err := cmd.Run(); err != nil {
+		log.Printf("[cross-repo] cleanup failed: %v", err)
+	}
+}
+
 // resolveVeilKey resolves a VK: reference via veil CLI or localvault API.
 func resolveVeilKey(ref string) (string, error) {
 	// Try veil CLI first

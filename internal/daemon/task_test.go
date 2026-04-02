@@ -230,7 +230,7 @@ func TestTruncateStr(t *testing.T) {
 
 func TestVerifyTaskChanges_NoContainer(t *testing.T) {
 	tr := &taskResult{ID: "test-001", Status: "done"}
-	verifyTaskChanges("nonexistent-container-id", tr)
+	verifyTaskChanges("nonexistent-container-id", containerWorkDir, tr)
 	if tr.Verified != "skipped" {
 		t.Errorf("expected skipped for invalid container, got %q", tr.Verified)
 	}

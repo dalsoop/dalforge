@@ -29,6 +29,7 @@ func newTellCmd() *cobra.Command {
 	var issueNum int
 	var direct bool
 	var member string
+	var repo string
 	var noWake bool
 	var noACK bool
 
@@ -41,6 +42,7 @@ By default, messages are routed through the target dalcenter's /api/message endp
 Use --direct to send directly to the team's matterbridge API (bypassing dalcenter).
 Use --issue to include a GitHub issue reference in the message.
 Use --member with --issue to also trigger the issue-workflow pipeline on the target dalcenter.
+Use --repo to specify a cross-repo target (e.g. "dalsoop/landing-prelik") for the task.
 Use --no-wake to disable auto-wake when the target dal is idle.
 Use --no-ack to skip waiting for ACK (fire-and-forget mode).`,
 		Args: cobra.MinimumNArgs(2),
@@ -48,6 +50,9 @@ Use --no-ack to skip waiting for ACK (fire-and-forget mode).`,
 			team := args[0]
 			message := strings.Join(args[1:], " ")
 
+			if repo != "" {
+				message = fmt.Sprintf("[repo: %s] %s", repo, message)
+			}
 			if issueNum > 0 {
 				message = fmt.Sprintf("[issue #%d] %s", issueNum, message)
 			}
@@ -98,6 +103,7 @@ Use --no-ack to skip waiting for ACK (fire-and-forget mode).`,
 	cmd.Flags().IntVar(&issueNum, "issue", 0, "Attach GitHub issue number to the message")
 	cmd.Flags().BoolVar(&direct, "direct", false, "Send directly to matterbridge (bypass dalcenter)")
 	cmd.Flags().StringVar(&member, "member", "", "Target member for issue-workflow (used with --issue)")
+	cmd.Flags().StringVar(&repo, "repo", "", "Cross-repo target (e.g. dalsoop/landing-prelik)")
 	cmd.Flags().BoolVar(&noWake, "no-wake", false, "Disable auto-wake for idle dals")
 	cmd.Flags().BoolVar(&noACK, "no-ack", false, "Skip waiting for ACK (fire-and-forget mode)")
 
