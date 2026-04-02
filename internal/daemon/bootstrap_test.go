@@ -641,7 +641,7 @@ func TestWebhookDispatch_FuncExists(t *testing.T) {
 
 func TestRepoWatcher_FuncExists(t *testing.T) {
 	src := readSource(t, "repo_watcher.go")
-	if !strings.Contains(src, "func startRepoWatcher") {
+	if !strings.Contains(src, "startRepoWatcher") {
 		t.Fatal("startRepoWatcher must exist")
 	}
 }

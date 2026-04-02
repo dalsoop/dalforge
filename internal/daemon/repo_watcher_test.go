@@ -130,9 +130,9 @@ func TestGitRevParse(t *testing.T) {
 func TestFetchAndPull_NoRemoteChanges(t *testing.T) {
 	_, cloneDir := initBareAndClone(t)
 
-	changed := fetchAndPull(cloneDir)
-	if changed {
-		t.Error("expected no changes when repo is up to date")
+	res := fetchAndPull(cloneDir)
+	if res.dalChanged || res.goChanged || res.err != nil {
+		t.Errorf("expected no changes when repo is up to date, got %+v", res)
 	}
 }
 
@@ -142,9 +142,12 @@ func TestFetchAndPull_DalChanged(t *testing.T) {
 	// Push a .dal/ change via another clone
 	pushToBare(t, bareDir, ".dal/leader/charter.md", "# Leader v2 — updated\n")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
-		t.Error("expected changes detected after .dal/ update")
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
+		t.Error("expected dalChanged after .dal/ update")
+	}
+	if res.err != nil {
+		t.Errorf("unexpected error: %v", res.err)
 	}
 
 	// Verify file was pulled
@@ -160,9 +163,9 @@ func TestFetchAndPull_NonDalChanged(t *testing.T) {
 	// Push a change outside .dal/
 	pushToBare(t, bareDir, "README.md", "# Updated readme\n")
 
-	changed := fetchAndPull(cloneDir)
-	if changed {
-		t.Error("expected no sync trigger when .dal/ not affected")
+	res := fetchAndPull(cloneDir)
+	if res.dalChanged {
+		t.Error("expected no dal change when .dal/ not affected")
 	}
 
 	// Verify the pull still happened
@@ -172,11 +175,28 @@ func TestFetchAndPull_NonDalChanged(t *testing.T) {
 	}
 }
 
+func TestFetchAndPull_GoChanged(t *testing.T) {
+	bareDir, cloneDir := initBareAndClone(t)
+
+	pushToBare(t, bareDir, "cmd/main.go", "package main\n")
+
+	res := fetchAndPull(cloneDir)
+	if !res.goChanged {
+		t.Error("expected goChanged after .go file update")
+	}
+	if res.dalChanged {
+		t.Error("expected no dalChanged for go-only change")
+	}
+}
+
 func TestFetchAndPull_NotGitRepo(t *testing.T) {
 	dir := t.TempDir()
-	changed := fetchAndPull(dir)
-	if changed {
-		t.Error("expected false for non-git dir")
+	res := fetchAndPull(dir)
+	if res.dalChanged || res.goChanged {
+		t.Error("expected no changes for non-git dir")
+	}
+	if res.err == nil {
+		t.Error("expected error for non-git dir fetch")
 	}
 }
 
@@ -198,8 +218,8 @@ func TestFetchAndPull_MultipleCommits(t *testing.T) {
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "add dev dal")
 	run(t, pushDir, "git", "push")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
 		t.Error("expected .dal/ change detected across multiple commits")
 	}
 }
@@ -210,13 +230,15 @@ func TestFetchAndPull_Idempotent(t *testing.T) {
 	pushToBare(t, bareDir, ".dal/leader/charter.md", "# Leader v2\n")
 
 	// First call: should detect change
-	if !fetchAndPull(cloneDir) {
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
 		t.Fatal("first call should detect changes")
 	}
 
 	// Second call: already up to date
-	if fetchAndPull(cloneDir) {
-		t.Error("second call should return false (already pulled)")
+	res2 := fetchAndPull(cloneDir)
+	if res2.dalChanged || res2.goChanged {
+		t.Error("second call should return no changes (already pulled)")
 	}
 }
 
@@ -232,8 +254,8 @@ func TestFetchAndPull_DalFileDeleted(t *testing.T) {
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "delete instructions")
 	run(t, pushDir, "git", "push")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
 		t.Error("expected change detected when .dal/ file deleted")
 	}
 
@@ -248,8 +270,8 @@ func TestFetchAndPull_SkillsChanged(t *testing.T) {
 
 	pushToBare(t, bareDir, ".dal/skills/go-review/SKILL.md", "# Go Review Skill\nReview Go code.\n")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
 		t.Error("expected change detected for .dal/skills/ update")
 	}
 
@@ -264,13 +286,13 @@ func TestFetchAndPull_DalCueChanged(t *testing.T) {
 
 	pushToBare(t, bareDir, ".dal/leader/dal.cue", "uuid: \"leader-v2\"\nname: \"leader\"\n")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
 		t.Error("expected change detected for dal.cue update")
 	}
 }
 
-func TestFetchAndPull_LocalDirtyFails(t *testing.T) {
+func TestFetchAndPull_LocalDirtyResetsToOrigin(t *testing.T) {
 	bareDir, cloneDir := initBareAndClone(t)
 
 	// Make a local commit on main that diverges from remote
@@ -281,10 +303,27 @@ func TestFetchAndPull_LocalDirtyFails(t *testing.T) {
 	// Push a different change to remote
 	pushToBare(t, bareDir, "remote-only.txt", "remote\n")
 
-	// ff-only should fail (diverged history)
-	changed := fetchAndPull(cloneDir)
-	if changed {
-		t.Error("expected false when ff-only fails due to diverged history")
+	// ff-only will fail, but reset --hard should succeed
+	res := fetchAndPull(cloneDir)
+	if res.err != nil {
+		t.Fatalf("expected successful reset fallback, got error: %v", res.err)
+	}
+	if !res.resetUsed {
+		t.Error("expected resetUsed=true when ff-only fails")
+	}
+
+	// Verify remote file exists (reset brought us to origin/main)
+	content, err := os.ReadFile(filepath.Join(cloneDir, "remote-only.txt"))
+	if err != nil {
+		t.Fatalf("remote file not present after reset: %v", err)
+	}
+	if string(content) != "remote\n" {
+		t.Errorf("unexpected content: %q", string(content))
+	}
+
+	// Local-only file should be gone (reset discarded it)
+	if _, err := os.Stat(filepath.Join(cloneDir, "local-only.txt")); !os.IsNotExist(err) {
+		t.Error("local-only file should be gone after reset")
 	}
 }
 
@@ -303,9 +342,32 @@ func TestFetchAndPull_MixedDalAndNonDal(t *testing.T) {
 	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "mixed")
 	run(t, pushDir, "git", "push")
 
-	changed := fetchAndPull(cloneDir)
-	if !changed {
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
 		t.Error("expected change when commit touches both .dal/ and other files")
+	}
+}
+
+func TestFetchAndPull_MixedDalAndGo(t *testing.T) {
+	bareDir, cloneDir := initBareAndClone(t)
+
+	tmp := t.TempDir()
+	run(t, tmp, "git", "clone", bareDir, tmp+"/push")
+	pushDir := tmp + "/push"
+
+	os.MkdirAll(filepath.Join(pushDir, ".dal", "dev"), 0755)
+	os.WriteFile(filepath.Join(pushDir, ".dal", "dev", "charter.md"), []byte("# Dev\n"), 0644)
+	os.WriteFile(filepath.Join(pushDir, "main.go"), []byte("package main\n"), 0644)
+	run(t, pushDir, "git", "add", ".")
+	run(t, pushDir, "git", "-c", "user.name=test", "-c", "user.email=test@test", "commit", "-m", "mixed dal+go")
+	run(t, pushDir, "git", "push")
+
+	res := fetchAndPull(cloneDir)
+	if !res.dalChanged {
+		t.Error("expected dalChanged")
+	}
+	if !res.goChanged {
+		t.Error("expected goChanged")
 	}
 }
 
@@ -366,9 +428,10 @@ func TestStartRepoWatcher_EmptyDir(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
+	d, _ := setupTestDaemon(t)
 	var called atomic.Int32
 	// Should return immediately for empty repoDir
-	startRepoWatcher(ctx, "", func() { called.Add(1) })
+	d.startRepoWatcher(ctx, "", func() { called.Add(1) })
 
 	if called.Load() != 0 {
 		t.Error("syncFn should not be called for empty dir")
@@ -379,8 +442,9 @@ func TestStartRepoWatcher_NotGitRepo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
+	d, _ := setupTestDaemon(t)
 	var called atomic.Int32
-	startRepoWatcher(ctx, t.TempDir(), func() { called.Add(1) })
+	d.startRepoWatcher(ctx, t.TempDir(), func() { called.Add(1) })
 
 	if called.Load() != 0 {
 		t.Error("syncFn should not be called for non-git dir")
@@ -393,9 +457,10 @@ func TestStartRepoWatcher_CancelStops(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	d, _ := setupTestDaemon(t)
 	done := make(chan struct{})
 	go func() {
-		startRepoWatcher(ctx, dir, func() {})
+		d.startRepoWatcher(ctx, dir, func() {})
 		close(done)
 	}()
 
@@ -406,5 +471,41 @@ func TestStartRepoWatcher_CancelStops(t *testing.T) {
 		// OK — watcher stopped
 	case <-time.After(3 * time.Second):
 		t.Fatal("repo-watcher did not stop after context cancel")
+	}
+}
+
+func TestListRunningTeams(t *testing.T) {
+	// This test just verifies listRunningTeams doesn't panic.
+	// In CI/test environments there are no dalcenter@* units, so expect empty.
+	teams := listRunningTeams()
+	// We can't assert specific teams, but it should not panic
+	_ = teams
+}
+
+func TestHasGoChanges(t *testing.T) {
+	bareDir, cloneDir := initBareAndClone(t)
+
+	before := gitRevParse(cloneDir, "HEAD")
+
+	pushToBare(t, bareDir, "internal/foo.go", "package internal\n")
+	fetchAndPull(cloneDir)
+
+	after := gitRevParse(cloneDir, "HEAD")
+	if !hasGoChanges(cloneDir, before, after) {
+		t.Error("expected go changes detected")
+	}
+}
+
+func TestHasGoChanges_NoGoFiles(t *testing.T) {
+	bareDir, cloneDir := initBareAndClone(t)
+
+	before := gitRevParse(cloneDir, "HEAD")
+
+	pushToBare(t, bareDir, "README.md", "updated\n")
+	fetchAndPull(cloneDir)
+
+	after := gitRevParse(cloneDir, "HEAD")
+	if hasGoChanges(cloneDir, before, after) {
+		t.Error("expected no go changes for non-go file update")
 	}
 }
