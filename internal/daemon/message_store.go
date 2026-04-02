@@ -112,7 +112,7 @@ func (s *messageStore) MarkAcked(id string) bool {
 	now := time.Now().UTC()
 	m.Status = MessageAcked
 	m.AckedAt = &now
-	go persistJSON(s.file, s.messages, &s.mu)
+	s.persistAsync()
 	return true
 }
 
@@ -137,7 +137,7 @@ func (s *messageStore) IncrRetry(id string) int {
 	}
 	m.Retries++
 	m.Status = MessagePending
-	go persistJSON(s.file, s.messages, &s.mu)
+	s.persistAsync()
 	return m.Retries
 }
 
