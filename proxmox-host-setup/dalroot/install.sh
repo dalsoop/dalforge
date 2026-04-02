@@ -27,7 +27,7 @@ err()  { echo -e "${RED}[install]${NC} $*" >&2; }
 install_host() {
     log "Installing dalroot scripts to /usr/local/bin/..."
 
-    local scripts=(dalroot-id dalroot-check-notifications dalroot-register dalroot-task dalroot-listener)
+    local scripts=(dalroot-id dalroot-check-notifications dalroot-register dalroot-task dalroot-listener dalroot-log dalroot-log-prompt)
     for s in "${scripts[@]}"; do
         cp "$SCRIPT_DIR/$s" "/usr/local/bin/$s"
         chmod +x "/usr/local/bin/$s"
@@ -52,7 +52,10 @@ install_host() {
     warn ""
     warn '  "hooks": {'
     warn '    "SessionStart": [{"type": "command", "command": "dalroot-register"}],'
-    warn '    "UserPromptSubmit": [{"type": "command", "command": "dalroot-check-notifications"}],'
+    warn '    "UserPromptSubmit": ['
+    warn '      {"type": "command", "command": "dalroot-check-notifications"},'
+    warn '      {"type": "command", "command": "dalroot-log-prompt"}'
+    warn '    ],'
     warn '    "Notification": [{"type": "command", "command": "dalroot-check-notifications"}]'
     warn '  }'
     warn ""

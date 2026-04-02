@@ -31,6 +31,8 @@ dalroot-check-notifications → stdout
 | `dalroot-register` | SessionStart hook — inbox 생성 + MM 등록 |
 | `dalroot-task` | dalcenter task 래퍼 (팀 라우팅 + callback) |
 | `dalroot-listener` | dalbridge SSE stream 구독 → inbox 전달 |
+| `dalroot-log` | dalroot-log MM 채널에 메시지 포스팅 헬퍼 |
+| `dalroot-log-prompt` | UserPromptSubmit hook — 사용자 메시지를 dalroot-log에 기록 |
 
 ### CT 202 (Mattermost LXC)
 
@@ -70,7 +72,10 @@ MM_TOKEN=<admin-token> ./install.sh --webhooks 202
 {
   "hooks": {
     "SessionStart": [{"type": "command", "command": "dalroot-register"}],
-    "UserPromptSubmit": [{"type": "command", "command": "dalroot-check-notifications"}],
+    "UserPromptSubmit": [
+      {"type": "command", "command": "dalroot-check-notifications"},
+      {"type": "command", "command": "dalroot-log-prompt"}
+    ],
     "Notification": [{"type": "command", "command": "dalroot-check-notifications"}]
   }
 }
