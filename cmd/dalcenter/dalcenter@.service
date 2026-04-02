@@ -1,0 +1,19 @@
+[Unit]
+Description=DalCenter Daemon — %i
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/dalcenter/%i.env
+Environment=PATH=/usr/local/bin:/usr/local/go/bin:/root/go/bin:/usr/bin:/bin
+Environment=HOME=/root
+ExecStart=/usr/local/bin/dalcenter serve --addr :${DALCENTER_PORT} --repo ${DALCENTER_REPO} --bridge-url ${DALCENTER_BRIDGE_URL}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

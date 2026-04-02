@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,9 +46,8 @@ func newRegisterCmd() *cobra.Command {
 			if port == 0 {
 				port = nextAvailablePort()
 			}
-			addr := fmt.Sprintf(":%d", port)
-			serviceName := systemdServiceName(repoName)
-			if err := installSystemdService(serviceName, repoPath, addr, bridgeURL); err != nil {
+			serviceName := systemdInstanceName(repoName)
+			if err := installSystemdService(serviceName, repoName, repoPath, port, bridgeURL); err != nil {
 				return fmt.Errorf("systemd: %w", err)
 			}
 			fmt.Printf("[2/6] systemd service: %s (port %d)\n", serviceName, port)
@@ -56,7 +56,7 @@ func newRegisterCmd() *cobra.Command {
 			fmt.Printf("[3/6] bridge URL: %s\n", bridgeURL)
 
 			// Step 4: 토큰 주입
-			if err := injectTokensToService(serviceName, repoPath); err != nil {
+			if err := injectTokensToService(repoName); err != nil {
 				fmt.Fprintf(os.Stderr, "[4/6] warning: token injection: %v\n", err)
 			} else {
 				fmt.Println("[4/6] tokens injected")
@@ -93,48 +93,68 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
-// systemdServiceName returns the systemd service name for a project.
-// First project uses "dalcenter", others use "dalcenter-<name>".
-func systemdServiceName(repoName string) string {
-	base := "/etc/systemd/system/dalcenter.service"
-	if _, err := os.Stat(base); err != nil {
-		return "dalcenter"
-	}
-	return "dalcenter-" + repoName
+// systemdInstanceName returns the systemd template instance name: dalcenter@<repo>.
+func systemdInstanceName(repoName string) string {
+	return "dalcenter@" + repoName
 }
 
-// nextAvailablePort scans existing dalcenter systemd services to find the next port.
+// nextAvailablePort scans /etc/dalcenter/*.env files to find the next port.
 // Base port is 11190, increments sequentially.
 func nextAvailablePort() int {
 	const basePort = 11190
 	used := make(map[int]bool)
 
-	entries, err := filepath.Glob("/etc/systemd/system/dalcenter*.service")
-	if err != nil || len(entries) == 0 {
-		return basePort
+	// Scan env files in config dir
+	configDir := paths.ConfigDir()
+	entries, err := filepath.Glob(filepath.Join(configDir, "*.env"))
+	if err == nil {
+		for _, entry := range entries {
+			if filepath.Base(entry) == "common.env" {
+				continue
+			}
+			data, err := os.ReadFile(entry)
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				if strings.HasPrefix(line, "DALCENTER_PORT=") {
+					portStr := strings.TrimPrefix(line, "DALCENTER_PORT=")
+					if p, err := strconv.Atoi(strings.TrimSpace(portStr)); err == nil {
+						used[p] = true
+					}
+				}
+			}
+		}
 	}
 
-	for _, entry := range entries {
-		data, err := os.ReadFile(entry)
-		if err != nil {
-			continue
-		}
-		// Parse --addr :<port> from ExecStart line
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, "ExecStart=") {
+	// Also scan legacy service files for backward compat
+	legacyEntries, err := filepath.Glob("/etc/systemd/system/dalcenter*.service")
+	if err == nil {
+		for _, entry := range legacyEntries {
+			// Skip the template file itself
+			if filepath.Base(entry) == "dalcenter@.service" {
 				continue
 			}
-			idx := strings.Index(line, "--addr :")
-			if idx < 0 {
+			data, err := os.ReadFile(entry)
+			if err != nil {
 				continue
 			}
-			portStr := line[idx+len("--addr :"):]
-			if sp := strings.IndexByte(portStr, ' '); sp > 0 {
-				portStr = portStr[:sp]
-			}
-			if p, err := strconv.Atoi(portStr); err == nil {
-				used[p] = true
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if !strings.HasPrefix(line, "ExecStart=") {
+					continue
+				}
+				idx := strings.Index(line, "--addr :")
+				if idx < 0 {
+					continue
+				}
+				portStr := line[idx+len("--addr :"):]
+				if sp := strings.IndexByte(portStr, ' '); sp > 0 {
+					portStr = portStr[:sp]
+				}
+				if p, err := strconv.Atoi(portStr); err == nil {
+					used[p] = true
+				}
 			}
 		}
 	}
@@ -146,37 +166,26 @@ func nextAvailablePort() int {
 	}
 }
 
-// installSystemdService writes and enables a dalcenter systemd service file.
-func installSystemdService(serviceName, repoPath, addr, bridgeURL string) error {
-	repoName := filepath.Base(repoPath)
-	unitPath := filepath.Join("/etc/systemd/system", serviceName+".service")
-
-	// Build ExecStart
-	execStart := fmt.Sprintf("%s serve --addr %s --repo %s", paths.BinaryPath(), addr, repoPath)
-	if bridgeURL != "" {
-		execStart += fmt.Sprintf(" --bridge-url %s", bridgeURL)
+// installSystemdService installs the dalcenter@ template (if needed),
+// writes /etc/dalcenter/<repo>.env, and enables the instance.
+func installSystemdService(serviceName, repoName, repoPath string, port int, bridgeURL string) error {
+	// Ensure template unit exists
+	if err := installTemplateUnit(); err != nil {
+		return fmt.Errorf("install template: %w", err)
 	}
 
-	unit := fmt.Sprintf(`[Unit]
-Description=DalCenter Daemon — %s
-After=network.target docker.service
-Requires=docker.service
+	// Write env file to /etc/dalcenter/<repo>.env
+	configDir := paths.ConfigDir()
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
 
-[Service]
-Type=simple
-Environment=PATH=/usr/local/bin:/usr/local/go/bin:/root/go/bin:/usr/bin:/bin
-Environment=HOME=/root
-Environment=DALCENTER_LOCALDAL_PATH=%s/.dal
-ExecStart=%s
-Restart=always
-RestartSec=5
+	envContent := fmt.Sprintf("DALCENTER_PORT=%d\nDALCENTER_REPO=%s\nDALCENTER_LOCALDAL_PATH=%s/.dal\nDALCENTER_BRIDGE_URL=%s\n",
+		port, repoPath, repoPath, bridgeURL)
 
-[Install]
-WantedBy=multi-user.target
-`, repoName, repoPath, execStart)
-
-	if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
-		return fmt.Errorf("write %s: %w", unitPath, err)
+	envPath := filepath.Join(configDir, repoName+".env")
+	if err := os.WriteFile(envPath, []byte(envContent), 0644); err != nil {
+		return fmt.Errorf("write %s: %w", envPath, err)
 	}
 
 	// systemctl daemon-reload && enable
@@ -187,6 +196,25 @@ WantedBy=multi-user.target
 		return fmt.Errorf("enable %s: %s: %w", serviceName, string(out), err)
 	}
 
+	return nil
+}
+
+//go:embed dalcenter@.service
+var templateUnitContent string
+
+// installTemplateUnit writes the dalcenter@.service template to /etc/systemd/system/
+// if it does not already exist or if the embedded version is newer.
+func installTemplateUnit() error {
+	templatePath := "/etc/systemd/system/dalcenter@.service"
+
+	existing, err := os.ReadFile(templatePath)
+	if err == nil && string(existing) == templateUnitContent {
+		return nil // already up to date
+	}
+
+	if err := os.WriteFile(templatePath, []byte(templateUnitContent), 0644); err != nil {
+		return fmt.Errorf("write template: %w", err)
+	}
 	return nil
 }
 
@@ -229,15 +257,21 @@ func newUnregisterCmd() *cobra.Command {
 
 			// Step 2: remove systemd service
 			fmt.Println("[2/2] removing systemd service...")
-			serviceName := systemdServiceName(repoName)
+			serviceName := systemdInstanceName(repoName)
 			exec.Command("systemctl", "stop", serviceName).Run()
 			exec.Command("systemctl", "disable", serviceName).Run()
 
-			unitPath := filepath.Join("/etc/systemd/system", serviceName+".service")
-			os.Remove(unitPath)
+			// Remove env file
+			envPath := filepath.Join(paths.ConfigDir(), repoName+".env")
+			os.Remove(envPath)
 
-			dropInDir := filepath.Join("/etc/systemd/system", serviceName+".service.d")
-			os.RemoveAll(dropInDir)
+			// Remove legacy non-template service files if present
+			for _, legacy := range []string{
+				filepath.Join("/etc/systemd/system", "dalcenter-"+repoName+".service"),
+				filepath.Join("/etc/systemd/system", "dalcenter-"+repoName+".service.d"),
+			} {
+				os.RemoveAll(legacy)
+			}
 
 			exec.Command("systemctl", "daemon-reload").Run()
 			fmt.Printf("[2/2] removed: %s\n", serviceName)
@@ -249,44 +283,39 @@ func newUnregisterCmd() *cobra.Command {
 	return cmd
 }
 
-// injectTokensToService writes token environment overrides for the systemd service.
-// Uses systemd drop-in to avoid modifying the main unit file.
-func injectTokensToService(serviceName, repoPath string) error {
-	dropInDir := filepath.Join("/etc/systemd/system", serviceName+".service.d")
-	if err := os.MkdirAll(dropInDir, 0755); err != nil {
-		return fmt.Errorf("create drop-in dir: %w", err)
-	}
+// injectTokensToService appends token environment variables to the env file.
+func injectTokensToService(repoName string) error {
+	envPath := filepath.Join(paths.ConfigDir(), repoName+".env")
 
-	var envLines []string
-
-	// GITHUB_TOKEN: from host environment or resolve from env
+	var tokenLines []string
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		envLines = append(envLines, fmt.Sprintf("Environment=GITHUB_TOKEN=%s", token))
+		tokenLines = append(tokenLines, fmt.Sprintf("GITHUB_TOKEN=%s", token))
 	}
-
-	// DALCENTER_TOKEN: generate or reuse
 	if token := os.Getenv("DALCENTER_TOKEN"); token != "" {
-		envLines = append(envLines, fmt.Sprintf("Environment=DALCENTER_TOKEN=%s", token))
+		tokenLines = append(tokenLines, fmt.Sprintf("DALCENTER_TOKEN=%s", token))
 	}
-
-	// VEILKEY_LOCALVAULT_URL: pass through if available
 	if url := os.Getenv("VEILKEY_LOCALVAULT_URL"); url != "" {
-		envLines = append(envLines, fmt.Sprintf("Environment=VEILKEY_LOCALVAULT_URL=%s", url))
+		tokenLines = append(tokenLines, fmt.Sprintf("VEILKEY_LOCALVAULT_URL=%s", url))
 	}
 
-	if len(envLines) == 0 {
-		return nil // nothing to inject
+	if len(tokenLines) == 0 {
+		return nil
 	}
 
-	content := "[Service]\n" + strings.Join(envLines, "\n") + "\n"
-	dropInPath := filepath.Join(dropInDir, "tokens.conf")
-	if err := os.WriteFile(dropInPath, []byte(content), 0600); err != nil {
-		return fmt.Errorf("write tokens.conf: %w", err)
+	f, err := os.OpenFile(envPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", envPath, err)
+	}
+	defer f.Close()
+
+	content := strings.Join(tokenLines, "\n") + "\n"
+	if _, err := f.WriteString(content); err != nil {
+		return fmt.Errorf("write tokens: %w", err)
 	}
 
-	// Reload after drop-in
-	if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
-		return fmt.Errorf("daemon-reload: %s: %w", string(out), err)
+	// Restrict permissions since file now contains tokens
+	if err := os.Chmod(envPath, 0600); err != nil {
+		return fmt.Errorf("chmod %s: %w", envPath, err)
 	}
 
 	return nil

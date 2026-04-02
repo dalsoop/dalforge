@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dalsoop/dalcenter/internal/paths"
 	"github.com/spf13/cobra"
 )
 
@@ -141,17 +142,46 @@ func runSelfUpdate(force bool) error {
 	return nil
 }
 
-// discoverDalcenterServices finds all dalcenter systemd service units.
+// discoverDalcenterServices finds all dalcenter systemd service instances.
+// Discovers both template instances (dalcenter@<repo>) via env files
+// and legacy non-template services (dalcenter, dalcenter-<name>).
 func discoverDalcenterServices() []string {
-	matches, err := filepath.Glob("/etc/systemd/system/dalcenter*.service")
-	if err != nil {
-		return nil
-	}
+	seen := make(map[string]bool)
 	var services []string
-	for _, m := range matches {
-		name := strings.TrimSuffix(filepath.Base(m), ".service")
-		services = append(services, name)
+
+	// Discover template instances from /etc/dalcenter/*.env
+	configDir := paths.ConfigDir()
+	if entries, err := filepath.Glob(filepath.Join(configDir, "*.env")); err == nil {
+		for _, e := range entries {
+			name := strings.TrimSuffix(filepath.Base(e), ".env")
+			if name == "common" {
+				continue
+			}
+			svc := "dalcenter@" + name
+			if !seen[svc] {
+				seen[svc] = true
+				services = append(services, svc)
+			}
+		}
 	}
+
+	// Also discover legacy non-template service files
+	if matches, err := filepath.Glob("/etc/systemd/system/dalcenter*.service"); err == nil {
+		for _, m := range matches {
+			base := filepath.Base(m)
+			// Skip the template file itself
+			if base == "dalcenter@.service" {
+				continue
+			}
+			name := strings.TrimSuffix(base, ".service")
+			// Skip if already discovered as template instance
+			if !seen[name] {
+				seen[name] = true
+				services = append(services, name)
+			}
+		}
+	}
+
 	return services
 }
 
