@@ -14,10 +14,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const autoWakeIdleThreshold = 30 * time.Minute
+
 func newTellCmd() *cobra.Command {
 	var issueNum int
 	var direct bool
 	var member string
+	var noWake bool
 
 	cmd := &cobra.Command{
 		Use:   "tell <team> <message>",
@@ -27,7 +30,8 @@ func newTellCmd() *cobra.Command {
 By default, messages are routed through the target dalcenter's /api/message endpoint.
 Use --direct to send directly to the team's matterbridge API (bypassing dalcenter).
 Use --issue to include a GitHub issue reference in the message.
-Use --member with --issue to also trigger the issue-workflow pipeline on the target dalcenter.`,
+Use --member with --issue to also trigger the issue-workflow pipeline on the target dalcenter.
+Use --no-wake to disable auto-wake when the target dal is idle.`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			team := args[0]
@@ -37,11 +41,27 @@ Use --member with --issue to also trigger the issue-workflow pipeline on the tar
 				message = fmt.Sprintf("[issue #%d] %s", issueNum, message)
 			}
 
-			if direct {
-				return sendViaBridge(team, message)
+			// Auto-wake: check target dal idle time and restart if needed
+			var wakeNote string
+			if !noWake {
+				targetURL, err := resolveRepoURL(team)
+				if err != nil {
+					return fmt.Errorf("resolve repo URL: %w", err)
+				}
+				idleDur, wakedName, err := autoWakeDal(targetURL, member)
+				if err != nil {
+					return fmt.Errorf("auto-wake %s: %w", team, err)
+				}
+				if idleDur > 0 {
+					wakeNote = fmt.Sprintf("auto-waked %s, was idle %s", wakedName, formatIdleDuration(idleDur))
+				}
 			}
 
-			if err := sendViaDalcenter(team, message); err != nil {
+			if direct {
+				return sendViaBridge(team, message, wakeNote)
+			}
+
+			if err := sendViaDalcenter(team, message, wakeNote); err != nil {
 				return err
 			}
 
@@ -59,12 +79,13 @@ Use --member with --issue to also trigger the issue-workflow pipeline on the tar
 	cmd.Flags().IntVar(&issueNum, "issue", 0, "Attach GitHub issue number to the message")
 	cmd.Flags().BoolVar(&direct, "direct", false, "Send directly to matterbridge (bypass dalcenter)")
 	cmd.Flags().StringVar(&member, "member", "", "Target member for issue-workflow (used with --issue)")
+	cmd.Flags().BoolVar(&noWake, "no-wake", false, "Disable auto-wake for idle dals")
 
 	return cmd
 }
 
 // sendViaDalcenter sends a message through the target dalcenter's /api/message endpoint.
-func sendViaDalcenter(team, message string) error {
+func sendViaDalcenter(team, message, wakeNote string) error {
 	targetURL, err := resolveRepoURL(team)
 	if err != nil {
 		return fmt.Errorf("resolve repo URL: %w", err)
@@ -103,10 +124,14 @@ func sendViaDalcenter(team, message string) error {
 		return fmt.Errorf("decode response: %w", err)
 	}
 
+	extra := ""
+	if wakeNote != "" {
+		extra = wakeNote + ", "
+	}
 	if result.PostID != "" {
-		fmt.Printf("[tell] message sent to %s (post_id=%s)\n", team, result.PostID)
+		fmt.Printf("[tell] message sent to %s (%spost_id=%s)\n", team, extra, result.PostID)
 	} else {
-		fmt.Printf("[tell] message sent to %s (status=%s)\n", team, result.Status)
+		fmt.Printf("[tell] message sent to %s (%sstatus=%s)\n", team, extra, result.Status)
 	}
 	return nil
 }
@@ -164,7 +189,7 @@ func triggerIssueWorkflow(team string, issueNum int, member, task string) error 
 }
 
 // sendViaBridge sends a message directly to a team's matterbridge API.
-func sendViaBridge(team, message string) error {
+func sendViaBridge(team, message, wakeNote string) error {
 	bridgeURL, err := resolveBridgeURL(team)
 	if err != nil {
 		return fmt.Errorf("resolve bridge URL: %w", err)
@@ -206,7 +231,11 @@ func sendViaBridge(team, message string) error {
 		return fmt.Errorf("bridge send failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 
-	fmt.Printf("[tell] message sent to %s via bridge (gateway=%s)\n", team, gateway)
+	extra := ""
+	if wakeNote != "" {
+		extra = ", " + wakeNote
+	}
+	fmt.Printf("[tell] message sent to %s via bridge (gateway=%s%s)\n", team, gateway, extra)
 	return nil
 }
 
@@ -288,6 +317,108 @@ func resolveRepoURL(repo string) (string, error) {
 func currentRepoName() string {
 	wd, _ := os.Getwd()
 	return filepath.Base(wd)
+}
+
+// autoWakeDal queries /api/ps on the target dalcenter and performs sleep→wake
+// (restart) if the target dal's idle time exceeds the threshold.
+// If dalName is empty, the leader is checked. Returns the idle duration and
+// the dal name if a wake was performed, or zero duration if no wake was needed.
+func autoWakeDal(targetURL, dalName string) (time.Duration, string, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	resp, err := client.Get(targetURL + "/api/ps")
+	if err != nil {
+		return 0, "", fmt.Errorf("query ps: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return 0, "", fmt.Errorf("ps failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	var containers []struct {
+		DalName string `json:"dal_name"`
+		Role    string `json:"role"`
+		IdleFor string `json:"idle_for"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
+		return 0, "", fmt.Errorf("decode ps: %w", err)
+	}
+
+	// Find target dal by name, or fall back to leader role.
+	var idleStr, targetName string
+	for _, c := range containers {
+		if dalName != "" && c.DalName == dalName {
+			idleStr = c.IdleFor
+			targetName = c.DalName
+			break
+		}
+		if dalName == "" && c.Role == "leader" {
+			idleStr = c.IdleFor
+			targetName = c.DalName
+			break
+		}
+	}
+
+	if targetName == "" || idleStr == "" {
+		return 0, "", nil
+	}
+
+	idle, err := time.ParseDuration(idleStr)
+	if err != nil {
+		return 0, "", nil
+	}
+
+	if idle < autoWakeIdleThreshold {
+		return 0, "", nil
+	}
+
+	// Sleep then wake (restart) to ensure the dal is responsive.
+	if err := postWithAuth(client, targetURL+"/api/sleep/"+targetName); err != nil {
+		return 0, targetName, fmt.Errorf("sleep %s: %w", targetName, err)
+	}
+	if err := postWithAuth(client, targetURL+"/api/wake/"+targetName); err != nil {
+		return 0, targetName, fmt.Errorf("wake %s: %w", targetName, err)
+	}
+
+	return idle, targetName, nil
+}
+
+// postWithAuth sends an authenticated POST request to the given URL.
+func postWithAuth(client *http.Client, url string) error {
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token := os.Getenv("DALCENTER_TOKEN"); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("(%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// formatIdleDuration formats a duration as a human-readable string like "3h35m".
+func formatIdleDuration(d time.Duration) string {
+	d = d.Truncate(time.Minute)
+	if d == 0 {
+		return "0m"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
 }
 
 // readEnvVar reads a specific variable from an env file.
