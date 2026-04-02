@@ -6,7 +6,20 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dalsoop/dalcenter/internal/providerexec"
 )
+
+// stubResolve replaces providerexec.ResolveFunc with /bin/echo for the
+// duration of the test, avoiding real binary execution and timeouts.
+func stubResolve(t *testing.T) {
+	t.Helper()
+	orig := providerexec.ResolveFunc
+	providerexec.ResolveFunc = func(player string) (string, error) {
+		return "/bin/echo", nil
+	}
+	t.Cleanup(func() { providerexec.ResolveFunc = orig })
+}
 
 // ══════════════════════════════════════════════════════════════
 // parseInterval: edge cases
@@ -169,6 +182,7 @@ func TestExtractTask_UnicodeContent(t *testing.T) {
 // ══════════════════════════════════════════════════════════════
 
 func TestRunClaude_ExtraBashWildcard(t *testing.T) {
+	stubResolve(t)
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
 	os.Setenv("DAL_EXTRA_BASH", "*")
@@ -185,6 +199,7 @@ func TestRunClaude_ExtraBashWildcard(t *testing.T) {
 }
 
 func TestRunClaude_ExtraBashSpecific(t *testing.T) {
+	stubResolve(t)
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
 	os.Setenv("DAL_EXTRA_BASH", "go,npm")
@@ -200,6 +215,7 @@ func TestRunClaude_ExtraBashSpecific(t *testing.T) {
 }
 
 func TestRunClaude_LeaderRole(t *testing.T) {
+	stubResolve(t)
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "leader")
 	os.Setenv("DAL_EXTRA_BASH", "")
@@ -215,6 +231,7 @@ func TestRunClaude_LeaderRole(t *testing.T) {
 }
 
 func TestRunClaude_MaxDurationEnv(t *testing.T) {
+	stubResolve(t)
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
 	os.Setenv("DAL_MAX_DURATION", "500ms")
@@ -228,12 +245,12 @@ func TestRunClaude_MaxDurationEnv(t *testing.T) {
 	_, _ = runClaude("claude", "test")
 	elapsed := time.Since(start)
 
-	// If claude exists it might run longer, but with 500ms timeout
-	// it should be capped. Just verify no panic.
+	// With /bin/echo stub, should complete near-instantly.
 	_ = elapsed
 }
 
 func TestRunClaude_InvalidMaxDuration(t *testing.T) {
+	stubResolve(t)
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
 	os.Setenv("DAL_MAX_DURATION", "not-a-duration")
@@ -243,7 +260,8 @@ func TestRunClaude_InvalidMaxDuration(t *testing.T) {
 		os.Unsetenv("DAL_MAX_DURATION")
 	}()
 
-	// Invalid duration should fall back to default (5min), not panic
+	// Invalid duration falls back to default (5min), but /bin/echo exits
+	// instantly so no timeout risk. Verifies no panic on parse error.
 	_, _ = runClaude("claude", "test")
 }
 
@@ -252,6 +270,7 @@ func TestRunClaude_InvalidMaxDuration(t *testing.T) {
 // ══════════════════════════════════════════════════════════════
 
 func TestExecuteTask_SuccessKeepsCircuitClosed(t *testing.T) {
+	stubResolve(t)
 	providerCircuit = NewCircuitBreaker(3, 2*time.Minute)
 	defer func() { providerCircuit = NewCircuitBreaker(3, 2*time.Minute) }()
 
@@ -266,12 +285,10 @@ func TestExecuteTask_SuccessKeepsCircuitClosed(t *testing.T) {
 
 	_, err := executeTask("echo hi")
 	if err == nil {
-		// claude 성공 → circuit closed 유지
 		if providerCircuit.State() != "closed" {
 			t.Error("circuit should be closed after success")
 		}
 	}
-	// claude 없으면 에러 → failure 기록됨 (이건 정상)
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -323,6 +340,7 @@ func TestIsActiveThread_EmptyMap(t *testing.T) {
 // ══════════════════════════════════════════════════════════════
 
 func TestRunProvider_DispatchesToRunClaude(t *testing.T) {
+	stubResolve(t)
 	os.Setenv("DAL_ROLE", "member")
 	os.Setenv("DAL_MAX_DURATION", "1s")
 	defer func() {

@@ -14,8 +14,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dalsoop/dalcenter/internal/providerexec"
+
 	"github.com/dalsoop/dalcenter/internal/bridge"
 )
+
+// stubProviderResolve replaces providerexec.ResolveFunc with /bin/echo
+// for the duration of the test, avoiding real binary execution.
+func stubProviderResolve(t *testing.T) {
+	t.Helper()
+	orig := providerexec.ResolveFunc
+	providerexec.ResolveFunc = func(player string) (string, error) {
+		return "/bin/echo", nil
+	}
+	t.Cleanup(func() { providerexec.ResolveFunc = orig })
+}
 
 // ── extractTask ──
 
@@ -873,38 +886,46 @@ func TestExecuteTask_NonRetryable_NoLoop(t *testing.T) {
 // ── runProvider player branching ──
 
 func TestRunProvider_Codex(t *testing.T) {
+	stubProviderResolve(t)
 	os.Setenv("DAL_PLAYER", "codex")
 	os.Setenv("DAL_ROLE", "member")
+	os.Setenv("DAL_MAX_DURATION", "1s")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
+	defer os.Unsetenv("DAL_MAX_DURATION")
 
-	// codex not available in test → just verify it doesn't panic
 	_, err := runClaude(os.Getenv("DAL_PLAYER"), "test")
-	if err == nil {
-		t.Log("codex available — unusual but ok")
+	if err != nil {
+		t.Logf("expected with stub: %v", err)
 	}
 }
 
 func TestRunProvider_Claude_Leader(t *testing.T) {
+	stubProviderResolve(t)
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "leader")
+	os.Setenv("DAL_MAX_DURATION", "1s")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
+	defer os.Unsetenv("DAL_MAX_DURATION")
 
 	_, err := runClaude(os.Getenv("DAL_PLAYER"), "test")
-	if err == nil {
-		t.Log("claude available — unusual but ok")
+	if err != nil {
+		t.Logf("expected with stub: %v", err)
 	}
 }
 
 func TestRunProvider_Claude_Member(t *testing.T) {
+	stubProviderResolve(t)
 	os.Setenv("DAL_PLAYER", "claude")
 	os.Setenv("DAL_ROLE", "member")
+	os.Setenv("DAL_MAX_DURATION", "1s")
 	defer os.Unsetenv("DAL_PLAYER")
 	defer os.Unsetenv("DAL_ROLE")
+	defer os.Unsetenv("DAL_MAX_DURATION")
 
 	_, err := runClaude(os.Getenv("DAL_PLAYER"), "test")
-	if err == nil {
-		t.Log("claude available — unusual but ok")
+	if err != nil {
+		t.Logf("expected with stub: %v", err)
 	}
 }

@@ -26,9 +26,17 @@ func binaryCandidates() map[string][]string {
 	}
 }
 
+// ResolveFunc is the function used to resolve provider binaries.
+// Override in tests to avoid real binary execution.
+var ResolveFunc = resolve
+
 // Resolve returns an executable path for the named provider binary.
 // It checks PATH first, then a small set of known install locations.
 func Resolve(player string) (string, error) {
+	return ResolveFunc(player)
+}
+
+func resolve(player string) (string, error) {
 	candidates, ok := binaryCandidates()[player]
 	if !ok {
 		return "", fmt.Errorf("unknown provider %q", player)
