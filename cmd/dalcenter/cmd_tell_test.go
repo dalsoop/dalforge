@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -306,10 +307,15 @@ func TestTriggerIssueWorkflow_ServerError(t *testing.T) {
 
 func TestTellCmd_IssueTriggersWorkflow(t *testing.T) {
 	var messageReceived, workflowReceived bool
+	var receivedMessage struct {
+		From    string `json:"from"`
+		Message string `json:"message"`
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/message":
 			messageReceived = true
+			json.NewDecoder(r.Body).Decode(&receivedMessage)
 			json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
 		case "/api/issue-workflow":
 			workflowReceived = true
@@ -339,6 +345,10 @@ func TestTellCmd_IssueTriggersWorkflow(t *testing.T) {
 	}
 	if !workflowReceived {
 		t.Error("expected /api/issue-workflow to be called")
+	}
+	// Verify @dal-leader mention is prepended
+	if !strings.HasPrefix(receivedMessage.Message, "@dal-leader ") {
+		t.Errorf("message = %q, want @dal-leader prefix", receivedMessage.Message)
 	}
 }
 
@@ -403,6 +413,59 @@ func TestNewTellCmd_NoACKFlag(t *testing.T) {
 	f := cmd.Flags().Lookup("no-ack")
 	if f == nil {
 		t.Fatal("--no-ack flag not found")
+	}
+}
+
+func TestTellCmd_LeaderMention(t *testing.T) {
+	var receivedMessage struct {
+		From    string `json:"from"`
+		Message string `json:"message"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/ps" {
+			json.NewEncoder(w).Encode([]struct{}{})
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&receivedMessage)
+		json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "target="+srv.URL)
+
+	cmd := newTellCmd()
+	cmd.SetArgs([]string{"target", "hello world"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
+	}
+
+	want := "@dal-leader hello world"
+	if receivedMessage.Message != want {
+		t.Errorf("message = %q, want %q", receivedMessage.Message, want)
+	}
+}
+
+func TestTellCmd_LeaderMention_Direct(t *testing.T) {
+	var receivedText struct {
+		Text string `json:"text"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&receivedText)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_BRIDGE_URLS", "target="+srv.URL)
+
+	cmd := newTellCmd()
+	cmd.SetArgs([]string{"target", "hello bridge", "--direct"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cmd.Execute: %v", err)
+	}
+
+	want := "@dal-leader hello bridge"
+	if receivedText.Text != want {
+		t.Errorf("text = %q, want %q", receivedText.Text, want)
 	}
 }
 
