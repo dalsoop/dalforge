@@ -14,17 +14,18 @@ import (
 
 // NotifyPayload is the JSON body sent to DALCENTER_NOTIFY_URL.
 type NotifyPayload struct {
-	Event     string `json:"event"`               // "task_done", "task_failed"
-	Dal       string `json:"dal"`
-	TaskID    string `json:"task_id"`
-	Task      string `json:"task"`
-	Status    string `json:"status"`
-	PRUrl     string `json:"pr_url,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Output    string `json:"output,omitempty"`
-	Changes   int    `json:"git_changes"`
-	Verified  string `json:"verified,omitempty"`
-	Timestamp string `json:"timestamp"`
+	Event      string `json:"event"`               // "task_done", "task_failed"
+	Dal        string `json:"dal"`
+	InstanceID string `json:"instance_id,omitempty"`
+	TaskID     string `json:"task_id"`
+	Task       string `json:"task"`
+	Status     string `json:"status"`
+	PRUrl      string `json:"pr_url,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Output     string `json:"output,omitempty"`
+	Changes    int    `json:"git_changes"`
+	Verified   string `json:"verified,omitempty"`
+	Timestamp  string `json:"timestamp"`
 }
 
 // notifyTaskComplete sends a notification when a task finishes.
@@ -32,8 +33,8 @@ type NotifyPayload struct {
 //  1. DALCENTER_NOTIFY_URL — HTTP POST with JSON payload
 //  2. notify-dalroot CLI — if CallbackPane is set
 //  3. Neither — log only
-func notifyTaskComplete(dalName string, tr *taskResult, repo string) {
-	payload := buildNotifyPayload(dalName, tr)
+func notifyTaskComplete(dalName, instanceID string, tr *taskResult, repo string) {
+	payload := buildNotifyPayload(dalName, instanceID, tr)
 
 	// 1. HTTP notification via DALCENTER_NOTIFY_URL
 	if url := os.Getenv("DALCENTER_NOTIFY_URL"); url != "" {
@@ -47,16 +48,17 @@ func notifyTaskComplete(dalName string, tr *taskResult, repo string) {
 }
 
 // buildNotifyPayload constructs the notification payload from a task result.
-func buildNotifyPayload(dalName string, tr *taskResult) NotifyPayload {
+func buildNotifyPayload(dalName, instanceID string, tr *taskResult) NotifyPayload {
 	event := "task_done"
 	if tr.Status == "failed" || tr.Status == "blocked" {
 		event = "task_failed"
 	}
 
 	p := NotifyPayload{
-		Event:     event,
-		Dal:       dalName,
-		TaskID:    tr.ID,
+		Event:      event,
+		Dal:        dalName,
+		InstanceID: instanceID,
+		TaskID:     tr.ID,
 		Task:      truncateStr(tr.Task, 200),
 		Status:    tr.Status,
 		Changes:   tr.GitChanges,

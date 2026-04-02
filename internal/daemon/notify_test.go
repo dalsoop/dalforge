@@ -17,7 +17,10 @@ func TestBuildNotifyPayload_Done(t *testing.T) {
 		GitChanges: 3,
 		Verified:   "yes",
 	}
-	p := buildNotifyPayload("leader", tr)
+	p := buildNotifyPayload("leader", "inst-abc123", tr)
+	if p.InstanceID != "inst-abc123" {
+		t.Errorf("expected instance_id=inst-abc123, got %s", p.InstanceID)
+	}
 	if p.Event != "task_done" {
 		t.Errorf("expected event=task_done, got %s", p.Event)
 	}
@@ -40,7 +43,7 @@ func TestBuildNotifyPayload_Failed(t *testing.T) {
 		Status: "failed",
 		Error:  "compilation error: undefined variable",
 	}
-	p := buildNotifyPayload("dev", tr)
+	p := buildNotifyPayload("dev", "", tr)
 	if p.Event != "task_failed" {
 		t.Errorf("expected event=task_failed, got %s", p.Event)
 	}
@@ -55,7 +58,7 @@ func TestBuildNotifyPayload_Blocked(t *testing.T) {
 		Status: "blocked",
 		Error:  "need approval",
 	}
-	p := buildNotifyPayload("dev", tr)
+	p := buildNotifyPayload("dev", "", tr)
 	if p.Event != "task_failed" {
 		t.Errorf("blocked should map to task_failed event, got %s", p.Event)
 	}

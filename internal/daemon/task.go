@@ -261,7 +261,13 @@ func (d *Daemon) handleTaskFinish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Notify dalroot on external task finish
-	notifyTaskComplete(tr.Dal, tr, d.serviceRepo)
+	d.mu.RLock()
+	instID := ""
+	if c, ok := d.containers[tr.Dal]; ok {
+		instID = c.InstanceID
+	}
+	d.mu.RUnlock()
+	notifyTaskComplete(tr.Dal, instID, tr, d.serviceRepo)
 
 	respondJSON(w, http.StatusOK, tr)
 }
@@ -489,7 +495,7 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 		})
 
 		// Notify dalroot on failure
-		notifyTaskComplete(c.DalName, tr, d.serviceRepo)
+		notifyTaskComplete(c.DalName, c.InstanceID, tr, d.serviceRepo)
 	} else {
 		tr.Status = "done"
 		tr.Output = stdout.String()
@@ -522,7 +528,7 @@ func (d *Daemon) execTaskInContainer(c *Container, tr *taskResult) {
 		})
 
 		// Notify dalroot on completion
-		notifyTaskComplete(c.DalName, tr, d.serviceRepo)
+		notifyTaskComplete(c.DalName, c.InstanceID, tr, d.serviceRepo)
 	}
 }
 

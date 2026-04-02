@@ -227,7 +227,7 @@ func bridgeURLForContainer(bridgeURL string) string {
 
 // dockerRun creates and starts a Docker container for a dal.
 // It returns the container ID, any credential warnings, and an error.
-func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL, dalbridgeURL string, dal *localdal.DalProfile) (string, []string, error) {
+func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL, dalbridgeURL string, dal *localdal.DalProfile, instanceID string) (string, []string, error) {
 	var warnings []string
 	ctx := context.Background()
 
@@ -257,6 +257,7 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL, d
 		"DAL_NAME":               dal.Name,
 		"DAL_UUID_SHORT":         uuidShort(dal.UUID),
 		"DAL_UUID":               dal.UUID,
+		"DAL_INSTANCE_ID":        instanceID,
 		"DAL_ROLE":               dal.Role,
 		"DAL_PLAYER":             dal.Player,
 		"DALCENTER_URL":          fmt.Sprintf("http://%s%s", dockerHostAlias, daemonAddr),
@@ -560,7 +561,8 @@ func dockerRun(localdalRoot, serviceRepo, instanceName, daemonAddr, bridgeURL, d
 		sdkcontainer.WithName(containerName),
 		sdkcontainer.WithEnv(envMap),
 		sdkcontainer.WithLabels(map[string]string{
-			"dalcenter.uuid": dal.UUID,
+			"dalcenter.uuid":        dal.UUID,
+			"dalcenter.instance_id": instanceID,
 		}),
 		sdkcontainer.WithConfigModifier(func(cfg *apicontainer.Config) {
 			cfg.Hostname = dal.Name
@@ -966,6 +968,7 @@ type discoveredContainer struct {
 	ID      string
 	Name    string // e.g. "dal-dev", "dal-dev-2"
 	Running bool
+	Labels  map[string]string
 }
 
 // discoverContainersByUUIDs finds containers matching any of the given UUIDs.
@@ -1020,6 +1023,7 @@ func discoverByLabel(label string) ([]discoveredContainer, error) {
 			ID:      c.ID,
 			Name:    name,
 			Running: c.State == apicontainer.StateRunning,
+			Labels:  c.Labels,
 		})
 	}
 	return containers, nil

@@ -168,7 +168,8 @@ func (d *Daemon) restartLeader(name string) error {
 		return fmt.Errorf("read dal.cue for %s: %w", name, err)
 	}
 
-	containerID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, d.dalbridgeURL, dal)
+	instID := newPrefixedUUID("inst")
+	containerID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, d.dalbridgeURL, dal, instID)
 	if err != nil {
 		return fmt.Errorf("wake %s: %w", name, err)
 	}
@@ -181,6 +182,7 @@ func (d *Daemon) restartLeader(name string) error {
 	d.containers[name] = &Container{
 		DalName:     name,
 		UUID:        dal.UUID,
+		InstanceID:  instID,
 		Player:      dal.Player,
 		Role:        dal.Role,
 		Description: dal.Description,

@@ -59,6 +59,7 @@ type Daemon struct {
 type Container struct {
 	DalName     string    `json:"dal_name"`
 	UUID        string    `json:"uuid"`
+	InstanceID  string    `json:"instance_id"`
 	Player      string    `json:"player"`
 	Role        string    `json:"role"`
 	Description string    `json:"description,omitempty"`
@@ -441,8 +442,16 @@ func (d *Daemon) handleStatusOne(w http.ResponseWriter, r *http.Request) {
 		containerID = c.ContainerID
 	}
 
+	instanceID := ""
+	d.mu.RLock()
+	if c, ok := d.containers[name]; ok {
+		instanceID = c.InstanceID
+	}
+	d.mu.RUnlock()
+
 	json.NewEncoder(w).Encode(map[string]any{
 		"uuid":         dal.UUID,
+		"instance_id":  instanceID,
 		"name":         dal.Name,
 		"description":  dal.Description,
 		"player":       dal.Player,
@@ -489,6 +498,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	d.mu.RUnlock()
 
 	instanceName := name
+	instanceID := newPrefixedUUID("inst")
 
 	// Clean any stopped container with the same name (best-effort, #33)
 	targetContainerName := dalContainerName(instanceName, dal.UUID)
@@ -496,7 +506,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[daemon] clean stale container %s: %v (continuing)", targetContainerName, err)
 	}
 
-	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, d.bridgeURL, d.dalbridgeURL, dal)
+	containerID, warnings, err := dockerRun(d.localdalRoot, d.serviceRepo, instanceName, d.addr, d.bridgeURL, d.dalbridgeURL, dal, instanceID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("wake failed: %v", err), 500)
 		return
@@ -515,6 +525,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	d.containers[instanceName] = &Container{
 		DalName:     instanceName,
 		UUID:        dal.UUID,
+		InstanceID:  instanceID,
 		Player:      dal.Player,
 		Role:        dal.Role,
 		Description: dal.Description,
@@ -542,7 +553,7 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	if len(uid) > 8 {
 		uid = uid[:8]
 	}
-	log.Printf("[daemon] wake: %s (uuid=%s, container=%s)", instanceName, uid, cid)
+	log.Printf("[daemon] wake: %s (uuid=%s, instance=%s, container=%s)", instanceName, uid, instanceID, cid)
 	resp := map[string]any{
 		"status":       "awake",
 		"dal":          instanceName,
@@ -720,7 +731,8 @@ func (d *Daemon) runSync() (synced, restarted []string) {
 				log.Printf("[daemon] sync restart stop %s: %v", name, err)
 				continue
 			}
-			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, d.dalbridgeURL, dal)
+			syncInstID := newPrefixedUUID("inst")
+			newID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, name, d.addr, d.bridgeURL, d.dalbridgeURL, dal, syncInstID)
 			if err != nil {
 				log.Printf("[daemon] sync restart run %s: %v", name, err)
 				d.mu.Lock()
@@ -732,6 +744,7 @@ func (d *Daemon) runSync() (synced, restarted []string) {
 			d.containers[name] = &Container{
 				DalName:     name,
 				UUID:        dal.UUID,
+				InstanceID:  syncInstID,
 				Player:      dal.Player,
 				Role:        dal.Role,
 				Description: dal.Description,
@@ -1129,6 +1142,7 @@ func (d *Daemon) reconcile() {
 			d.containers[instanceName] = &Container{
 				DalName:     instanceName,
 				UUID:        dal.UUID,
+				InstanceID:  c.Labels["dalcenter.instance_id"],
 				Player:      dal.Player,
 				Role:        dal.Role,
 				Description: dal.Description,
