@@ -51,6 +51,7 @@ type Daemon struct {
 	dalrootNotifier  *dalrootNotifier
 	messages         *messageStore
 	registry         *Registry
+	pipeline         *DalrootPipeline
 	startTime        time.Time
 }
 
@@ -97,6 +98,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 		issueWorkflows: newIssueWorkflowStore(),
 		messages:       newMessageStore(filepath.Join(stateDir(serviceRepo), "messages.json")),
 		registry:       newRegistry(serviceRepo),
+		pipeline:       newDalrootPipeline(serviceRepo),
 		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
 	}
@@ -278,6 +280,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/issue-workflow", d.requireAuth(d.handleIssueWorkflow))
 	mux.HandleFunc("GET /api/issue-workflow/{id}", d.handleIssueWorkflowStatus)
 	mux.HandleFunc("GET /api/issue-workflows", d.handleIssueWorkflowList)
+
+	// Pipeline endpoints
+	mux.HandleFunc("POST /api/pipeline/init", d.requireAuth(d.handlePipelineInit))
+	mux.HandleFunc("POST /api/pipeline/send", d.requireAuth(d.handlePipelineSend))
+	mux.HandleFunc("POST /api/pipeline/receive", d.handlePipelineReceive)
+	mux.HandleFunc("POST /api/pipeline/broadcast", d.requireAuth(d.handlePipelineBroadcast))
+	mux.HandleFunc("POST /api/pipeline/sync", d.requireAuth(d.handlePipelineSync))
+	mux.HandleFunc("GET /api/pipeline/health", d.handlePipelineHealth)
+	mux.HandleFunc("GET /api/pipeline/list", d.handlePipelineList)
 
 	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
 	mux.HandleFunc("POST /rpc", d.requireAuth(d.handleA2ARPC))
@@ -961,6 +972,13 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Buffer the message for ACK tracking
+	repoName := filepath.Base(d.serviceRepo)
+	if repoName == "" || repoName == "." {
+		repoName = "local"
+	}
+	bm := d.messages.New(req.From, repoName, req.Message)
+
 	if d.bridgeURL == "" {
 		// Fallback: if bridge is not configured, try direct task execution
 		d.mu.RLock()
@@ -982,14 +1000,17 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[scope] message fallback to direct task — bridge not configured")
 				tr := d.tasks.New(c.DalName, req.Message)
 				go d.execTaskInContainer(c, tr)
+				d.messages.MarkSent(bm.ID)
 				respondJSON(w, http.StatusAccepted, map[string]string{
-					"status":  "task_dispatched",
-					"task_id": tr.ID,
-					"note":    "bridge unavailable — task dispatched directly to container",
+					"status":     "task_dispatched",
+					"task_id":    tr.ID,
+					"message_id": bm.ID,
+					"note":       "bridge unavailable — task dispatched directly to container",
 				})
 				return
 			}
 		}
+		d.messages.MarkFailed(bm.ID, "bridge not configured and no running dals")
 		http.Error(w, "bridge not configured and no running dals", 503)
 		return
 	}
@@ -1002,13 +1023,16 @@ func (d *Daemon) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if err := d.mmPost(req.Message); err != nil {
 		// Fallback to bridge
 		if err2 := d.bridgePost(req.Message, dalName); err2 != nil {
+			d.messages.MarkFailed(bm.ID, fmt.Sprintf("mm=%v bridge=%v", err, err2))
 			http.Error(w, fmt.Sprintf("post failed: mm=%v bridge=%v", err, err2), 500)
 			return
 		}
 	}
 
+	d.messages.MarkSent(bm.ID)
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "sent",
+		"status":     "sent",
+		"message_id": bm.ID,
 	})
 }
 

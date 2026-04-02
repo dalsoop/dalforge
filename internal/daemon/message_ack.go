@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -142,9 +141,3 @@ func (d *Daemon) deliverMessage(m *BufferedMessage) error {
 	return nil
 }
 
-// respondJSON is a helper to write JSON responses with a given status code.
-func respondJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}

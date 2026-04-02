@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -173,6 +174,7 @@ func TestDalCuePath(t *testing.T) {
 func TestHandleMessage_NoBridge(t *testing.T) {
 	d := &Daemon{
 		containers: map[string]*Container{},
+		messages:   newMessageStore(filepath.Join(t.TempDir(), "messages.json")),
 	}
 
 	body := `{"from":"dev","message":"hello"}`

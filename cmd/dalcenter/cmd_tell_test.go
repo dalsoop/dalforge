@@ -28,12 +28,16 @@ func TestSendViaDalcenter(t *testing.T) {
 
 	t.Setenv("DALCENTER_URLS", "myteam="+srv.URL)
 
-	err := sendViaDalcenter("myteam", "hello leader", "")
+	msgID, err := sendViaDalcenter("myteam", "hello leader", "")
 	if err != nil {
 		t.Fatalf("sendViaDalcenter: %v", err)
 	}
 	if received.Message != "hello leader" {
 		t.Errorf("message = %q, want %q", received.Message, "hello leader")
+	}
+	// Server returned no message_id in this test
+	if msgID != "" {
+		t.Errorf("message_id = %q, want empty", msgID)
 	}
 }
 
@@ -48,7 +52,7 @@ func TestSendViaDalcenterWithAuth(t *testing.T) {
 	t.Setenv("DALCENTER_URLS", "team1="+srv.URL)
 	t.Setenv("DALCENTER_TOKEN", "secret123")
 
-	err := sendViaDalcenter("team1", "msg", "")
+	_, err := sendViaDalcenter("team1", "msg", "")
 	if err != nil {
 		t.Fatalf("sendViaDalcenter: %v", err)
 	}
@@ -183,7 +187,7 @@ func TestSendViaDalcenter_ServerError(t *testing.T) {
 
 	t.Setenv("DALCENTER_URLS", "errteam="+srv.URL)
 
-	err := sendViaDalcenter("errteam", "msg", "")
+	_, err := sendViaDalcenter("errteam", "msg", "")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -335,6 +339,70 @@ func TestTellCmd_IssueTriggersWorkflow(t *testing.T) {
 	}
 	if !workflowReceived {
 		t.Error("expected /api/issue-workflow to be called")
+	}
+}
+
+func TestSendViaDalcenter_ReturnsMessageID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":     "sent",
+			"message_id": "msg-0001",
+		})
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "myteam="+srv.URL)
+
+	msgID, err := sendViaDalcenter("myteam", "hello", "")
+	if err != nil {
+		t.Fatalf("sendViaDalcenter: %v", err)
+	}
+	if msgID != "msg-0001" {
+		t.Errorf("message_id = %q, want %q", msgID, "msg-0001")
+	}
+}
+
+func TestWaitForACK_Immediate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/messages/msg-0001" {
+			json.NewEncoder(w).Encode(map[string]string{"status": "acked"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "target="+srv.URL)
+
+	err := waitForACK("target", "msg-0001")
+	if err != nil {
+		t.Fatalf("waitForACK: %v", err)
+	}
+}
+
+func TestWaitForACK_Failed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/messages/msg-fail" {
+			json.NewEncoder(w).Encode(map[string]string{"status": "failed"})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	t.Setenv("DALCENTER_URLS", "target="+srv.URL)
+
+	err := waitForACK("target", "msg-fail")
+	if err == nil {
+		t.Fatal("expected error for failed message")
+	}
+}
+
+func TestNewTellCmd_NoACKFlag(t *testing.T) {
+	cmd := newTellCmd()
+	f := cmd.Flags().Lookup("no-ack")
+	if f == nil {
+		t.Fatal("--no-ack flag not found")
 	}
 }
 

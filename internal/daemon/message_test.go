@@ -5,9 +5,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func testMessageStore(t *testing.T) *messageStore {
+	t.Helper()
+	return newMessageStore(filepath.Join(t.TempDir(), "messages.json"))
+}
 
 func TestHandleMessage_PostsViaBridge(t *testing.T) {
 	var receivedBody string
@@ -23,6 +29,7 @@ func TestHandleMessage_PostsViaBridge(t *testing.T) {
 		containers: map[string]*Container{
 			"leader": {DalName: "leader", Role: "leader", Status: "running"},
 		},
+		messages: testMessageStore(t),
 	}
 
 	body := `{"from":"leader","message":"test message"}`
@@ -55,6 +62,7 @@ func TestHandleMessage_DefaultUsername(t *testing.T) {
 	d := &Daemon{
 		bridgeURL:  bridgeSrv.URL,
 		containers: map[string]*Container{},
+		messages:   testMessageStore(t),
 	}
 
 	body := `{"from":"","message":"hello"}`
@@ -82,6 +90,7 @@ func TestHandleMessage_ReturnsStatusSent(t *testing.T) {
 		containers: map[string]*Container{
 			"dev": {DalName: "dev", Role: "member", Status: "running"},
 		},
+		messages: testMessageStore(t),
 	}
 
 	body := `{"from":"dev","message":"hello"}`
@@ -102,6 +111,7 @@ func TestHandleMessage_BadJSON(t *testing.T) {
 	d := &Daemon{
 		bridgeURL:  "http://unused",
 		containers: map[string]*Container{},
+		messages:   testMessageStore(t),
 	}
 
 	req := httptest.NewRequest("POST", "/api/message", strings.NewReader("not-json"))
@@ -126,6 +136,7 @@ func TestHandleMessage_BridgeError(t *testing.T) {
 		containers: map[string]*Container{
 			"dev": {DalName: "dev", Role: "member", Status: "running"},
 		},
+		messages: testMessageStore(t),
 	}
 
 	body := `{"from":"dev","message":"hello"}`
@@ -147,6 +158,7 @@ func TestHandleMessage_NoBridgeFallbackToTask(t *testing.T) {
 		},
 		tasks:    newTaskStore(),
 		feedback: newFeedbackStore(),
+		messages: testMessageStore(t),
 	}
 
 	body := `{"from":"dev","message":"do something"}`
@@ -170,6 +182,7 @@ func TestHandleMessage_NoBridgeNoContainers(t *testing.T) {
 	d := &Daemon{
 		bridgeURL:  "",
 		containers: map[string]*Container{},
+		messages:   testMessageStore(t),
 	}
 
 	body := `{"from":"dev","message":"hello"}`

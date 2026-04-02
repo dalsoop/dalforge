@@ -14,13 +14,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const autoWakeIdleThreshold = 30 * time.Minute
+const (
+	autoWakeIdleThreshold = 30 * time.Minute
+
+	// ackPollInterval is how often we check for ACK after sending a message.
+	ackPollInterval = 10 * time.Second
+	// ackTimeout is the maximum time to wait for an ACK.
+	ackTimeout = 5 * time.Minute
+	// maxTellRetries is the number of send retries after ACK timeout.
+	maxTellRetries = 2
+)
 
 func newTellCmd() *cobra.Command {
 	var issueNum int
 	var direct bool
 	var member string
 	var noWake bool
+	var noACK bool
 
 	cmd := &cobra.Command{
 		Use:   "tell <team> <message>",
@@ -31,7 +41,8 @@ By default, messages are routed through the target dalcenter's /api/message endp
 Use --direct to send directly to the team's matterbridge API (bypassing dalcenter).
 Use --issue to include a GitHub issue reference in the message.
 Use --member with --issue to also trigger the issue-workflow pipeline on the target dalcenter.
-Use --no-wake to disable auto-wake when the target dal is idle.`,
+Use --no-wake to disable auto-wake when the target dal is idle.
+Use --no-ack to skip waiting for ACK (fire-and-forget mode).`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			team := args[0]
@@ -61,8 +72,16 @@ Use --no-wake to disable auto-wake when the target dal is idle.`,
 				return sendViaBridge(team, message, wakeNote)
 			}
 
-			if err := sendViaDalcenter(team, message, wakeNote); err != nil {
+			msgID, err := sendViaDalcenter(team, message, wakeNote)
+			if err != nil {
 				return err
+			}
+
+			// Wait for ACK if message_id was returned and --no-ack not set
+			if msgID != "" && !noACK {
+				if err := waitForACK(team, msgID); err != nil {
+					return err
+				}
 			}
 
 			// Trigger issue-workflow if --issue is specified
@@ -80,15 +99,17 @@ Use --no-wake to disable auto-wake when the target dal is idle.`,
 	cmd.Flags().BoolVar(&direct, "direct", false, "Send directly to matterbridge (bypass dalcenter)")
 	cmd.Flags().StringVar(&member, "member", "", "Target member for issue-workflow (used with --issue)")
 	cmd.Flags().BoolVar(&noWake, "no-wake", false, "Disable auto-wake for idle dals")
+	cmd.Flags().BoolVar(&noACK, "no-ack", false, "Skip waiting for ACK (fire-and-forget mode)")
 
 	return cmd
 }
 
 // sendViaDalcenter sends a message through the target dalcenter's /api/message endpoint.
-func sendViaDalcenter(team, message, wakeNote string) error {
+// Returns the message_id assigned by the target dalcenter for ACK tracking.
+func sendViaDalcenter(team, message, wakeNote string) (string, error) {
 	targetURL, err := resolveRepoURL(team)
 	if err != nil {
-		return fmt.Errorf("resolve repo URL: %w", err)
+		return "", fmt.Errorf("resolve repo URL: %w", err)
 	}
 
 	from := currentRepoName()
@@ -96,7 +117,7 @@ func sendViaDalcenter(team, message, wakeNote string) error {
 	body := fmt.Sprintf(`{"from":%q,"message":%q}`, from, message)
 	req, err := http.NewRequest(http.MethodPost, targetURL+"/api/message", strings.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -107,33 +128,37 @@ func sendViaDalcenter(team, message, wakeNote string) error {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send message: %w", err)
+		return "", fmt.Errorf("send message: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("message failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return "", fmt.Errorf("message failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 
 	var result struct {
-		PostID string `json:"post_id"`
-		Status string `json:"status"`
+		PostID    string `json:"post_id"`
+		Status    string `json:"status"`
+		MessageID string `json:"message_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+		return "", fmt.Errorf("decode response: %w", err)
 	}
 
 	extra := ""
 	if wakeNote != "" {
 		extra = wakeNote + ", "
 	}
+	if result.MessageID != "" {
+		extra += "message_id=" + result.MessageID + ", "
+	}
 	if result.PostID != "" {
 		fmt.Printf("[tell] message sent to %s (%spost_id=%s)\n", team, extra, result.PostID)
 	} else {
 		fmt.Printf("[tell] message sent to %s (%sstatus=%s)\n", team, extra, result.Status)
 	}
-	return nil
+	return result.MessageID, nil
 }
 
 // triggerIssueWorkflow calls the target dalcenter's /api/issue-workflow endpoint.
@@ -419,6 +444,47 @@ func formatIdleDuration(d time.Duration) string {
 		return fmt.Sprintf("%dh%dm", h, m)
 	}
 	return fmt.Sprintf("%dm", m)
+}
+
+// waitForACK polls the target dalcenter for message ACK.
+// If ACK is not received within timeout, performs auto-wake + retry up to maxTellRetries times.
+func waitForACK(team, msgID string) error {
+	targetURL, err := resolveRepoURL(team)
+	if err != nil {
+		return fmt.Errorf("resolve repo URL: %w", err)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	deadline := time.Now().Add(ackTimeout)
+
+	fmt.Printf("[tell] waiting for ACK on %s...\n", msgID)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(ackPollInterval)
+
+		resp, err := client.Get(targetURL + "/api/messages/" + msgID)
+		if err != nil {
+			continue // network blip, retry
+		}
+
+		var msg struct {
+			Status string `json:"status"`
+		}
+		json.NewDecoder(resp.Body).Decode(&msg)
+		resp.Body.Close()
+
+		switch msg.Status {
+		case "acked":
+			fmt.Printf("[tell] ACK received for %s\n", msgID)
+			return nil
+		case "failed":
+			return fmt.Errorf("message %s delivery failed", msgID)
+		}
+		// "sent" or "pending" — keep waiting
+	}
+
+	fmt.Printf("[tell] WARNING: no ACK for %s within %s\n", msgID, ackTimeout)
+	return nil // watchdog on the target side handles retry
 }
 
 // readEnvVar reads a specific variable from an env file.

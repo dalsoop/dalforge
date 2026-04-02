@@ -126,6 +126,29 @@ func (c *Client) Activity(name string) (map[string]string, error) {
 	return c.postJSON(fmt.Sprintf("/api/activity/%s", name))
 }
 
+// ACK sends an acknowledgment that a message was received and is being processed.
+func (c *Client) ACK(messageID string) (map[string]string, error) {
+	return c.postJSON(fmt.Sprintf("/api/ack/%s", messageID))
+}
+
+// MessageStatus returns the delivery status of a buffered message.
+func (c *Client) MessageStatus(id string) (*BufferedMessage, error) {
+	resp, err := c.http.Get(c.baseURL + "/api/messages/" + id)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("message not found: %s", strings.TrimSpace(string(body)))
+	}
+	var msg BufferedMessage
+	if err := json.NewDecoder(resp.Body).Decode(&msg); err != nil {
+		return nil, fmt.Errorf("json decode: %w", err)
+	}
+	return &msg, nil
+}
+
 // Ps returns running containers.
 func (c *Client) Ps() ([]*Container, error) {
 	resp, err := c.http.Get(c.baseURL + "/api/ps")
