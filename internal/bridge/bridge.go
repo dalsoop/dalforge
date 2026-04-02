@@ -9,6 +9,26 @@ import (
 // This is non-retryable — the caller should stop, not retry.
 var ErrAuthFailed = errors.New("auth failed (token invalid or expired)")
 
+// DeliveryStatus represents the state of a message delivery attempt.
+type DeliveryStatus string
+
+const (
+	DeliveryPending   DeliveryStatus = "pending"
+	DeliveryDelivered DeliveryStatus = "delivered"
+	DeliveryFailed    DeliveryStatus = "failed"
+)
+
+// DeliveryRecord tracks the delivery state of a single message.
+type DeliveryRecord struct {
+	ID        string
+	Message   Message
+	Status    DeliveryStatus
+	Attempts  int
+	LastError string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // Message represents a single message exchanged between agents.
 type Message struct {
 	ID        string
@@ -37,4 +57,11 @@ type Bridge interface {
 	GetUserIDByUsername(username string) (string, error)
 	// SetNoDM disables DM channel polling.
 	SetNoDM(noDM bool)
+
+	// SendWithACK sends a message with delivery tracking.
+	// Returns a delivery ID for status queries.
+	// Retries up to 3 times on failure before returning error.
+	SendWithACK(msg Message) (string, error)
+	// GetDelivery returns the delivery record for the given ID, or nil if not found.
+	GetDelivery(deliveryID string) *DeliveryRecord
 }

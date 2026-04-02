@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // MatterbridgeBridge implements Bridge using the matterbridge REST API.
@@ -25,6 +27,13 @@ type MatterbridgeBridge struct {
 	errors   chan error
 	done     chan struct{}
 	once     sync.Once
+
+	deliveryMu sync.RWMutex
+	deliveries map[string]*DeliveryRecord
+
+	// AlertChannel is the gateway name for posting delivery failure alerts.
+	// If empty, alerts are not posted.
+	AlertChannel string
 }
 
 // NewMatterbridgeBridge creates a new matterbridge API bridge.
@@ -38,6 +47,7 @@ func NewMatterbridgeBridge(url, token, gateway, botUsername string) *Matterbridg
 		messages:    make(chan Message, 64),
 		errors:      make(chan error, 8),
 		done:        make(chan struct{}),
+		deliveries:  make(map[string]*DeliveryRecord),
 	}
 }
 
@@ -102,6 +112,73 @@ func (mb *MatterbridgeBridge) GetUserIDByUsername(username string) (string, erro
 
 func (mb *MatterbridgeBridge) SetNoDM(_ bool) {
 	// matterbridge has no DM concept; no-op.
+}
+
+const maxDeliveryAttempts = 3
+
+func (mb *MatterbridgeBridge) SendWithACK(msg Message) (string, error) {
+	id := uuid.New().String()
+	now := time.Now()
+	rec := &DeliveryRecord{
+		ID:        id,
+		Message:   msg,
+		Status:    DeliveryPending,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	mb.deliveryMu.Lock()
+	mb.deliveries[id] = rec
+	mb.deliveryMu.Unlock()
+
+	var lastErr error
+	for attempt := 1; attempt <= maxDeliveryAttempts; attempt++ {
+		rec.Attempts = attempt
+		rec.UpdatedAt = time.Now()
+
+		err := mb.Send(msg)
+		if err == nil {
+			rec.Status = DeliveryDelivered
+			rec.UpdatedAt = time.Now()
+			return id, nil
+		}
+
+		lastErr = err
+		rec.LastError = err.Error()
+		log.Printf("[bridge-ack] delivery %s attempt %d/%d failed: %v", id, attempt, maxDeliveryAttempts, err)
+
+		if attempt < maxDeliveryAttempts {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+	}
+
+	rec.Status = DeliveryFailed
+	rec.UpdatedAt = time.Now()
+
+	mb.postDeliveryAlert(rec)
+
+	return id, fmt.Errorf("delivery failed after %d attempts: %w", maxDeliveryAttempts, lastErr)
+}
+
+func (mb *MatterbridgeBridge) GetDelivery(deliveryID string) *DeliveryRecord {
+	mb.deliveryMu.RLock()
+	defer mb.deliveryMu.RUnlock()
+	return mb.deliveries[deliveryID]
+}
+
+func (mb *MatterbridgeBridge) postDeliveryAlert(rec *DeliveryRecord) {
+	if mb.AlertChannel == "" {
+		log.Printf("[bridge-ack] delivery %s failed permanently (no alert channel configured)", rec.ID)
+		return
+	}
+	alert := fmt.Sprintf("⚠️ 메시지 전달 실패 (ID: %s)\n대상: %s\n시도: %d회\n오류: %s\n내용: %.100s",
+		rec.ID, rec.Message.Channel, rec.Attempts, rec.LastError, rec.Message.Content)
+	err := mb.Send(Message{
+		Content: alert,
+		Channel: mb.AlertChannel,
+	})
+	if err != nil {
+		log.Printf("[bridge-ack] failed to post delivery alert: %v", err)
+	}
 }
 
 func (mb *MatterbridgeBridge) getToken() string {
