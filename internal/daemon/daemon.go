@@ -196,6 +196,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		go d.startOpsWatcher(ctx)
 	}
 
+	// Start leader idle checker (doctor: idle leader detection + restart)
+	if leaderIdleCheckerEnabled() {
+		go d.startLeaderIdleChecker(ctx)
+	}
+
 	// Start scheduled dalroot (pipeline surveillance)
 	if scheduledDalrootEnabled() {
 		go d.startScheduledDalroot(ctx, d.githubRepo)
