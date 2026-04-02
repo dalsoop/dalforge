@@ -36,6 +36,7 @@ func main() {
 		newVersionCmd(),
 		newTuiCmd(),
 		newPipelineCmd(),
+		newChannelCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

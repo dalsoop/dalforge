@@ -52,6 +52,7 @@ type Daemon struct {
 	messages         *messageStore
 	registry         *Registry
 	pipeline         *DalrootPipeline
+	channelMap       *ChannelMap
 	startTime        time.Time
 }
 
@@ -99,6 +100,7 @@ func New(addr, localdalRoot, serviceRepo, bridgeURL, dalbridgeURL, bridgeConf, g
 		messages:       newMessageStore(filepath.Join(stateDir(serviceRepo), "messages.json")),
 		registry:       newRegistry(serviceRepo),
 		pipeline:       newDalrootPipeline(serviceRepo),
+		channelMap:     newChannelMap(serviceRepo),
 		credSyncLast: newCredentialSyncMap(),
 		startTime:    time.Now(),
 	}
@@ -287,6 +289,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/pipeline/sync", d.requireAuth(d.handlePipelineSync))
 	mux.HandleFunc("GET /api/pipeline/health", d.handlePipelineHealth)
 	mux.HandleFunc("GET /api/pipeline/list", d.handlePipelineList)
+
+	// Channel map endpoints
+	mux.HandleFunc("POST /api/channel/create", d.requireAuth(d.handleChannelCreate))
+	mux.HandleFunc("POST /api/channel/delete", d.requireAuth(d.handleChannelDelete))
+	mux.HandleFunc("POST /api/channel/map", d.requireAuth(d.handleChannelMap))
+	mux.HandleFunc("POST /api/channel/unmap", d.requireAuth(d.handleChannelUnmap))
+	mux.HandleFunc("GET /api/channel/list", d.handleChannelList)
+	mux.HandleFunc("POST /api/channel/sync", d.requireAuth(d.handleChannelSync))
 
 	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
 	mux.HandleFunc("POST /rpc", d.requireAuth(d.handleA2ARPC))

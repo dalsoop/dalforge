@@ -791,3 +791,142 @@ func (c *Client) PipelineList() ([]PipelineChannel, error) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	return result.Channels, nil
 }
+
+// --- Channel map client methods ---
+
+// ChannelCreate creates an MM channel.
+func (c *Client) ChannelCreate(name, purpose string) (*ChannelEntry, error) {
+	body := fmt.Sprintf(`{"name":%q,"purpose":%q}`, name, purpose)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/channel/create", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("channel create failed: %s", strings.TrimSpace(string(b)))
+	}
+	var result ChannelEntry
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// ChannelDelete deletes (archives) an MM channel.
+func (c *Client) ChannelDelete(name string) error {
+	body := fmt.Sprintf(`{"name":%q}`, name)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/channel/delete", strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("channel delete failed: %s", strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// ChannelMap binds a pane to an existing MM channel.
+func (c *Client) ChannelMap(pane, channel string) (*ChannelEntry, error) {
+	body := fmt.Sprintf(`{"pane":%q,"channel":%q}`, pane, channel)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/channel/map", strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("channel map failed: %s", strings.TrimSpace(string(b)))
+	}
+	var result ChannelEntry
+	json.Unmarshal(b, &result)
+	return &result, nil
+}
+
+// ChannelUnmap removes a pane→channel binding.
+func (c *Client) ChannelUnmap(pane string) error {
+	body := fmt.Sprintf(`{"pane":%q}`, pane)
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/channel/unmap", strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("channel unmap failed: %s", strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+// ChannelList returns all pane→channel mappings.
+func (c *Client) ChannelList() ([]*ChannelEntry, error) {
+	resp, err := c.http.Get(c.baseURL + "/api/channel/list")
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Channels []*ChannelEntry `json:"channels"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Channels, nil
+}
+
+// ChannelSync auto-maps dalroot panes using dalroot-{s}-{w}-{p} pattern.
+func (c *Client) ChannelSync(panes []string) ([]*ChannelEntry, error) {
+	bodyBytes, _ := json.Marshal(map[string]any{"panes": panes})
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/api/channel/sync", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("channel sync failed: %s", strings.TrimSpace(string(b)))
+	}
+	var result struct {
+		Synced []*ChannelEntry `json:"synced"`
+	}
+	json.Unmarshal(b, &result)
+	return result.Synced, nil
+}
