@@ -20,3 +20,8 @@ wisdom-inbox/
 .dal/data/
 /wisdom.md
 /decisions.md
+now.md
+review-cache/
+.dal/data/
+.dal/*/history.md
+.dal/issue/

@@ -75,3 +75,20 @@ rate limit 없어서 실패 시 2분마다 반복 wake 요청 → 로그 폭탄.
 dalcenter 레포에만 scope chain 적용됨. 다른 팀 레포(bridge-of-gaya-script, dal-qa-team, proxmox-host-setup)에는 없음.
 config-manager가 동기화해야 하지만 아직 미실행.
 - config-manager 가동 시 자동 배포 예정
+
+### .gitignore 필수 항목
+
+모든 레포에 다음을 .gitignore에 포함해야 함:
+- .claude/worktrees/ — agent 임시 워크트리
+- now.md — dal 런타임 임시 파일
+- review-cache/ — reviewer 캐시
+- .dal/data/ — 런타임 데이터 (tasks.json, escalations.json, feedback.json 등)
+- .dal/*/history.md — dal 개인 히스토리
+
+이것들이 커밋되면 레포가 불필요하게 비대해지고, 충돌이 발생함.
+2026-04-02 교훈: PHS 레포에 worktrees 22,000줄 커밋, dal-qa-team에 review-cache 서브모듈 생성.
+
+### remote branch 정리
+
+dalcenter에 180개 remote branch 누적. 머지 후 자동 삭제 설정 필요.
+GitHub repo settings > Automatically delete head branches 활성화.
