@@ -351,5 +351,17 @@
 ### 2026-04-02: PR #690 리뷰: test: InstanceID 테스트 커버리지 보강. CI pass, 테스...
 **상태:** failed
 **결과:** exit status 1
-**다음:** 
+**다음:**
+**주의:**
+
+### 2026-04-02: PR #695 리뷰: 중복 PR 생성 방지 Gate 5 (autoGitWorkflow에 gh pr list --...
+**상태:** failed
+**결과:** exit status 1
+**다음:**
+**주의:**
+
+### 2026-04-02: PR #696 코드 리뷰: fix/test-timeout-490 브랜치. 이슈 #490 수정 — 테스트 타임아웃 수정
+**상태:** failed
+**결과:** exit status 1
+**다음:**
 **주의:**
