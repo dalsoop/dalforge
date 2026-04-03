@@ -8,7 +8,7 @@ import (
 
 const (
 	queueCheckInterval = 60 * time.Second
-	taskExpireTimeout  = 10 * time.Minute
+	taskExpireTimeout  = 20 * time.Minute
 
 	// maxRunningLeader is the max concurrent running tasks for a leader dal.
 	maxRunningLeader = 1
