@@ -1,0 +1,45 @@
+# dalcenter 강제 규칙 — Go 코드에서 컴파일 타임 체크
+# 이 파일을 수정하면 dalcenter 빌드 시 자동 반영
+
+wake:
+  - name: leader-only-persistent
+    check: "role == leader"
+    error: "only leader can be persistent — use oneshot"
+    
+task:
+  - name: oneshot-for-members
+    check: "role != leader → oneshot=true required"
+    error: "member tasks must use oneshot=true"
+
+  - name: single-pr-per-issue
+    check: "no existing open PR for same issue"
+    error: "PR already exists for this issue — push to existing branch"
+
+git:
+  - name: no-main-direct-push
+    check: "branch != main"
+    error: "direct push to main forbidden — use branch + PR"
+
+  - name: no-duplicate-pr
+    check: "no open PR with same title/issue"
+    error: "duplicate PR — close this or push to existing"
+
+channel:
+  - name: channel-required-for-wake
+    check: "MM channel exists + webhook registered"
+    error: "wake blocked — MM channel or webhook missing"
+
+  - name: channel-archive-on-sleep
+    check: "archive channel when dal sleeps"
+
+  - name: stale-channel-cleanup
+    check: "no messages for 24h → auto archive"
+
+scope:
+  - name: scope-chain
+    check: "task is within current issue scope"
+    error: "scope violation — create issue instead"
+
+  - name: max-issues-per-batch
+    check: "architect assigns <= 3 issues per cycle"
+    error: "too many assignments — limit to 3"
