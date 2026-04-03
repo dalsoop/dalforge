@@ -362,6 +362,13 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+
+	// Enforce task rules (rules.go)
+	if err := d.enforceTaskRules(req.Dal, req.Oneshot); err != nil {
+		logRuleViolation("oneshot-for-members", req.Dal)
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	tr := d.tasks.New(req.Dal, req.Task)
 	tr.Repo = req.Repo
 	tr.CallbackPane = req.CallbackPane

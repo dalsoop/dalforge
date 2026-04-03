@@ -506,6 +506,13 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 		logRuleViolation("leader-only-persistent", name)
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
+
+	// Enforce channel rules (rules.go)
+	if err := d.enforceChannelRules(name); err != nil {
+		logRuleViolation("channel-required", name)
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	}
 	// Validate member count limit: find the leader's max_members setting
 	if dal.Role == "member" || dal.Role == "ops" {
