@@ -36,5 +36,25 @@ RUN git clone --depth 1 https://github.com/catlog22/Claude-Code-Workflow.git /op
 ENV DAL_ROLE=member
 ENV DAL_PLAYER=claude
 
+# ── Security hardening (claude-code-container pattern) ──
+
+# dumb-init for PID 1 signal handling + zombie reaping
+RUN apt-get update -qq && apt-get install -y -qq dumb-init && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Strip ALL setuid/setgid bits — prevent privilege escalation
+RUN find / -xdev -perm -4000 -type f -exec chmod u-s {} \; 2>/dev/null || true && \
+    find / -xdev -perm -2000 -type f -exec chmod g-s {} \; 2>/dev/null || true
+
+# Remove network reconnaissance tools
+RUN rm -f /usr/bin/nc /usr/bin/netcat /bin/netstat /usr/bin/ss /usr/bin/nmap 2>/dev/null || true
+
+# Prevent core dumps (API keys in memory)
+ENV RLIMIT_CORE=0
+
+# File descriptor limit
+ENV RLIMIT_NOFILE=1024
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["/usr/local/bin/entrypoint.sh"]

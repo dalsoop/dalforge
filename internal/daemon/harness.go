@@ -52,8 +52,9 @@ func (d *Daemon) postTaskGate(c *Container, tr *taskResult) {
 
 	// Gate 1: 실패 시 로깅 + escalation
 	if tr.Status == "failed" {
-		logRuleViolation("task-failed", fmt.Sprintf("dal=%s task=%s error=%s",
-			c.DalName, truncateStr(tr.Task, 50), tr.Error))
+		category := classifyError(tr.Error)
+		logRuleViolation("task-failed", fmt.Sprintf("dal=%s category=%s task=%s error=%s",
+			c.DalName, category, truncateStr(tr.Task, 50), tr.Error))
 
 		// 연속 실패 감지
 		d.trackConsecutiveFailure(c.DalName)
@@ -95,4 +96,42 @@ func (d *Daemon) trackConsecutiveFailure(dalName string) {
 
 func resetConsecutiveFailure(dalName string) {
 	consecutiveFailures[dalName] = 0
+}
+
+// ── Error Classification (AgentField pattern) ──
+
+type ErrorCategory string
+
+const (
+	ErrAuth         ErrorCategory = "auth_error"          // credential 만료/무효
+	ErrTimeout      ErrorCategory = "timeout"             // 실행 시간 초과
+	ErrConfig       ErrorCategory = "config_error"        // 설정 오류 (이미지 없음 등)
+	ErrTransient    ErrorCategory = "transient"           // 일시적 (네트워크, rate limit)
+	ErrLLM          ErrorCategory = "llm_unavailable"     // LLM API 다운
+	ErrContainer    ErrorCategory = "container_error"     // 컨테이너 생성/실행 실패
+	ErrInternal     ErrorCategory = "internal_error"      // 기타
+)
+
+// classifyError categorizes a task error for diagnostics and retry decisions.
+func classifyError(errMsg string) ErrorCategory {
+	lower := strings.ToLower(errMsg)
+	switch {
+	case strings.Contains(lower, "oauth") || strings.Contains(lower, "credential") ||
+		strings.Contains(lower, "401") || strings.Contains(lower, "authentication"):
+		return ErrAuth
+	case strings.Contains(lower, "expired") || strings.Contains(lower, "timeout"):
+		return ErrTimeout
+	case strings.Contains(lower, "image") || strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "config"):
+		return ErrConfig
+	case strings.Contains(lower, "rate limit") || strings.Contains(lower, "429") ||
+		strings.Contains(lower, "connection refused"):
+		return ErrTransient
+	case strings.Contains(lower, "api error") || strings.Contains(lower, "503"):
+		return ErrLLM
+	case strings.Contains(lower, "container") || strings.Contains(lower, "docker"):
+		return ErrContainer
+	default:
+		return ErrInternal
+	}
 }

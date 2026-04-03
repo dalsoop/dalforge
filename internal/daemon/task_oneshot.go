@@ -114,6 +114,8 @@ func (d *Daemon) buildOneShotArgs(containerName string, dal *localdal.DalProfile
 		"--security-opt=no-new-privileges:true",   // Security
 		"--pids-limit=200",                        // Resource limit
 		"--memory=2g",                             // Memory limit
+		"--ulimit", "core=0:0",                    // Core dump prevention
+		"--ulimit", "nofile=1024:1024",             // FD limit
 		"--tmpfs", "/tmp:noexec,nosuid,size=100m", // Temp (claude-code-container)
 	}
 
