@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"bytes"
+	"net/http"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -170,4 +172,50 @@ func (d *Daemon) buildOneShotArgs(containerName string, dal *localdal.DalProfile
 	)
 
 	return args
+}
+
+// handleTaskOneShot handles POST /api/task/oneshot — bypasses persistent container logic.
+func (d *Daemon) handleTaskOneShot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Task         string `json:"task"`
+		Role         string `json:"role"`
+		DalName      string `json:"dal_name"`
+		Async        bool   `json:"async"`
+		CallbackPane string `json:"callback_pane,omitempty"`
+		Repo         string `json:"repo,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", 400)
+		return
+	}
+	if req.Task == "" {
+		http.Error(w, "task required", 400)
+		return
+	}
+	if req.Role == "" {
+		req.Role = "member"
+	}
+	if req.DalName == "" {
+		req.DalName = "dev"
+	}
+
+	tr := d.tasks.New(req.DalName, req.Task)
+	tr.Repo = req.Repo
+	tr.CallbackPane = req.CallbackPane
+
+	if req.Async {
+		go d.execTaskOneShot(req.DalName, req.Role, req.Task, tr)
+		respondJSON(w, 202, map[string]string{
+			"task_id": tr.ID,
+			"status":  "running",
+		})
+		return
+	}
+
+	d.execTaskOneShot(req.DalName, req.Role, req.Task, tr)
+	status := 200
+	if tr.Status == "failed" {
+		status = 500
+	}
+	respondJSON(w, status, tr)
 }

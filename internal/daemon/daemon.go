@@ -323,6 +323,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	mux.HandleFunc("POST /api/pipeline/broadcast", d.requireAuth(d.handlePipelineBroadcast))
 	mux.HandleFunc("POST /api/pipeline/sync", d.requireAuth(d.handlePipelineSync))
 	mux.HandleFunc("GET /api/pipeline/health", d.handlePipelineHealth)
+	mux.HandleFunc("POST /api/task/oneshot", d.requireAuth(d.handleTaskOneShot))
 	mux.HandleFunc("GET /api/pipeline/list", d.handlePipelineList)
 
 	mux.HandleFunc("GET /.well-known/agent-card.json", d.handleAgentCard)
