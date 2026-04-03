@@ -38,3 +38,22 @@ config-manager가 30분마다 전체 팀 레포에 PR을 생성할 수 있음.
 - 동기화 PR은 하루 최대 1개/레포
 - 변경이 없으면 PR 생성하지 않음
 - PR 생성 전 기존 동기화 PR 확인 — 있으면 추가 커밋으로
+
+### dalcli 자동 이슈 생성 주의
+
+cmd/dalcli/cmd_run.go의 createGitHubIssue()가 검증 실패 시 이슈를 자동 생성함.
+scope chain 우회 경로. 이슈 자동 생성은 leader/architect 승인 없이 발생.
+- 자동 생성 이슈는 [auto] prefix로 식별 가능
+- 과도하면 비활성화 검토
+
+### memory-scribe main 직접 push 주의
+
+memory-scribe가 git push를 직접 실행. main에 직접 커밋될 수 있음.
+- 브랜치에서 작업 후 PR로 머지해야 함
+- main 직접 push는 운영 정책 변경(scope chain 등) 시에만 예외 허용
+
+### scaler go build 낭비
+
+scaler auto_task에서 빌드 시간 측정을 위해 go build를 매일 실행.
+- 실제 배포가 아닌 측정용이라 /dev/null로 버림
+- 토큰+CPU 낭비. 빌드 시간은 CI 로그에서 확인하는 게 효율적
