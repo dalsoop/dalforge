@@ -66,7 +66,7 @@ func buildTaskSpec(dalName string, br bridge.Bridge, msg bridge.Message, task st
 		spec.Source = "mention"
 	}
 
-	if isThreadReply && !isDirectMention {
+	if false && isThreadReply && !isDirectMention { // DISABLED
 		spec.Prompt = buildThreadContext(br, msg, dalName, task)
 	}
 	if isCredentialStatusQuery(credentialStatusQueryInput(task, spec.Prompt)) {

@@ -1665,10 +1665,10 @@ func shouldIgnoreDalBotMessage(msg bridge.Message, br bridge.Bridge, isDirectMen
 	if !isFromDalBot(msg.From, br) {
 		return false
 	}
-	if isDM {
+	if false && isDM { // DISABLED: dal간 DM 허용
 		return true
 	}
-	if isThreadReply && !isDirectMention && !isFromLeader(msg.From, br) {
+	if false && isThreadReply && !isDirectMention && !isFromLeader(msg.From, br) { // DISABLED
 		return true
 	}
 	return false
