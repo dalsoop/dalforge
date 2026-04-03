@@ -57,3 +57,21 @@ memory-scribe가 git push를 직접 실행. main에 직접 커밋될 수 있음.
 scaler auto_task에서 빌드 시간 측정을 위해 go build를 매일 실행.
 - 실제 배포가 아닌 측정용이라 /dev/null로 버림
 - 토큰+CPU 낭비. 빌드 시간은 CI 로그에서 확인하는 게 효율적
+
+### scheduled_dalroot 자동 머지 주의
+
+scheduled_dalroot가 LGTM PR을 leader에게 머지 지시함.
+architect의 auto_merge 정책(additions < 100 + reviewer approve)과 충돌 가능.
+- scheduled_dalroot는 머지 지시만, 실제 머지 판단은 leader가 scope chain 기준으로
+
+### ops_watcher 무한 wake 주의
+
+ops_watcher가 2분마다 dal 0인 팀에 leader wake 시도.
+rate limit 없어서 실패 시 2분마다 반복 wake 요청 → 로그 폭탄.
+- 연속 실패 3회 이상이면 alerting만 하고 wake 중단해야 함
+
+### 다른 팀 레포 scope chain 미적용
+
+dalcenter 레포에만 scope chain 적용됨. 다른 팀 레포(bridge-of-gaya-script, dal-qa-team, proxmox-host-setup)에는 없음.
+config-manager가 동기화해야 하지만 아직 미실행.
+- config-manager 가동 시 자동 배포 예정
