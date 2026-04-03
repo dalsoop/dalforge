@@ -72,8 +72,8 @@ README 정비 내용:
 
 ### 2026-04-03: 이슈 #697: .dal/leader/charter.md에 Scope Chain 섹션 동기화
 **상태:** done
-**결과:** 완료. PR [dalsoop/dalcenter#702](https://github.com/dalsoop/dalcenter/pull/702) 생성
+**결과:** 완료. PR [dalsoop/dalcenter#702](https://github.com/dalsoop/dalcenter/pull/702) 및 [dalsoop/dalcenter#703](https://github.com/dalsoop/dalcenter/pull/703) 생성
 - 템플릿의 'Scope Chain — 무한 확장 방지' 규칙을 `.dal/leader/charter.md`에 동기화
 - 판단 흐름 + 5개 규칙 포함
 **다음:**
-**주의:** 
+**주의:**
