@@ -160,6 +160,16 @@ func (d *Daemon) requireActive(next http.HandlerFunc) http.HandlerFunc {
 
 // Run starts the HTTP server.
 func (d *Daemon) Run(ctx context.Context) error {
+	// Auto-set DALCENTER_URL so child processes (dalcli, containers) inherit it
+	if os.Getenv("DALCENTER_URL") == "" {
+		addr := d.addr
+		if addr != "" && addr[0] == ':' {
+			addr = "localhost" + addr
+		}
+		os.Setenv("DALCENTER_URL", "http://"+addr)
+		log.Printf("[daemon] DALCENTER_URL auto-set to http://%s", addr)
+	}
+
 	// Start soft-serve as child process
 	if ss, err := startSoftServe(ctx); err != nil {
 		log.Printf("[daemon] soft-serve start failed: %v (continuing without)", err)
