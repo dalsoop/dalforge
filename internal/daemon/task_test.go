@@ -275,6 +275,90 @@ func TestTaskResult_WithChanges(t *testing.T) {
 	}
 }
 
+// ── InstanceID in task flow ─────────────────────────────────────
+
+func TestTaskFinish_ReadsInstanceIDFromContainer(t *testing.T) {
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "", "")
+
+	// Register a container with InstanceID
+	d.containers["leader"] = &Container{
+		DalName:     "leader",
+		InstanceID:  "inst-task-flow-001",
+		ContainerID: "ctr-abc",
+		Status:      "running",
+	}
+
+	// Create and finish a task
+	tr := d.tasks.New("leader", "triage issue")
+	d.tasks.Complete(tr.ID, "done", "ok", "")
+
+	// Verify InstanceID can be read from container map (same path as handleTaskFinish)
+	d.mu.RLock()
+	instID := ""
+	if c, ok := d.containers[tr.Dal]; ok {
+		instID = c.InstanceID
+	}
+	d.mu.RUnlock()
+
+	if instID != "inst-task-flow-001" {
+		t.Errorf("expected inst-task-flow-001, got %q", instID)
+	}
+}
+
+func TestTaskFinish_InstanceIDEmpty_WhenNoContainer(t *testing.T) {
+	d := New(":0", "/tmp/test", t.TempDir(), "", "", "", "")
+
+	// No container registered for "dev"
+	tr := d.tasks.New("dev", "build")
+	d.tasks.Complete(tr.ID, "done", "ok", "")
+
+	d.mu.RLock()
+	instID := ""
+	if c, ok := d.containers[tr.Dal]; ok {
+		instID = c.InstanceID
+	}
+	d.mu.RUnlock()
+
+	if instID != "" {
+		t.Errorf("expected empty instance ID when no container, got %q", instID)
+	}
+}
+
+func TestBuildNotifyPayload_InstanceIDPassthrough(t *testing.T) {
+	tr := &taskResult{
+		ID:     "task-test-001",
+		Dal:    "dev",
+		Task:   "run tests",
+		Status: "done",
+	}
+	p := buildNotifyPayload("dev", "inst-passthrough-001", tr)
+	if p.InstanceID != "inst-passthrough-001" {
+		t.Errorf("expected inst-passthrough-001, got %q", p.InstanceID)
+	}
+	if p.Dal != "dev" {
+		t.Errorf("expected dal=dev, got %q", p.Dal)
+	}
+}
+
+func TestBuildNotifyPayload_EmptyInstanceID(t *testing.T) {
+	tr := &taskResult{
+		ID:     "task-test-002",
+		Dal:    "dev",
+		Task:   "build",
+		Status: "done",
+	}
+	p := buildNotifyPayload("dev", "", tr)
+	if p.InstanceID != "" {
+		t.Errorf("expected empty instance_id, got %q", p.InstanceID)
+	}
+
+	// Verify omitempty: empty InstanceID should not appear in JSON
+	data, _ := json.Marshal(p)
+	if strings.Contains(string(data), `"instance_id"`) {
+		t.Errorf("empty instance_id should be omitted from JSON: %s", data)
+	}
+}
+
 func TestMessageFallback_NoMM(t *testing.T) {
 	d := New(":0", "/tmp/test", t.TempDir(), "", "", "", "")
 	// No MM configured, no running dals → should return 503

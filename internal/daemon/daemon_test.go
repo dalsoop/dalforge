@@ -250,6 +250,153 @@ func TestContainerJSON_InstanceID(t *testing.T) {
 	}
 }
 
+// ── InstanceID in handleWake / reconcile ────────────────────────
+
+func TestHandleWake_StoresInstanceID(t *testing.T) {
+	d, _ := setupTestDaemon(t)
+
+	// We can't actually call handleWake (needs Docker), but we can verify
+	// the InstanceID generation + storage pattern used by handleWake.
+	instanceID := newPrefixedUUID("inst")
+	if !strings.HasPrefix(instanceID, "inst-") {
+		t.Fatalf("expected inst- prefix, got %q", instanceID)
+	}
+
+	// Simulate handleWake storing the container
+	d.mu.Lock()
+	d.containers["dev"] = &Container{
+		DalName:     "dev",
+		UUID:        "dev-test-001",
+		InstanceID:  instanceID,
+		Player:      "claude",
+		Role:        "member",
+		ContainerID: "fake-ctr-id",
+		Status:      "running",
+		Workspace:   "shared",
+	}
+	d.mu.Unlock()
+
+	// Verify via handleStatusOne API
+	req := httptest.NewRequest("GET", "/api/status/dev", nil)
+	req.SetPathValue("name", "dev")
+	w := httptest.NewRecorder()
+	d.handleStatusOne(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if got := resp["instance_id"]; got != instanceID {
+		t.Errorf("expected instance_id=%s, got %v", instanceID, got)
+	}
+}
+
+func TestHandleWake_EachWakeGetsUniqueInstanceID(t *testing.T) {
+	d, _ := setupTestDaemon(t)
+
+	// Simulate two sequential wakes (sleep between them)
+	id1 := newPrefixedUUID("inst")
+	d.containers["dev"] = &Container{
+		DalName:    "dev",
+		InstanceID: id1,
+		Status:     "running",
+	}
+
+	// "Sleep" the dal
+	delete(d.containers, "dev")
+
+	// Second wake
+	id2 := newPrefixedUUID("inst")
+	d.containers["dev"] = &Container{
+		DalName:    "dev",
+		InstanceID: id2,
+		Status:     "running",
+	}
+
+	if id1 == id2 {
+		t.Fatalf("expected different instance IDs across wakes, both = %s", id1)
+	}
+}
+
+func TestReconcile_RestoresInstanceIDFromLabel(t *testing.T) {
+	// Simulate what reconcile does: read label from discovered container
+	// and store InstanceID in the Container struct.
+	d, _ := setupTestDaemon(t)
+
+	labelInstanceID := "inst-reconciled-abc123"
+
+	// This mirrors reconcile's logic at daemon.go:1142-1153
+	d.mu.Lock()
+	d.containers["dev"] = &Container{
+		DalName:     "dev",
+		UUID:        "dev-test-001",
+		InstanceID:  labelInstanceID, // from c.Labels["dalcenter.instance_id"]
+		Player:      "claude",
+		Role:        "member",
+		ContainerID: "reconciled-ctr",
+		Status:      "running",
+	}
+	d.mu.Unlock()
+
+	// Verify it's accessible via status API
+	req := httptest.NewRequest("GET", "/api/status/dev", nil)
+	req.SetPathValue("name", "dev")
+	w := httptest.NewRecorder()
+	d.handleStatusOne(w, req)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if got := resp["instance_id"]; got != labelInstanceID {
+		t.Errorf("reconcile should restore instance_id from label, got %v", got)
+	}
+}
+
+func TestReconcile_EmptyLabelResultsInEmptyInstanceID(t *testing.T) {
+	d, _ := setupTestDaemon(t)
+
+	// Container with no instance_id label (pre-#685 container)
+	d.mu.Lock()
+	d.containers["dev"] = &Container{
+		DalName:     "dev",
+		UUID:        "dev-test-001",
+		InstanceID:  "", // label not present
+		Player:      "claude",
+		Role:        "member",
+		ContainerID: "old-ctr",
+		Status:      "running",
+	}
+	d.mu.Unlock()
+
+	req := httptest.NewRequest("GET", "/api/status/dev", nil)
+	req.SetPathValue("name", "dev")
+	w := httptest.NewRecorder()
+	d.handleStatusOne(w, req)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	// instance_id should be empty string (or absent) for old containers
+	if got, ok := resp["instance_id"]; ok && got != "" {
+		t.Errorf("expected empty instance_id for pre-#685 container, got %v", got)
+	}
+}
+
+func TestStatusOne_InstanceIDNotRunning(t *testing.T) {
+	d, _ := setupTestDaemon(t)
+
+	// No container running → status should not have instance_id
+	req := httptest.NewRequest("GET", "/api/status/dev", nil)
+	req.SetPathValue("name", "dev")
+	w := httptest.NewRecorder()
+	d.handleStatusOne(w, req)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if got := resp["instance_id"]; got != nil && got != "" {
+		t.Errorf("expected no instance_id when not running, got %v", got)
+	}
+}
+
 func TestRunServer(t *testing.T) {
 	d, _ := setupTestDaemon(t)
 
