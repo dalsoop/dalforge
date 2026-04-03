@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dalsoop/dalcenter/internal/localdal"
 )
 
 // taskResult holds the result of a direct task execution.
@@ -328,6 +330,7 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 		Task         string `json:"task"`
 		Repo         string `json:"repo,omitempty"` // cross-repo target (e.g. "dalsoop/landing-prelik")
 		Async        bool   `json:"async"`
+		Oneshot      bool   `json:"oneshot"`
 		CallbackPane string `json:"callback_pane,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -365,7 +368,11 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 
 	if req.Async {
 		// Run in background, return task ID for polling
+		if req.Oneshot {
+		go d.execTaskOneShot(req.Dal, c.Role, req.Task, tr)
+		} else {
 		go d.execTaskInContainer(c, tr)
+		}
 		respondJSON(w, http.StatusAccepted, map[string]string{
 			"task_id": tr.ID,
 			"status":  "running",
@@ -374,7 +381,7 @@ func (d *Daemon) handleTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Synchronous: execute and return result
-	d.execTaskInContainer(c, tr)
+	if req.Oneshot { d.execTaskOneShot(req.Dal, c.Role, req.Task, tr) } else { d.execTaskInContainer(c, tr) }
 	status := http.StatusOK
 	if tr.Status == "failed" {
 		status = http.StatusInternalServerError
@@ -565,4 +572,54 @@ func truncateStr(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// execTaskOneShot creates a temporary container, runs the task, and removes the container.
+// This is the non-persistent execution mode — no wake/sleep lifecycle needed.
+func (d *Daemon) execTaskOneShot(dalName, role, task string, tr *taskResult) {
+	log.Printf("[oneshot] starting %s (role=%s) task=%s", tr.ID, role, truncateStr(task, 80))
+
+	// Find dal profile for mount/env setup
+	dal, err := localdal.ReadDalCue(d.dalCuePath(dalName), dalName)
+	if err != nil {
+		// Fallback: use default dev profile
+		dal = &localdal.DalProfile{
+			Name:   dalName,
+			Player: "claude",
+			Role:   role,
+		}
+	}
+
+	instanceID := newPrefixedUUID("oneshot")
+
+	// Create temporary container
+	containerID, _, err := dockerRun(d.localdalRoot, d.serviceRepo, dalName, d.addr, d.bridgeURL, d.dalbridgeURL, dal, instanceID)
+	if err != nil {
+		now := time.Now().UTC()
+		tr.DoneAt = &now
+		tr.Status = "failed"
+		tr.Error = fmt.Sprintf("oneshot container create: %v", err)
+		log.Printf("[oneshot] %s container create failed: %v", tr.ID, err)
+		return
+	}
+
+	log.Printf("[oneshot] %s container=%s created", tr.ID, containerID[:12])
+
+	// Build a temporary Container struct for execTaskInContainer
+	c := &Container{
+		DalName:     dalName,
+		Player:      dal.Player,
+		Role:        role,
+		ContainerID: containerID,
+		Status:      "running",
+	}
+
+	// Execute task (reuse existing logic)
+	d.execTaskInContainer(c, tr)
+
+	// Cleanup: remove container
+	if err := dockerStop(containerID); err != nil {
+		log.Printf("[oneshot] %s stop failed: %v", tr.ID, err)
+	}
+	log.Printf("[oneshot] %s completed (status=%s)", tr.ID, tr.Status)
 }

@@ -494,6 +494,14 @@ func (d *Daemon) handleWake(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	issueID := r.URL.Query().Get("issue")
 
+
+	// ONESHOT ENFORCEMENT: leader만 상주 허용
+	if name != "leader" && r.URL.Query().Get("persistent") != "true" {
+		// member는 oneshot으로만 실행 가능
+		log.Printf("[scope] wake rejected: %q is not leader — use oneshot", name)
+		http.Error(w, fmt.Sprintf("dal %q cannot be woken as persistent — only leader can be persistent. Use POST /api/task with oneshot=true", name), http.StatusForbidden)
+		return
+	}
 	dal, err := localdal.ReadDalCue(d.dalCuePath(name), name)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("dal %q not found: %v", name, err), 404)
