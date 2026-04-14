@@ -194,7 +194,7 @@ deploy_heyform() {
     pct exec "$CTID" -- mkdir -p /opt/heyform
 
     # docker-compose.yml 생성
-    pct exec "$CTID" -- bash -c "cat > /opt/heyform/docker-compose.yml << 'COMPOSE_EOF'
+    cat <<COMPOSE_EOF | pct exec "$CTID" -- tee /opt/heyform/docker-compose.yml >/dev/null
 services:
   heyform:
     image: heyform/community-edition:latest
@@ -206,16 +206,16 @@ services:
       keydb:
         condition: service_started
     environment:
-      APP_HOMEPAGE_URL: \"${APP_HOMEPAGE_URL}\"
-      SESSION_KEY: \"${session_key}\"
-      FORM_ENCRYPTION_KEY: \"${encryption_key}\"
-      MONGO_URI: \"mongodb://mongo:27017/heyform\"
+      APP_HOMEPAGE_URL: "${APP_HOMEPAGE_URL}"
+      SESSION_KEY: "${session_key}"
+      FORM_ENCRYPTION_KEY: "${encryption_key}"
+      MONGO_URI: "mongodb://mongo:27017/heyform"
       REDIS_HOST: keydb
-      REDIS_PORT: \"6379\"
+      REDIS_PORT: "6379"
     volumes:
       - ./assets:/app/static/upload
     ports:
-      - \"${HEYFORM_PORT}:8000\"
+      - "${HEYFORM_PORT}:8000"
 
   mongo:
     image: percona/percona-server-mongodb:4.4
@@ -230,7 +230,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./keydb:/data
-COMPOSE_EOF"
+COMPOSE_EOF
 
     info "  docker-compose.yml 생성 완료"
 
